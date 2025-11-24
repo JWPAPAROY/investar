@@ -2553,23 +2553,34 @@
       // Auto-fetch recommendations if not provided
       useEffect(() => {
         const fetchRecommendations = async () => {
+          console.log('[DNA Tab] Checking recommendations:', recommendations.length);
           if (recommendations.length === 0) {
+            console.log('[DNA Tab] Fetching screening data...');
             setFetchLoading(true);
             try {
-              const response = await fetch(`${apiBaseUrl}/screening/recommend?market=ALL&limit=50`);
+              const url = `${apiBaseUrl}/screening/recommend?market=ALL&limit=50`;
+              console.log('[DNA Tab] Fetching from:', url);
+              const response = await fetch(url);
+              console.log('[DNA Tab] Response status:', response.status);
               const data = await response.json();
-              if (data.success) {
-                setAutoRecommendations(data.recommendations || []);
+              console.log('[DNA Tab] Data received:', data);
+              if (data.success && data.recommendations) {
+                setAutoRecommendations(data.recommendations);
+                console.log('[DNA Tab] Set recommendations:', data.recommendations.length);
+              } else {
+                console.error('[DNA Tab] No success or recommendations in response');
               }
             } catch (err) {
-              console.error('Failed to fetch recommendations:', err);
+              console.error('[DNA Tab] Failed to fetch recommendations:', err);
             } finally {
               setFetchLoading(false);
             }
+          } else {
+            console.log('[DNA Tab] Using provided recommendations');
           }
         };
         fetchRecommendations();
-      }, []);
+      }, [apiBaseUrl, recommendations.length])
 
       // 종목 추가
       const addStock = () => {
@@ -2726,7 +2737,7 @@
                               </span>
                             </td>
                             <td className="px-4 py-2 text-right font-bold text-red-700">{stock.totalScore.toFixed(1)}점</td>
-                            <td className="px-4 py-2 text-right font-semibold">{stock.price?.toLocaleString()}원</td>
+                            <td className="px-4 py-2 text-right font-semibold">{stock.currentPrice?.toLocaleString()}원</td>
                           </tr>
                         ))}
                       </tbody>
