@@ -2613,7 +2613,7 @@
           // 유효성 검사
           const validStocks = stocks.filter(s => s.code && s.startDate && s.endDate);
           if (validStocks.length === 0) {
-            throw new Error('최소 1개 종목의 코드와 날짜를 입력하세요');
+            throw new Error('최소 2개 종목의 코드와 날짜를 입력하세요');
           }
 
           const response = await fetch(`${apiBaseUrl}/patterns/volume-dna`, {
