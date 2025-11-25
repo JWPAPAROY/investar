@@ -1493,3 +1493,20 @@ const latestDate = chartData[0].date;  // ✅ 11월 6일
 - ✅ 이미 급등한 종목 페널티 (-15~-25점)
 
 **최종 목표**: "곧 급등할 종목을 거래량 선행 신호로 발굴" ✅ 달성!
+
+
+##  Project Migrated to Windows
+**Date**: 2025-11-21
+**New Location**: \C:\Users\knoww\investar
+
+This project has been migrated to the Windows environment to facilitate development with Claude Code.
+Please perform all future development in the Windows location.
+
+
+##  Project Migrated to Windows
+**Date**: 2025-11-21
+**New Location**: \C:\Users\knoww\investar
+
+This project has been migrated to the Windows environment to facilitate development with Claude Code.
+Please perform all future development in the Windows location.
+
