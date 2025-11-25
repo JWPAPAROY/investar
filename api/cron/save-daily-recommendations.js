@@ -2,8 +2,8 @@
  * 매일 추천 종목 자동 저장 Cron
  *
  * 일정: 월-금 오후 4시 10분 (장마감 후 40분, 가격 업데이트 후 10분)
- * 목적: B등급(45점) 이상 종목을 Supabase에 자동 저장
- * v3.10.0: B등급(45-59점) 선행 신호부터 추적
+ * 목적: B등급(25점) 이상 종목을 Supabase에 자동 저장
+ * v3.9.2: B등급(25-41점) 선행 신호부터 추적
  */
 
 const screener = require('../../backend/screening');
@@ -35,16 +35,16 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 2: B등급(45점) 이상만 필터링
+    // Step 2: B등급(25점) 이상만 필터링
     const filteredStocks = stocks.filter(stock => {
       const score = stock.totalScore;
 
-      // v3.10.0: B등급 이상 (45-99점) - 선행 신호 단계부터 추적
-      // 과열, S+, S, A, B 모두 저장 (C, D 제외)
-      return score >= 45;
+      // v3.9.2: B등급 이상 (25-99점) - 선행 신호 단계부터 추적
+      // 과열(89+), S(58-88), A(42-57), B(25-41) 모두 저장 (C 제외)
+      return score >= 25;
     });
 
-    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (B등급 이상)`);
+    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (B등급 25점 이상)`);
 
     if (filteredStocks.length === 0) {
       return res.status(200).json({
