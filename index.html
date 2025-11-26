@@ -81,13 +81,13 @@
       // 추천 종목을 Supabase에 저장 (성과 추적용)
       const saveRecommendationsToSupabase = async (stocks) => {
         try {
-          // v3.9.2: 점수 25점 이상(B등급 이상)만 저장
-          // B등급 이상 (25-99점) = 선행 신호 단계부터 추적
-          // 과열(89+), S(58-88), A(42-57), B(25-41) 모두 저장 (C 제외)
-          const stocksToSave = stocks.filter(s => s.totalScore >= 25);
+          // 백엔드 기준: 점수 45점 이상(B등급 이상)만 저장
+          // B등급 이상 (45-99점) = 선행 신호 단계부터 추적
+          // 과열, S+, S, A, B 모두 저장 (C, D 제외)
+          const stocksToSave = stocks.filter(s => s.totalScore >= 45);
 
           if (stocksToSave.length === 0) {
-            console.log('저장할 추천 종목 없음 (25점 이상 B등급 없음)');
+            console.log('저장할 추천 종목 없음 (45점 이상 B등급 없음)');
             return;
           }
 
