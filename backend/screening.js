@@ -992,12 +992,13 @@ class StockScreener {
   }
 
   /**
-   * 당일 급등 페널티 계산 (strong) ⬆️ 강화!
-   * 목적: "이미 급등한" 종목 강력 감점
+   * 당일 급등/급락 페널티 계산 (strong) ⬆️ 강화!
+   * 목적: "이미 급등/급락한" 종목 강력 감점
    * @param {Array} chartData - 일봉 데이터
    * @returns {Object} { penalty: -30~0, details }
    *
    * v3.10.0: +15% 이상 급등 시 -30점 (Track 2 Momentum 45점의 67%)
+   * v3.10.1: 🆕 급락 페널티 추가 (-10% 이하 -20점, -5% 이하 -10점)
    */
   calculateDailyRisePenalty(chartData) {
     if (!chartData || chartData.length < 2) {
@@ -1029,6 +1030,14 @@ class StockScreener {
       // 종가 +10% 이상 → -15점
       penalty = -15;
       message = `당일 상승 (종가 +${closeChange.toFixed(1)}%)`;
+    } else if (closeChange <= -10) {
+      // 🆕 종가 -10% 이하 급락 → -20점
+      penalty = -20;
+      message = `⚠️ 당일 급락 (종가 ${closeChange.toFixed(1)}%)`;
+    } else if (closeChange <= -5) {
+      // 🆕 종가 -5% 이하 하락 → -10점
+      penalty = -10;
+      message = `당일 하락 (종가 ${closeChange.toFixed(1)}%)`;
     }
 
     return {
