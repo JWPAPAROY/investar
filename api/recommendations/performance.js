@@ -1,8 +1,10 @@
 /**
  * 추천 종목 성과 조회 API
  * GET /api/recommendations/performance?days=30
+ * GET /api/recommendations/performance?dna_candidates=true&days=30
  *
  * 저장된 추천 종목의 실시간 성과 추적
+ * DNA 후보 조회: 2회 이상 추천 + 평균 수익률 15% 이상 종목
  */
 
 const supabase = require('../../backend/supabaseClient');
@@ -49,6 +51,7 @@ module.exports = async (req, res) => {
 
   try {
     const days = parseInt(req.query.days) || 30;
+    const dnaCandidates = req.query.dna_candidates === 'true'; // DNA 후보 조회 모드
 
     // 최근 N일 추천 종목 조회
     const startDate = new Date();
@@ -340,6 +343,35 @@ module.exports = async (req, res) => {
 
     console.log(`✅ 성과 추적 완료: 승률 ${winRate.toFixed(1)}%, 평균 수익률 ${avgReturn.toFixed(2)}%`);
 
+    // DNA 추출 후보 모드
+    if (dnaCandidates) {
+      // 조건: 2회 이상 추천 + 평균 수익률 15% 이상
+      const candidates = commonStocks.filter(s => s.avg_return >= 15);
+
+      console.log(`🧬 DNA 추출 후보: ${candidates.length}개 종목 (2회+ 추천 & 15%+ 수익률)`);
+
+      return res.status(200).json({
+        success: true,
+        mode: 'dna_candidates',
+        count: candidates.length,
+        candidates: candidates.map(c => ({
+          stock_code: c.stock_code,
+          stock_name: c.stock_name,
+          recommendation_count: c.recommendation_count,
+          recommendation_dates: c.recommendation_dates,
+          avg_return: c.avg_return,
+          dna_eligible: true,
+          priority: c.recommendation_count >= 3 ? 'high' : 'medium',
+          reason: `${c.recommendation_count}회 추천, 평균 수익률 ${c.avg_return}%`,
+          suggestion: 'DNA 패턴 추출 권장 - 거래량 패턴 분석 추천'
+        })),
+        message: candidates.length > 0
+          ? `${candidates.length}개 종목이 DNA 추출 기준을 충족합니다.`
+          : '현재 DNA 추출 기준을 충족하는 종목이 없습니다. (조건: 2회+ 추천 & 15%+ 수익률)'
+      });
+    }
+
+    // 기본 성과 조회 모드
     return res.status(200).json({
       success: true,
       count: stocksWithPerformance.length,
