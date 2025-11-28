@@ -555,6 +555,10 @@ class KISApi {
       'ETF', 'ETN', 'KODEX', 'TIGER', 'KBSTAR', 'ARIRANG', 'KOSEF',
       'HANARO', 'TREX', 'KINDEX', 'TIMEFOLIO', 'SOL', 'ACE', 'KIWOOM',
       'SAMSUNG', 'MIRAE', 'KB', 'SHINHAN', 'NH', 'WOORI',
+      // ELW 발행사 (주식워런트증권)
+      'ELW', 'DAISHIN', 'HANA', 'KOREA', 'EUGENE', 'CAPE', 'HMC', 'MERITZ', 'HANWHA',
+      // 지수 관련 ETF/ETN/ELW
+      'K200', 'KOSPI200', 'KOSDAQ150', 'KRX300',
       // 특수 펀드/파생상품
       'plus', 'PLUS', 'Plus', 'rise', 'RISE', 'Rise', // rise 계열 ETF 추가
       'unicorn', 'UNICORN', 'Unicorn',
