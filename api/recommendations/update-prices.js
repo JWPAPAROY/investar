@@ -65,11 +65,15 @@ module.exports = async (req, res) => {
 
     console.log(`활성 추천: ${activeRecs.length}개`);
 
-    // 각 종목 가격 조회 및 저장
+    // 각 종목 가격 조회 (병렬 처리 최적화)
     const dailyPrices = [];
     let successCount = 0;
 
-    for (const rec of activeRecs) {
+    // 배치 크기 (5개씩 병렬 처리)
+    const BATCH_SIZE = 5;
+
+    // 단일 종목 가격 조회 함수
+    async function fetchStockPrice(rec) {
       try {
         // 현재가 조회 (실시간 시세)
         let closingPrice = rec.recommended_price; // 기본값
@@ -117,8 +121,8 @@ module.exports = async (req, res) => {
           ? ((closingPrice - rec.recommended_price) / rec.recommended_price * 100)
           : 0;
 
-        // 일별 가격 데이터
-        dailyPrices.push({
+        // 일별 가격 데이터 반환
+        return {
           recommendation_id: rec.id,
           tracking_date: today,
           closing_price: closingPrice,
@@ -126,15 +130,29 @@ module.exports = async (req, res) => {
           volume: volume,
           cumulative_return: parseFloat(cumulativeReturn.toFixed(2)),
           days_since_recommendation: daysSince
-        });
-
-        successCount++;
-
-        // Rate limit 방지 (초당 8회 안전 마진)
-        await new Promise(resolve => setTimeout(resolve, 120));
-
+        };
       } catch (error) {
         console.warn(`가격 조회 실패 [${rec.stock_code}]:`, error.message);
+        return null;
+      }
+    }
+
+    // 배치 단위 병렬 처리
+    for (let i = 0; i < activeRecs.length; i += BATCH_SIZE) {
+      const batch = activeRecs.slice(i, i + BATCH_SIZE);
+      console.log(`배치 ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(activeRecs.length / BATCH_SIZE)}: ${batch.length}개 종목 처리 중...`);
+
+      // 배치 내 종목들을 병렬로 처리
+      const batchResults = await Promise.all(batch.map(rec => fetchStockPrice(rec)));
+
+      // null 제외하고 dailyPrices에 추가
+      const validResults = batchResults.filter(result => result !== null);
+      dailyPrices.push(...validResults);
+      successCount += validResults.length;
+
+      // Rate limit 방지 (배치 간 200ms 대기)
+      if (i + BATCH_SIZE < activeRecs.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
 
