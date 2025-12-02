@@ -151,6 +151,75 @@ module.exports = async (req, res) => {
           }
         }
 
+        // 매도 신호 생성
+        const sellSignals = [];
+
+        // 1. 🚨 손절 신호 (-5% 이하)
+        if (returnPct <= -5) {
+          sellSignals.push({
+            type: 'STOP_LOSS',
+            urgency: 'HIGH',
+            badge: '🚨',
+            message: '손절 필요',
+            detail: `${returnPct.toFixed(1)}% 손실 (기준: -5%)`
+          });
+        }
+
+        // 2. ⚠️ 주의 신호 (-3% ~ -5%)
+        else if (returnPct <= -3) {
+          sellSignals.push({
+            type: 'CAUTION',
+            urgency: 'MEDIUM',
+            badge: '⚠️',
+            message: '손절 주의',
+            detail: `${returnPct.toFixed(1)}% 손실 (손절 기준 근접)`
+          });
+        }
+
+        // 3. 🎉 대박주 알림 (+50% 이상)
+        if (returnPct >= 50) {
+          sellSignals.push({
+            type: 'PROFIT_ALERT',
+            urgency: 'INFO',
+            badge: '🎉',
+            message: '대박 달성',
+            detail: `${returnPct.toFixed(1)}% 수익 (일부 익절 고려 가능)`
+          });
+        }
+
+        // 4. 💰 고수익 알림 (+20% 이상)
+        else if (returnPct >= 20) {
+          sellSignals.push({
+            type: 'HIGH_PROFIT',
+            urgency: 'INFO',
+            badge: '💰',
+            message: '고수익 진행 중',
+            detail: `${returnPct.toFixed(1)}% 수익 (홀딩 권장)`
+          });
+        }
+
+        // 5. ⏰ 장기 보유 경고 (25일 이상 + 손실 중)
+        if (daysSince >= 25 && returnPct < 0) {
+          sellSignals.push({
+            type: 'LONG_HOLD_WARNING',
+            urgency: 'MEDIUM',
+            badge: '⏰',
+            message: '장기 보유 주의',
+            detail: `${daysSince}일 보유 중 ${returnPct.toFixed(1)}% 손실`
+          });
+        }
+
+        // 6. 🔥 연속 급등 알림 (3일 이상 연속 상승)
+        if (consecutiveRiseDays >= 3 && returnPct > 0) {
+          sellSignals.push({
+            type: 'CONSECUTIVE_RISE',
+            urgency: 'INFO',
+            badge: '🔥',
+            message: `${consecutiveRiseDays}일 연속 상승`,
+            detail: `현재 ${returnPct.toFixed(1)}% 수익`
+          });
+        }
+
         stocksWithPerformance.push({
           ...rec,
           current_price: currentPrice,
@@ -159,7 +228,8 @@ module.exports = async (req, res) => {
           consecutive_rise_days: consecutiveRiseDays,
           is_winning: returnPct > 0,
           is_rising: consecutiveRiseDays >= 2 && returnPct > 0, // 2일 이상 연속 상승 + 수익 중
-          daily_prices: dailyPrices // 날짜별 가격 데이터 추가
+          daily_prices: dailyPrices, // 날짜별 가격 데이터 추가
+          sell_signals: sellSignals.length > 0 ? sellSignals : null // 매도 신호 추가
         });
 
         // Supabase만 조회하므로 Rate limit 대기 불필요 (KIS API 호출 제거됨)
@@ -183,6 +253,20 @@ module.exports = async (req, res) => {
     const winningStocks = stocksWithPerformance.filter(s => s.is_winning);
     const losingStocks = stocksWithPerformance.filter(s => !s.is_winning);
     const risingStocks = stocksWithPerformance.filter(s => s.is_rising);
+
+    // 매도 신호 통계
+    const stopLossStocks = stocksWithPerformance.filter(s =>
+      s.sell_signals && s.sell_signals.some(sig => sig.type === 'STOP_LOSS')
+    );
+    const cautionStocks = stocksWithPerformance.filter(s =>
+      s.sell_signals && s.sell_signals.some(sig => sig.type === 'CAUTION')
+    );
+    const profitAlertStocks = stocksWithPerformance.filter(s =>
+      s.sell_signals && s.sell_signals.some(sig => sig.type === 'PROFIT_ALERT')
+    );
+    const highProfitStocks = stocksWithPerformance.filter(s =>
+      s.sell_signals && s.sell_signals.some(sig => sig.type === 'HIGH_PROFIT')
+    );
 
     const avgReturn = stocksWithPerformance.length > 0
       ? stocksWithPerformance.reduce((sum, s) => sum + s.current_return, 0) / stocksWithPerformance.length
@@ -390,7 +474,13 @@ module.exports = async (req, res) => {
         maxReturn: parseFloat(maxReturn.toFixed(2)),
         minReturn: parseFloat(minReturn.toFixed(2)),
         winRate: parseFloat(winRate.toFixed(1)),
-        byCategory: categoryStats // 카테고리별 성과 추가
+        byCategory: categoryStats, // 카테고리별 성과 추가
+        sellSignals: { // 매도 신호 통계 추가
+          stopLossCount: stopLossStocks.length, // 🚨 손절 필요
+          cautionCount: cautionStocks.length, // ⚠️ 손절 주의
+          profitAlertCount: profitAlertStocks.length, // 🎉 대박
+          highProfitCount: highProfitStocks.length // 💰 고수익
+        }
       }
     });
 
