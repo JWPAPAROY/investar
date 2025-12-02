@@ -95,9 +95,15 @@ module.exports = async (req, res) => {
 
     for (const rec of recommendations) {
       try {
+        // 추천 이후 경과일 (먼저 계산)
+        const recDate = new Date(rec.recommendation_date);
+        const today = new Date();
+        const daysSince = Math.floor((today - recDate) / (1000 * 60 * 60 * 24));
+
         // 날짜별 가격 데이터 조회 (Supabase에서)
         let dailyPrices = [];
         let currentPrice = rec.recommended_price; // 기본값
+        let isRealTimePrice = false;
 
         try {
           const { data: priceData, error: priceError } = await supabase
@@ -119,8 +125,22 @@ module.exports = async (req, res) => {
               daysSince: p.days_since_recommendation
             }));
 
-            // 가장 최근 가격을 현재가로 사용 (KIS API 호출 제거)
+            // 가장 최근 가격을 현재가로 사용
             currentPrice = priceData[priceData.length - 1].closing_price;
+          }
+
+          // 🆕 오늘 추천 종목 또는 daily_prices 없으면 실시간 가격 조회
+          if (daysSince === 0 || !priceData || priceData.length === 0) {
+            try {
+              const realtimeData = await kisApi.getCurrentPrice(rec.stock_code);
+              if (realtimeData && realtimeData.stck_prpr) {
+                currentPrice = parseInt(realtimeData.stck_prpr);
+                isRealTimePrice = true;
+                console.log(`✅ 실시간 가격 조회 [${rec.stock_name}]: ${currentPrice}원`);
+              }
+            } catch (kisErr) {
+              console.warn(`⚠️ 실시간 가격 조회 실패 [${rec.stock_code}]:`, kisErr.message);
+            }
           }
         } catch (priceErr) {
           console.warn(`일별 가격 조회 실패 [${rec.stock_code}]:`, priceErr.message);
@@ -130,11 +150,6 @@ module.exports = async (req, res) => {
         const returnPct = rec.recommended_price > 0
           ? ((currentPrice - rec.recommended_price) / rec.recommended_price * 100)
           : 0;
-
-        // 추천 이후 경과일
-        const recDate = new Date(rec.recommendation_date);
-        const today = new Date();
-        const daysSince = Math.floor((today - recDate) / (1000 * 60 * 60 * 24));
 
         // 연속 상승일 계산 (daily_prices 데이터에서)
         let consecutiveRiseDays = 0;
