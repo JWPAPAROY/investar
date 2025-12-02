@@ -10,11 +10,11 @@
   "crons": [
     {
       "path": "/api/recommendations/update-prices",
-      "schedule": "0 7 * * 1-5"
+      "schedule": "0 7 * * *"
     },
     {
       "path": "/api/cron/save-daily-recommendations",
-      "schedule": "10 7 * * 1-5"
+      "schedule": "10 7 * * *"
     }
   ]
 }

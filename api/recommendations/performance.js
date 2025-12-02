@@ -129,14 +129,27 @@ module.exports = async (req, res) => {
             currentPrice = priceData[priceData.length - 1].closing_price;
           }
 
-          // 🆕 오늘 추천 종목 또는 daily_prices 없으면 실시간 가격 조회
-          if (daysSince === 0 || !priceData || priceData.length === 0) {
+          // 🆕 실시간 가격 조회 조건 확대 (Cron 실패 대비)
+          // 1. 오늘 추천 종목
+          // 2. daily_prices 없음
+          // 3. 최신 데이터가 오늘이 아님 (Cron 미실행 또는 실패)
+          const latestPriceDate = priceData && priceData.length > 0
+            ? new Date(priceData[priceData.length - 1].tracking_date).toDateString()
+            : null;
+          const todayDateString = new Date().toDateString();
+
+          const needsRealTimePrice =
+            daysSince === 0 ||  // 오늘 추천
+            !priceData || priceData.length === 0 ||  // 데이터 없음
+            latestPriceDate !== todayDateString;  // 최신 데이터가 오늘 아님
+
+          if (needsRealTimePrice) {
             try {
               const realtimeData = await kisApi.getCurrentPrice(rec.stock_code);
               if (realtimeData && realtimeData.stck_prpr) {
                 currentPrice = parseInt(realtimeData.stck_prpr);
                 isRealTimePrice = true;
-                console.log(`✅ 실시간 가격 조회 [${rec.stock_name}]: ${currentPrice}원`);
+                console.log(`✅ 실시간 가격 조회 [${rec.stock_name}]: ${currentPrice}원 (이유: ${daysSince === 0 ? '오늘 추천' : latestPriceDate ? '최신 데이터 없음' : 'daily_prices 없음'})`);
               }
             } catch (kisErr) {
               console.warn(`⚠️ 실시간 가격 조회 실패 [${rec.stock_code}]:`, kisErr.message);
