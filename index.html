@@ -131,10 +131,8 @@
             setScreeningMetadata(result.metadata || null);
             setLastUpdate(new Date());
 
-            // 종합집계 카테고리일 때만 자동 저장
-            if (category === 'all' && stocks.length > 0) {
-              saveRecommendationsToSupabase(stocks);
-            }
+            // ⭐ v3.10.3: 프론트엔드 자동 저장 제거 (Cron만 저장)
+            // Cron Job(16:10 KST)이 장마감 종가 기준으로만 저장 → 백테스트 정확도 향상
           } else {
             setError(result.error || '데이터 로드 실패');
           }
