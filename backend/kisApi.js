@@ -562,6 +562,7 @@ class KISApi {
       // 특수 펀드/파생상품
       'plus', 'PLUS', 'Plus', 'rise', 'RISE', 'Rise', // rise 계열 ETF 추가
       'unicorn', 'UNICORN', 'Unicorn',
+      'FOCUS', 'Focus', 'ESG', // FOCUS ESG리더스 등 필터링
       '국채', '선물', '통안증권', '미국채', '하이일드', '인컴',
       'POST', 'Post', 'IPO', 'Active', 'ACTIVE', '액티브',
       '밸류업', '고배당', '커버드콜', 'TR',
