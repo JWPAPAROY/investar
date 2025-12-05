@@ -78,6 +78,11 @@
       const [activeTab, setActiveTab] = useState('screening'); // screening, performance, dna, trends
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
 
+      // 성과 검증 데이터 상태 (캐싱용)
+      const [trackerData, setTrackerData] = useState(null);
+      const [performanceLoading, setPerformanceLoading] = useState(false);
+      const [performanceError, setPerformanceError] = useState(null);
+
       // 추천 종목을 Supabase에 저장 (성과 추적용)
       const saveRecommendationsToSupabase = async (stocks) => {
         try {
@@ -143,6 +148,115 @@
         }
       };
 
+      // 성과 검증 데이터 불러오기
+      const fetchPerformanceData = async () => {
+        setPerformanceLoading(true);
+        setPerformanceError(null);
+
+        try {
+          // Supabase 기반 실전 추천 종목 성과 조회
+          const perfRes = await fetch(`${API_BASE_URL}/recommendations/performance?days=7`);
+
+          if (!perfRes.ok) {
+            throw new Error(`API 오류: ${perfRes.status}`);
+          }
+
+          const perfData = await perfRes.json();
+
+          if (!perfData.success) {
+            throw new Error(perfData.message || '데이터 로드 실패');
+          }
+
+          // 데이터 없으면 안내
+          if (perfData.count === 0) {
+            setTrackerData({
+              statistics: {
+                overall: {
+                  totalSignals: 0,
+                  winRate: 0,
+                  avgReturn: 0,
+                  totalCount: 0,
+                  winCount: 0,
+                  maxReturn: 0,
+                  minReturn: 0
+                }
+              },
+              stocks: [],
+              isEmpty: true
+            });
+            setPerformanceLoading(false);
+            return;
+          }
+
+          // 등급별 통계 계산
+          const byGrade = {};
+          perfData.stocks.forEach(stock => {
+            const grade = stock.recommendation_grade;
+            if (!byGrade[grade]) {
+              byGrade[grade] = {
+                count: 0,
+                winCount: 0,
+                returns: [],
+                maxReturn: 0
+              };
+            }
+            byGrade[grade].count++;
+            if (stock.is_winning) byGrade[grade].winCount++;
+            byGrade[grade].returns.push(stock.current_return);
+            if (stock.current_return > byGrade[grade].maxReturn) {
+              byGrade[grade].maxReturn = stock.current_return;
+            }
+          });
+
+          // 등급별 평균 계산
+          const gradeStats = {};
+          Object.entries(byGrade).forEach(([grade, data]) => {
+            gradeStats[grade] = {
+              count: data.count,
+              winRate: ((data.winCount / data.count) * 100).toFixed(1),
+              avgReturn: (data.returns.reduce((a, b) => a + b, 0) / data.count).toFixed(2),
+              maxReturn: data.maxReturn.toFixed(2)
+            };
+          });
+
+          // 연속 급등주 필터링 (2일 이상 연속 상승)
+          const risingStocks = perfData.stocks.filter(s => s.is_rising);
+
+          // ⭐ 전체 종목을 점수 내림차순으로 정렬
+          const sortedStocks = [...perfData.stocks].sort((a, b) => b.total_score - a.total_score);
+
+          setTrackerData({
+            statistics: {
+              overall: {
+                totalSignals: perfData.count,
+                totalCount: perfData.count,
+                winRate: perfData.statistics.winRate,
+                winCount: perfData.statistics.winningCount,
+                avgReturn: perfData.statistics.avgReturn,
+                maxReturn: perfData.statistics.maxReturn,
+                minReturn: perfData.statistics.minReturn
+              },
+              byGrade: gradeStats,
+              byCategory: perfData.statistics?.byCategory || {}
+            },
+            stocks: sortedStocks,
+            risingStocks: risingStocks,
+            recommendationDates: perfData.recommendationDates || [],
+            commonStocks: perfData.commonStocks || [],
+            parameters: {
+              holdingDays: 'N/A (실시간)',
+              lookbackDays: 7
+            }
+          });
+
+        } catch (err) {
+          console.error('성과 데이터 로드 실패:', err);
+          setPerformanceError('성과 데이터 로드 실패: ' + err.message);
+        } finally {
+          setPerformanceLoading(false);
+        }
+      };
+
       // 종목 상세 분석 (API 호출 없이 recommendations 데이터 사용)
       const fetchStockDetail = (stockCode) => {
         const stock = recommendations.find(s => s.stockCode === stockCode);
@@ -197,7 +311,13 @@
                   📊 종목 스크리닝
                 </button>
                 <button
-                  onClick={() => setActiveTab('performance')}
+                  onClick={() => {
+                    setActiveTab('performance');
+                    // 데이터가 없으면 자동 로드 (캐싱 효과)
+                    if (!trackerData) {
+                      fetchPerformanceData();
+                    }
+                  }}
                   className={`px-6 py-3 font-semibold transition-all ${
                     activeTab === 'performance'
                       ? 'text-indigo-600 border-b-4 border-indigo-600'
@@ -308,7 +428,13 @@
                 )}
               </>
             ) : (
-              <PerformanceVerification apiBaseUrl={API_BASE_URL} />
+              <PerformanceVerification
+                apiBaseUrl={API_BASE_URL}
+                trackerData={trackerData}
+                loading={performanceLoading}
+                error={performanceError}
+                fetchPerformanceData={fetchPerformanceData}
+              />
             )}
           </main>
         </div>
@@ -1520,18 +1646,12 @@
     }
 
 
-    // 성과 검증 컴포넌트
-    function PerformanceVerification({ apiBaseUrl }) {
-      const [trackerData, setTrackerData] = useState(null);
-      const [loading, setLoading] = useState(true);
-      const [error, setError] = useState(null);
+    // 성과 검증 컴포넌트 (v3.10.4: 캐싱 지원)
+    function PerformanceVerification({ apiBaseUrl, trackerData, loading, error, fetchPerformanceData }) {
+      // 상태는 상위 컴포넌트에서 관리 (캐싱 효과)
       const [expandedStocks, setExpandedStocks] = useState({});
       const [expandedGrades, setExpandedGrades] = useState({});
       const [expandedCategories, setExpandedCategories] = useState({});
-
-      useEffect(() => {
-        fetchPerformanceData();
-      }, []);
 
       const toggleExpand = (stockCode) => {
         setExpandedStocks(prev => ({
@@ -1578,113 +1698,7 @@
         }
       };
 
-      const fetchPerformanceData = async () => {
-        setLoading(true);
-        setError(null);
-
-        try {
-          // Supabase 기반 실전 추천 종목 성과 조회
-          const perfRes = await fetch(`${apiBaseUrl}/recommendations/performance?days=7`);
-
-          if (!perfRes.ok) {
-            throw new Error(`API 오류: ${perfRes.status}`);
-          }
-
-          const perfData = await perfRes.json();
-
-          if (!perfData.success) {
-            throw new Error(perfData.message || '데이터 로드 실패');
-          }
-
-          // 데이터 없으면 안내
-          if (perfData.count === 0) {
-            setTrackerData({
-              statistics: {
-                overall: {
-                  totalSignals: 0,
-                  winRate: 0,
-                  avgReturn: 0,
-                  totalCount: 0,
-                  winCount: 0,
-                  maxReturn: 0,
-                  minReturn: 0
-                }
-              },
-              stocks: [],
-              isEmpty: true
-            });
-            setLoading(false);
-            return;
-          }
-
-          // 등급별 통계 계산
-          const byGrade = {};
-          perfData.stocks.forEach(stock => {
-            const grade = stock.recommendation_grade;
-            if (!byGrade[grade]) {
-              byGrade[grade] = {
-                count: 0,
-                winCount: 0,
-                returns: [],
-                maxReturn: 0
-              };
-            }
-            byGrade[grade].count++;
-            if (stock.is_winning) byGrade[grade].winCount++;
-            byGrade[grade].returns.push(stock.current_return);
-            if (stock.current_return > byGrade[grade].maxReturn) {
-              byGrade[grade].maxReturn = stock.current_return;
-            }
-          });
-
-          // 등급별 평균 계산
-          const gradeStats = {};
-          Object.entries(byGrade).forEach(([grade, data]) => {
-            gradeStats[grade] = {
-              count: data.count,
-              winRate: ((data.winCount / data.count) * 100).toFixed(1),
-              avgReturn: (data.returns.reduce((a, b) => a + b, 0) / data.count).toFixed(2),
-              maxReturn: data.maxReturn.toFixed(2)
-            };
-          });
-
-          // 연속 급등주 필터링 (2일 이상 연속 상승)
-          const risingStocks = perfData.stocks.filter(s => s.is_rising);
-
-          // ⭐ 전체 종목을 점수 내림차순으로 정렬
-          const sortedStocks = [...perfData.stocks].sort((a, b) => b.total_score - a.total_score);
-
-          setTrackerData({
-            statistics: {
-              overall: {
-                totalSignals: perfData.count,
-                totalCount: perfData.count,
-                winRate: perfData.statistics.winRate,
-                winCount: perfData.statistics.winningCount,
-                avgReturn: perfData.statistics.avgReturn,
-                maxReturn: perfData.statistics.maxReturn,
-                minReturn: perfData.statistics.minReturn
-              },
-              byGrade: gradeStats,
-              byCategory: perfData.statistics?.byCategory || {}
-            },
-            stocks: sortedStocks,
-            risingStocks: risingStocks,
-            recommendationDates: perfData.recommendationDates || [],
-            commonStocks: perfData.commonStocks || [],
-            parameters: {
-              holdingDays: 'N/A (실시간)',
-              lookbackDays: 7
-            }
-          });
-
-        } catch (err) {
-          console.error('성과 데이터 로드 실패:', err);
-          setError('성과 데이터 로드 실패: ' + err.message);
-        } finally {
-          setLoading(false);
-        }
-      };
+      // fetchPerformanceData는 상위 컴포넌트에서 props로 전달받음 (캐싱 지원)
 
       if (loading) {
         return (
