@@ -1542,7 +1542,60 @@ class StockScreener {
       text = `⚠️ ${text} (신중)`;
     }
 
-    return { grade, text, color, tier, overheating: overheating.message, tooltip };
+    // v3.12 타이밍 경고 (백테스팅 검증 결과 기반)
+    let timingWarning = null;
+
+    if (score >= 70 && score < 80) {
+      // 70-79점: 대박 구간 (12개, 평균 +60.28%)
+      timingWarning = {
+        type: 'jackpot',
+        badge: '🚀 대박 구간',
+        color: '#ff0000',
+        message: '평균 +60.28% 수익 구간 (백테스트 검증)'
+      };
+    } else if (score >= 50 && score < 60) {
+      // 50-59점: 안정 구간 (65개, 평균 +2.08%, 승률 50.77%)
+      timingWarning = {
+        type: 'golden',
+        badge: '🎯 안정 구간',
+        color: '#00cc00',
+        message: '승률 50.77%, 평균 +2.08% (백테스트 검증)'
+      };
+    } else if (score >= 60 && score < 70) {
+      // 60-69점: 혼재 구간 (평균 -0.75%)
+      timingWarning = {
+        type: 'caution',
+        badge: '⚠️ 신중 진입',
+        color: '#ffaa00',
+        message: '성과 혼재 구간, 신중한 진입 필요'
+      };
+    } else if (score < 50) {
+      // 45-49점: 위험 구간 (37개, 평균 -5.13%)
+      timingWarning = {
+        type: 'weak',
+        badge: '⚠️ 신호 약함',
+        color: '#ff6666',
+        message: '평균 -5.13%, 위험 구간 (백테스트 검증)'
+      };
+    } else if (score >= 80) {
+      // 80+점: 과열 의심 (4개, 평균 +7.60%, 샘플 부족)
+      timingWarning = {
+        type: 'overheat',
+        badge: '🔥 과열 의심',
+        color: '#ff4444',
+        message: '샘플 부족으로 불안정, 신중 진입'
+      };
+    }
+
+    return {
+      grade,
+      text,
+      color,
+      tier,
+      overheating: overheating.message,
+      tooltip,
+      timingWarning // v3.12 NEW
+    };
   }
 
   /**

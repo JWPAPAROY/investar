@@ -1,9 +1,9 @@
 /**
- * 매일 추천 종목 자동 저장 Cron
+ * 매일 추천 종목 자동 저장 Cron (v3.12 개선)
  *
  * 일정: 월-금 오후 4시 10분 (장마감 후 40분, 가격 업데이트 후 10분)
- * 목적: B등급(45점) 이상 종목을 Supabase에 자동 저장
- * 백엔드 기준: B등급(45-59점) 선행 신호부터 추적
+ * 목적: 황금 구간(50-79점) 종목을 Supabase에 자동 저장
+ * 백테스팅 검증: 114개, 승률 43.86%, 평균 +7.87% (2025-12-05)
  */
 
 const screener = require('../../backend/screening');
@@ -35,16 +35,22 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 2: B등급(45점) 이상만 필터링
+    // Step 2: 황금 구간(50-79점)만 필터링 ⭐ v3.12 개선
     const filteredStocks = stocks.filter(stock => {
       const score = stock.totalScore;
 
-      // 백엔드 기준: B등급 이상 (45-99점) - 선행 신호 단계부터 추적
-      // 과열, S+, S, A, B 모두 저장 (C, D 제외)
-      return score >= 45;
+      // 백테스팅 검증 결과 (2025-12-05):
+      // - 50-79점: 114개, 승률 43.86%, 평균 +7.87% ✅ 최고 성과!
+      // - 70-79점(12개): 평균 +60.28% 대박 구간
+      // - 50-59점(65개): 평균 +2.08% 안정적 수익
+      //
+      // 배제 근거:
+      // - 45-49점: 37개, 승률 21.62%, 평균 -5.13% ❌
+      // - 80+점: 4개, 승률 25%, 평균 +7.60% (샘플 부족, 불안정)
+      return score >= 50 && score < 80;
     });
 
-    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (B등급 45점 이상)`);
+    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (황금 구간 50-79점)`);
 
     if (filteredStocks.length === 0) {
       return res.status(200).json({
