@@ -733,6 +733,27 @@
             </div>
 
 
+            {/* 손절가 정보 */}
+            <div className="mt-3 bg-gradient-to-r from-red-50 to-orange-50 border-2 border-red-200 rounded-lg p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-sm font-bold text-red-700">🛡️ 손절가 기준</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="bg-white rounded p-2 text-center">
+                  <div className="text-gray-600 mb-1">-5% 손절</div>
+                  <div className="font-bold text-red-600">{Math.floor(stock.currentPrice * 0.95).toLocaleString()}원</div>
+                </div>
+                <div className="bg-white rounded p-2 text-center">
+                  <div className="text-gray-600 mb-1">-7% 손절</div>
+                  <div className="font-bold text-red-700">{Math.floor(stock.currentPrice * 0.93).toLocaleString()}원</div>
+                </div>
+                <div className="bg-white rounded p-2 text-center">
+                  <div className="text-gray-600 mb-1">-10% 손절</div>
+                  <div className="font-bold text-red-900">{Math.floor(stock.currentPrice * 0.90).toLocaleString()}원</div>
+                </div>
+              </div>
+            </div>
+
             {/* 주요 지표 */}
             <div className="grid grid-cols-3 gap-2 text-sm">
               <div className="bg-blue-50 p-2 rounded relative group">
