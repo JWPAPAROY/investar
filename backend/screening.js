@@ -1820,18 +1820,50 @@ class StockScreener {
       return isWhale && !isComposite && !isOverheated;
     };
 
+    // 전략 메타데이터 추가 함수
+    const addStrategyMeta = (stock, priority) => {
+      const strategies = {
+        1: { name: '황금구간(50-79점)', winRate: 76.9, avgReturn: 27.02 },
+        2: { name: '60점 이상', winRate: 71.4, avgReturn: 23.0 },
+        3: { name: '고래 단독', winRate: 64.7, avgReturn: 20.31 }
+      };
+
+      const strategy = strategies[priority];
+
+      // 손절가 계산 (현재가 기준)
+      const currentPrice = stock.currentPrice || 0;
+      const stopLoss = {
+        loss5: Math.floor(currentPrice * 0.95),
+        loss7: Math.floor(currentPrice * 0.93),
+        loss10: Math.floor(currentPrice * 0.90)
+      };
+
+      return {
+        ...stock,
+        top3Meta: {
+          priority: priority,
+          strategy: strategy.name,
+          expectedWinRate: strategy.winRate,
+          expectedAvgReturn: strategy.avgReturn,
+          stopLoss: stopLoss
+        }
+      };
+    };
+
     // 1순위: 고래 + 황금구간(50-79점)
     const priority1 = allStocks
       .filter(s => isEligible(s) && s.totalScore >= 50 && s.totalScore < 80)
-      .sort((a, b) => b.totalScore - a.totalScore);
+      .sort((a, b) => b.totalScore - a.totalScore)
+      .map(s => addStrategyMeta(s, 1));
 
     top3.push(...priority1.slice(0, 3));
 
     // 3개 미만이면 2순위에서 충원
     if (top3.length < 3) {
       const priority2 = allStocks
-        .filter(s => isEligible(s) && s.totalScore >= 60 && !top3.includes(s))
-        .sort((a, b) => b.totalScore - a.totalScore);
+        .filter(s => isEligible(s) && s.totalScore >= 60 && !top3.some(t => t.stockCode === s.stockCode))
+        .sort((a, b) => b.totalScore - a.totalScore)
+        .map(s => addStrategyMeta(s, 2));
 
       top3.push(...priority2.slice(0, 3 - top3.length));
     }
@@ -1839,17 +1871,16 @@ class StockScreener {
     // 여전히 3개 미만이면 3순위(고래 단독)에서 충원
     if (top3.length < 3) {
       const priority3 = allStocks
-        .filter(s => isEligible(s) && !top3.includes(s))
-        .sort((a, b) => b.totalScore - a.totalScore);
+        .filter(s => isEligible(s) && !top3.some(t => t.stockCode === s.stockCode))
+        .sort((a, b) => b.totalScore - a.totalScore)
+        .map(s => addStrategyMeta(s, 3));
 
       top3.push(...priority3.slice(0, 3 - top3.length));
     }
 
     console.log(`\n🏆 TOP 3 선정 완료: ${top3.length}개`);
     top3.forEach((stock, i) => {
-      const strategy = stock.totalScore >= 50 && stock.totalScore < 80 ? '황금구간(50-79)' :
-                      stock.totalScore >= 60 ? '60점 이상' : '고래 단독';
-      console.log(`  ${i + 1}. ${stock.stockName} (${stock.totalScore}점, ${stock.recommendation.grade}등급) - ${strategy}`);
+      console.log(`  ${i + 1}. ${stock.stockName} (${stock.totalScore}점, ${stock.recommendation.grade}등급) - ${stock.top3Meta.strategy} [예상 승률 ${stock.top3Meta.expectedWinRate}%]`);
     });
 
     return top3;
