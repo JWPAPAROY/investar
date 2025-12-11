@@ -1457,6 +1457,19 @@ class StockScreener {
       else if (drawdownPercent >= 15) baseScore -= 1; // 15% 이상 되돌림: -1점
     }
 
+    // 7. 복합 신호 페널티 (-15점) 🆕 v3.12.1
+    // 백테스트 결과: 복합 신호(고래+조용한매집) 평균 -9.54%, 승률 11.1%
+    // "이미 급등 시작" 신호로 간주하여 강력한 페널티 적용
+    if (advancedAnalysis?.indicators) {
+      const isWhale = advancedAnalysis.indicators.whale && advancedAnalysis.indicators.whale.length > 0;
+      const isAccumulation = advancedAnalysis.indicators.accumulation && advancedAnalysis.indicators.accumulation.detected;
+
+      if (isWhale && isAccumulation) {
+        baseScore -= 15; // 복합 신호 강력 페널티
+        console.log(`⚠️ 복합 신호 감지 (고래+조용한매집) - 페널티 -15점 적용`);
+      }
+    }
+
     return Math.min(Math.max(baseScore, 0), 15); // 최대 15점
   }
 
