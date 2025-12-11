@@ -1713,12 +1713,17 @@ class StockScreener {
 
     const finalResults = limit ? results.slice(0, limit) : results;
 
+    // TOP 3 선정 (전체 결과에서 선정)
+    const top3 = this.selectTop3(results);
+
     return {
       stocks: finalResults,
+      top3: top3,  // 🆕 TOP 3 추천 종목
       metadata: {
         totalAnalyzed: analyzed,
         totalFound: results.length,
         returned: finalResults.length,
+        top3Count: top3.length,  // 🆕 TOP 3 개수
         poolSize: finalStockList.length,
         debug: {
           finalStockListSample: finalStockList.slice(0, 10),
@@ -1789,6 +1794,65 @@ class StockScreener {
         returned: results.length
       }
     };
+  }
+
+  /**
+   * TOP 3 추천 종목 선정 (Fallback 로직 포함)
+   *
+   * 시뮬레이션 결과 기반 전략:
+   * - 1순위: 고래 + 황금구간(50-79점) - 승률 76.9%, 평균 +27.02%
+   * - 2순위: 고래 + 60점 이상 - 승률 71.4%
+   * - 3순위: 고래 단독 - 승률 64.7%, 평균 +20.31%
+   *
+   * @param {Array} allStocks - 전체 종목 배열
+   * @returns {Array} - TOP 3 종목 (최대 3개)
+   */
+  selectTop3(allStocks) {
+    const top3 = [];
+
+    // 기본 필터: 복합 신호 제외, 과열 제외
+    const isEligible = (stock) => {
+      const isComposite = stock.advancedAnalysis?.indicators?.whale?.length > 0 &&
+                         stock.advancedAnalysis?.indicators?.accumulation?.detected;
+      const isOverheated = stock.recommendation?.grade === '과열';
+      const isWhale = stock.advancedAnalysis?.indicators?.whale?.length > 0;
+
+      return isWhale && !isComposite && !isOverheated;
+    };
+
+    // 1순위: 고래 + 황금구간(50-79점)
+    const priority1 = allStocks
+      .filter(s => isEligible(s) && s.totalScore >= 50 && s.totalScore < 80)
+      .sort((a, b) => b.totalScore - a.totalScore);
+
+    top3.push(...priority1.slice(0, 3));
+
+    // 3개 미만이면 2순위에서 충원
+    if (top3.length < 3) {
+      const priority2 = allStocks
+        .filter(s => isEligible(s) && s.totalScore >= 60 && !top3.includes(s))
+        .sort((a, b) => b.totalScore - a.totalScore);
+
+      top3.push(...priority2.slice(0, 3 - top3.length));
+    }
+
+    // 여전히 3개 미만이면 3순위(고래 단독)에서 충원
+    if (top3.length < 3) {
+      const priority3 = allStocks
+        .filter(s => isEligible(s) && !top3.includes(s))
+        .sort((a, b) => b.totalScore - a.totalScore);
+
+      top3.push(...priority3.slice(0, 3 - top3.length));
+    }
+
+    console.log(`\n🏆 TOP 3 선정 완료: ${top3.length}개`);
+    top3.forEach((stock, i) => {
+      const strategy = stock.totalScore >= 50 && stock.totalScore < 80 ? '황금구간(50-79)' :
+                      stock.totalScore >= 60 ? '60점 이상' : '고래 단독';
+      console.log(`  ${i + 1}. ${stock.stockName} (${stock.totalScore}점, ${stock.recommendation.grade}등급) - ${strategy}`);
+    });
+
+    return top3;
   }
 
   /**

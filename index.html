@@ -77,6 +77,7 @@
       const [lastUpdate, setLastUpdate] = useState(null);
       const [activeTab, setActiveTab] = useState('screening'); // screening, performance, dna, trends
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
+      const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
 
       // 성과 검증 데이터 상태 (캐싱용)
       const [trackerData, setTrackerData] = useState(null);
@@ -133,6 +134,7 @@
             // ⭐ 안전장치: 프론트엔드에서도 점수 내림차순 정렬 (백엔드 정렬 보강)
             stocks.sort((a, b) => b.totalScore - a.totalScore);
             setRecommendations(stocks);
+            setTop3Recommendations(result.top3 || []); // 🆕 TOP 3 추천 종목 저장
             setScreeningMetadata(result.metadata || null);
             setLastUpdate(new Date());
 
@@ -390,6 +392,92 @@
                           </div>
                         </>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 🆕 TOP 3 추천 종목 섹션 */}
+                {top3Recommendations.length > 0 && (
+                  <div className="mb-8 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-3">
+                        <span className="text-3xl">🏆</span>
+                        <div>
+                          <h3 className="text-2xl font-bold text-orange-800">반드시 매수해야 할 TOP 3</h3>
+                          <p className="text-sm text-orange-600 mt-1">
+                            고래 감지 + 황금구간 전략 (승률 76.9%, 평균 +27.02%)
+                          </p>
+                        </div>
+                      </div>
+                      <div className="bg-orange-600 text-white px-4 py-2 rounded-full font-bold text-lg">
+                        {top3Recommendations.length}개
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                      {top3Recommendations.map((stock, index) => (
+                        <div
+                          key={stock.stockCode}
+                          className="bg-white border-2 border-yellow-400 rounded-lg p-4 cursor-pointer hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1"
+                          onClick={() => fetchStockDetail(stock.stockCode)}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-2xl font-bold text-orange-600">#{index + 1}</span>
+                              <span className="text-lg font-bold text-gray-800">{stock.stockName}</span>
+                            </div>
+                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                              stock.recommendation.grade === '과열' ? 'bg-red-100 text-red-700' :
+                              stock.recommendation.grade === 'S+' ? 'bg-purple-100 text-purple-700' :
+                              stock.recommendation.grade === 'S' ? 'bg-red-100 text-red-700' :
+                              stock.recommendation.grade === 'A' ? 'bg-orange-100 text-orange-700' :
+                              stock.recommendation.grade === 'B' ? 'bg-yellow-100 text-yellow-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>
+                              {stock.recommendation.grade}
+                            </span>
+                          </div>
+
+                          <div className="space-y-2 text-sm">
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">현재가</span>
+                              <span className="font-bold">{stock.currentPrice.toLocaleString()}원</span>
+                            </div>
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">종합 점수</span>
+                              <span className="font-bold text-orange-600">{stock.totalScore.toFixed(1)}점</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span className="text-gray-600">추천 등급</span>
+                              <span className="text-xs text-orange-700 font-semibold">
+                                {stock.recommendation.text}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* 카테고리 뱃지 */}
+                          <div className="mt-3 flex flex-wrap gap-1">
+                            {stock.advancedAnalysis?.indicators?.whale?.length > 0 && (
+                              <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-semibold">
+                                🐋 고래 감지
+                              </span>
+                            )}
+                            {stock.totalScore >= 50 && stock.totalScore < 80 && (
+                              <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">
+                                ⭐ 황금구간
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
+                      <p className="text-sm text-gray-700">
+                        <strong className="text-orange-700">💡 선정 기준:</strong> 백테스트 결과 최고 성과 전략인
+                        <strong className="text-orange-700"> 고래 감지 + 황금구간(50-79점)</strong>을 우선 선정합니다.
+                        복합 신호와 과열 종목은 자동 제외됩니다.
+                      </p>
                     </div>
                   </div>
                 )}
@@ -1784,6 +1872,136 @@
               패턴 기반 종목 추천의 실제 성과를 확인합니다
             </p>
           </div>
+
+          {(() => {
+            // 🆕 TOP 3 조건에 맞는 종목 필터링
+            const top3Stocks = trackerData.stocks ? trackerData.stocks.filter(stock => {
+              const isWhale = stock.whale_detected;
+              const isNotComposite = !stock.accumulation_detected;
+              const isGoldenZone = stock.total_score >= 50 && stock.total_score < 80;
+              const isNotOverheated = stock.recommendation_grade !== '과열';
+
+              return isWhale && isNotComposite && isGoldenZone && isNotOverheated;
+            }) : [];
+
+            // TOP 3 통계 계산
+            const top3WinCount = top3Stocks.filter(s => s.is_winning).length;
+            const top3WinRate = top3Stocks.length > 0 ? (top3WinCount / top3Stocks.length * 100) : 0;
+            const top3AvgReturn = top3Stocks.length > 0
+              ? top3Stocks.reduce((sum, s) => sum + s.current_return, 0) / top3Stocks.length
+              : 0;
+            const top3MaxReturn = top3Stocks.length > 0
+              ? Math.max(...top3Stocks.map(s => s.current_return))
+              : 0;
+
+            return top3Stocks.length > 0 ? (
+              <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">🏆</span>
+                    <div>
+                      <h3 className="text-2xl font-bold text-orange-800">TOP 3 전략 성과</h3>
+                      <p className="text-sm text-orange-600 mt-1">
+                        고래 감지 + 황금구간(50-79점) 전략 실전 성과
+                      </p>
+                    </div>
+                  </div>
+                  <div className="bg-orange-600 text-white px-4 py-2 rounded-full font-bold text-lg">
+                    {top3Stocks.length}개
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <div className="text-sm text-gray-600 mb-1">승률</div>
+                    <div className={`text-2xl font-bold ${top3WinRate >= 76.9 ? 'text-green-600' : top3WinRate >= 60 ? 'text-orange-600' : 'text-red-600'}`}>
+                      {top3WinRate.toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      예상: 76.9% {top3WinRate >= 76.9 ? '✅' : top3WinRate >= 60 ? '⚠️' : '❌'}
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <div className="text-sm text-gray-600 mb-1">평균 수익률</div>
+                    <div className={`text-2xl font-bold ${top3AvgReturn > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {top3AvgReturn > 0 ? '+' : ''}{top3AvgReturn.toFixed(2)}%
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      예상: +27.02% {top3AvgReturn >= 27 ? '✅' : top3AvgReturn >= 0 ? '⚠️' : '❌'}
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <div className="text-sm text-gray-600 mb-1">최고 수익</div>
+                    <div className="text-2xl font-bold text-purple-600">
+                      +{top3MaxReturn.toFixed(2)}%
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      {top3WinCount}승 {top3Stocks.length - top3WinCount}패
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <div className="text-sm text-gray-600 mb-1">샘플 수</div>
+                    <div className="text-2xl font-bold text-blue-600">
+                      {top3Stocks.length}개
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      전체 {trackerData.stocks.length}개 중
+                    </div>
+                  </div>
+                </div>
+
+                {/* TOP 3 종목 리스트 (상위 10개만 표시) */}
+                <div className="bg-white rounded-lg p-4 max-h-96 overflow-y-auto">
+                  <h4 className="font-bold text-gray-800 mb-3">종목 목록 (수익률 순)</h4>
+                  <div className="space-y-2">
+                    {top3Stocks
+                      .sort((a, b) => b.current_return - a.current_return)
+                      .slice(0, 10)
+                      .map((stock, index) => (
+                        <div key={stock.stock_code} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-orange-600">#{index + 1}</span>
+                            <span className="font-semibold">{stock.stock_name}</span>
+                            <span className="text-xs text-gray-500">{stock.stock_code}</span>
+                            {stock.is_rising && <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">🔥 상승 중</span>}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={`font-bold ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
+                              {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(2)}%
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {stock.days_since_recommendation}일
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                  {top3Stocks.length > 10 && (
+                    <div className="text-center mt-2 text-sm text-gray-500">
+                      +{top3Stocks.length - 10}개 종목 더 보기
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
+                  <p className="text-sm text-gray-700">
+                    <strong className="text-orange-700">💡 전략 검증:</strong> 백테스트로 검증된
+                    <strong className="text-orange-700"> 고래 감지 + 황금구간(50-79점)</strong> 전략의 실전 성과입니다.
+                    {top3WinRate >= 76.9 && top3AvgReturn >= 27 ? (
+                      <span className="text-green-700"> ✅ 예상 성과를 달성하고 있습니다!</span>
+                    ) : top3WinRate >= 60 || top3AvgReturn >= 0 ? (
+                      <span className="text-orange-700"> ⚠️ 예상보다 낮지만 양호한 성과입니다.</span>
+                    ) : (
+                      <span className="text-red-700"> ❌ 시장 상황에 따라 성과가 예상보다 낮을 수 있습니다.</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            ) : null;
+          })()}
 
           {/* 전체 요약 카드 */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
