@@ -1868,10 +1868,10 @@ class StockScreener {
       top3.push(...priority2.slice(0, 3 - top3.length));
     }
 
-    // 여전히 3개 미만이면 3순위(고래 단독)에서 충원
+    // 여전히 3개 미만이면 3순위(고래 단독, 45점 이상)에서 충원
     if (top3.length < 3) {
       const priority3 = allStocks
-        .filter(s => isEligible(s) && !top3.some(t => t.stockCode === s.stockCode))
+        .filter(s => isEligible(s) && s.totalScore >= 45 && !top3.some(t => t.stockCode === s.stockCode))
         .sort((a, b) => b.totalScore - a.totalScore)
         .map(s => addStrategyMeta(s, 3));
 
