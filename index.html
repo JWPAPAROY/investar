@@ -437,22 +437,26 @@
                 )}
 
                 {/* 🆕 TOP 3 추천 종목 섹션 */}
-                {top3Recommendations.length > 0 && (
-                  <div className="mb-8 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-6">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <span className="text-3xl">🏆</span>
-                        <div>
-                          <h3 className="text-2xl font-bold text-orange-800">반드시 매수해야 할 TOP 3</h3>
-                          <p className="text-sm text-orange-600 mt-1">
-                            고래 감지 + 황금구간 전략 (승률 76.9%, 평균 +27.02%)
-                          </p>
-                        </div>
+                <div className="mb-8 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                      <span className="text-3xl">🏆</span>
+                      <div>
+                        <h3 className="text-2xl font-bold text-orange-800">반드시 매수해야 할 TOP 3</h3>
+                        <p className="text-sm text-orange-600 mt-1">
+                          고래 감지 + 황금구간 전략 (승률 76.9%, 평균 +27.02%)
+                        </p>
                       </div>
+                    </div>
+                    {top3Recommendations.length > 0 && (
                       <div className="bg-orange-600 text-white px-4 py-2 rounded-full font-bold text-lg">
                         {top3Recommendations.length}개
                       </div>
-                    </div>
+                    )}
+                  </div>
+
+                  {top3Recommendations.length > 0 ? (
+                    <>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                       {top3Recommendations.map((stock, index) => (
@@ -552,8 +556,32 @@
                         복합 신호와 과열 종목은 자동 제외됩니다.
                       </p>
                     </div>
-                  </div>
-                )}
+                    </>
+                  ) : (
+                    // 🆕 v3.12.5: TOP 3가 없을 때 안내 메시지
+                    <div className="bg-white border-2 border-gray-300 rounded-lg p-8 text-center">
+                      <div className="text-6xl mb-4">😔</div>
+                      <h4 className="text-xl font-bold text-gray-700 mb-2">현재 조건을 만족하는 TOP 3 추천 종목이 없습니다</h4>
+                      <p className="text-gray-600 mb-4">
+                        고래 감지 신호가 부족하거나, 감지된 종목이 모두 과열 상태입니다.
+                      </p>
+                      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-left">
+                        <p className="text-sm text-gray-700 mb-2">
+                          <strong>TOP 3 선정 조건:</strong>
+                        </p>
+                        <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                          <li>고래 감지 신호 필수</li>
+                          <li>복합 신호(고래+조용한매집) 제외</li>
+                          <li>과열 종목 제외</li>
+                          <li>최소 40점 이상</li>
+                        </ul>
+                        <p className="text-sm text-gray-500 mt-3">
+                          💡 새로고침 버튼을 눌러 최신 데이터를 확인하거나, 종합집계 탭에서 다른 추천 종목을 확인하세요.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 {/* 카테고리 필터 */}
                 <CategoryFilter
