@@ -1457,18 +1457,10 @@ class StockScreener {
       else if (drawdownPercent >= 15) baseScore -= 1; // 15% 이상 되돌림: -1점
     }
 
-    // 7. 복합 신호 페널티 (-15점) 🆕 v3.12.1
-    // 백테스트 결과: 복합 신호(고래+조용한매집) 평균 -9.54%, 승률 11.1%
-    // "이미 급등 시작" 신호로 간주하여 강력한 페널티 적용
-    if (advancedAnalysis?.indicators) {
-      const isWhale = advancedAnalysis.indicators.whale && advancedAnalysis.indicators.whale.length > 0;
-      const isAccumulation = advancedAnalysis.indicators.accumulation && advancedAnalysis.indicators.accumulation.detected;
-
-      if (isWhale && isAccumulation) {
-        baseScore -= 15; // 복합 신호 강력 페널티
-        console.log(`⚠️ 복합 신호 감지 (고래+조용한매집) - 페널티 -15점 적용`);
-      }
-    }
+    // 7. 복합 신호 처리 ⭐ v3.12.2: 페널티 → 완전 차단으로 변경
+    // 백테스트 결과: 복합신호 18개, 승률 11.11%, 평균 -9.54%
+    // screenAllStocks/screenByCategory에서 사전 필터링되므로 여기서는 처리 불필요
+    // (이전 v3.12.1: -15점 페널티 → v3.12.2: 완전 차단)
 
     return Math.min(Math.max(baseScore, 0), 15); // 최대 15점
   }
@@ -1685,6 +1677,18 @@ class StockScreener {
         const analysis = await this.analyzeStock(stockCode);
         analyzed++;
 
+        // 🆕 v3.12.2: 복합 신호 완전 차단
+        // 백테스트 결과: 복합신호 18개, 승률 11.11%, 평균 -9.54% → 완전 제외
+        if (analysis) {
+          const isWhale = analysis.advancedAnalysis?.indicators?.whale?.length > 0;
+          const isAccumulation = analysis.advancedAnalysis?.indicators?.accumulation?.detected;
+
+          if (isWhale && isAccumulation) {
+            console.log(`❌ [${analysis.stockName}] 복합 신호 감지 (고래+조용한매집) - 종목 제외`);
+            continue; // 복합 신호 종목은 완전 차단
+          }
+        }
+
         // skipScoreFilter가 true면 점수 무시, false면 20점 이상만 (C등급 이상)
         if (analysis && (skipScoreFilter || analysis.totalScore >= 20)) {
           results.push(analysis);
@@ -1761,6 +1765,17 @@ class StockScreener {
       try {
         const analysis = await this.analyzeStock(stockCode);
         analyzed++;
+
+        // 🆕 v3.12.2: 복합 신호 완전 차단
+        if (analysis) {
+          const isWhale = analysis.advancedAnalysis?.indicators?.whale?.length > 0;
+          const isAccumulation = analysis.advancedAnalysis?.indicators?.accumulation?.detected;
+
+          if (isWhale && isAccumulation) {
+            console.log(`❌ [${analysis.stockName}] 복합 신호 감지 - 제외`);
+            continue; // 복합 신호 종목은 완전 차단
+          }
+        }
 
         if (analysis && filterFn(analysis)) {
           results.push(analysis);
