@@ -1823,17 +1823,35 @@ class StockScreener {
    * @returns {Array} - TOP 3 종목 (최대 3개)
    */
   selectTop3(allStocks) {
+    console.log(`\n🔍 TOP 3 선정 시작...`);
+    console.log(`  전체 종목: ${allStocks.length}개`);
+
     const top3 = [];
 
-    // 기본 필터: 복합 신호 제외, 과열 제외
+    // 고래 감지 종목 필터링
+    const whaleStocks = allStocks.filter(s =>
+      s.advancedAnalysis?.indicators?.whale?.length > 0
+    );
+    console.log(`  └─ 고래 감지: ${whaleStocks.length}개`);
+
+    // 과열 종목 확인
+    const overheatedWhales = whaleStocks.filter(s =>
+      s.recommendation?.grade === '과열'
+    );
+    if (overheatedWhales.length > 0) {
+      console.log(`  └─ 고래 중 과열: ${overheatedWhales.length}개 (제외됨)`);
+    }
+
+    // 기본 필터: 과열 제외 (복합신호는 이미 screenAllStocks에서 제외됨)
     const isEligible = (stock) => {
-      const isComposite = stock.advancedAnalysis?.indicators?.whale?.length > 0 &&
-                         stock.advancedAnalysis?.indicators?.accumulation?.detected;
       const isOverheated = stock.recommendation?.grade === '과열';
       const isWhale = stock.advancedAnalysis?.indicators?.whale?.length > 0;
 
-      return isWhale && !isComposite && !isOverheated;
+      return isWhale && !isOverheated;
     };
+
+    const eligibleCount = allStocks.filter(isEligible).length;
+    console.log(`  └─ TOP 3 후보: ${eligibleCount}개`);
 
     // 전략 메타데이터 추가 함수
     const addStrategyMeta = (stock, priority) => {
@@ -1866,37 +1884,49 @@ class StockScreener {
     };
 
     // 1순위: 고래 + 황금구간(50-79점)
+    console.log(`\n  📍 1순위 선정 (고래 + 황금구간 50-79점)...`);
     const priority1 = allStocks
       .filter(s => isEligible(s) && s.totalScore >= 50 && s.totalScore < 80)
       .sort((a, b) => b.totalScore - a.totalScore)
       .map(s => addStrategyMeta(s, 1));
 
+    console.log(`     후보: ${priority1.length}개 | 선정: ${Math.min(priority1.length, 3)}개`);
     top3.push(...priority1.slice(0, 3));
 
     // 3개 미만이면 2순위에서 충원
     if (top3.length < 3) {
+      console.log(`\n  📍 2순위 선정 (고래 + 60점 이상)...`);
       const priority2 = allStocks
         .filter(s => isEligible(s) && s.totalScore >= 60 && !top3.some(t => t.stockCode === s.stockCode))
         .sort((a, b) => b.totalScore - a.totalScore)
         .map(s => addStrategyMeta(s, 2));
 
+      console.log(`     후보: ${priority2.length}개 | 선정: ${Math.min(priority2.length, 3 - top3.length)}개`);
       top3.push(...priority2.slice(0, 3 - top3.length));
     }
 
     // 여전히 3개 미만이면 3순위(고래 단독, 40점 이상)에서 충원
     if (top3.length < 3) {
+      console.log(`\n  📍 3순위 선정 (고래 단독 + 40점 이상)...`);
       const priority3 = allStocks
         .filter(s => isEligible(s) && s.totalScore >= 40 && !top3.some(t => t.stockCode === s.stockCode))
         .sort((a, b) => b.totalScore - a.totalScore)
         .map(s => addStrategyMeta(s, 3));
 
+      console.log(`     후보: ${priority3.length}개 | 선정: ${Math.min(priority3.length, 3 - top3.length)}개`);
       top3.push(...priority3.slice(0, 3 - top3.length));
     }
 
     console.log(`\n🏆 TOP 3 선정 완료: ${top3.length}개`);
-    top3.forEach((stock, i) => {
-      console.log(`  ${i + 1}. ${stock.stockName} (${stock.totalScore}점, ${stock.recommendation.grade}등급) - ${stock.top3Meta.strategy} [예상 승률 ${stock.top3Meta.expectedWinRate}%]`);
-    });
+
+    if (top3.length === 0) {
+      console.log(`  ⚠️ TOP 3 선정 실패 - 조건을 만족하는 종목이 없습니다.`);
+      console.log(`  원인: 고래 감지 종목 부족 또는 모두 과열/낮은 점수`);
+    } else {
+      top3.forEach((stock, i) => {
+        console.log(`  ${i + 1}. ${stock.stockName} (${stock.totalScore}점, ${stock.recommendation.grade}등급) - ${stock.top3Meta.strategy} [예상 승률 ${stock.top3Meta.expectedWinRate}%]`);
+      });
+    }
 
     return top3;
   }
