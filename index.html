@@ -79,6 +79,13 @@
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
 
+      // 🆕 v3.12.4: 카테고리별 데이터 캐싱
+      const [cachedData, setCachedData] = useState({
+        all: null,
+        whale: null,
+        accumulation: null
+      });
+
       // 성과 검증 데이터 상태 (캐싱용)
       const [trackerData, setTrackerData] = useState(null);
       const [performanceLoading, setPerformanceLoading] = useState(false);
@@ -137,6 +144,17 @@
             setTop3Recommendations(result.top3 || []); // 🆕 TOP 3 추천 종목 저장
             setScreeningMetadata(result.metadata || null);
             setLastUpdate(new Date());
+
+            // 🆕 v3.12.4: 캐시에 저장 (탭 전환 시 재사용)
+            setCachedData(prev => ({
+              ...prev,
+              [category]: {
+                recommendations: stocks,
+                top3: result.top3 || [],
+                metadata: result.metadata || null,
+                timestamp: new Date()
+              }
+            }));
 
             // ⭐ v3.10.3: 프론트엔드 자동 저장 제거 (Cron만 저장)
             // Cron Job(16:10 KST)이 장마감 종가 기준으로만 저장 → 백테스트 정확도 향상
@@ -269,10 +287,23 @@
         }
       };
 
-      // 카테고리 변경
+      // 카테고리 변경 (v3.12.4: 캐싱 적용)
       const handleCategoryChange = (category) => {
         setSelectedCategory(category);
-        fetchRecommendations(category);
+
+        // 이미 조회한 카테고리면 캐시에서 가져옴
+        const cached = cachedData[category];
+        if (cached) {
+          console.log(`✅ 캐시에서 ${category} 데이터 로드 (조회 시각: ${cached.timestamp.toLocaleTimeString()})`);
+          setRecommendations(cached.recommendations);
+          setTop3Recommendations(cached.top3);
+          setScreeningMetadata(cached.metadata);
+          setLastUpdate(cached.timestamp);
+        } else {
+          // 처음 조회하는 카테고리만 API 호출
+          console.log(`🌐 ${category} API 호출 (첫 조회)`);
+          fetchRecommendations(category);
+        }
       };
 
       // 초기 로드 제거 (수동 버튼 클릭으로만 실행)
@@ -293,7 +324,16 @@
                   <p className="text-gray-600 mt-2">거래량 AI가 추천하는 오늘의 종목</p>
                 </div>
                 <button
-                  onClick={() => activeTab === 'screening' ? fetchRecommendations(selectedCategory) : window.location.reload()}
+                  onClick={() => {
+                    if (activeTab === 'screening') {
+                      // 🆕 v3.12.4: 캐시 초기화 후 재조회
+                      console.log(`🔄 ${selectedCategory} 강제 재조회 (캐시 무시)`);
+                      setCachedData(prev => ({ ...prev, [selectedCategory]: null }));
+                      fetchRecommendations(selectedCategory);
+                    } else {
+                      window.location.reload();
+                    }
+                  }}
                   disabled={loading}
                   className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 font-semibold shadow-lg"
                 >
