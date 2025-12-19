@@ -436,7 +436,8 @@
                   </div>
                 )}
 
-                {/* 🆕 TOP 3 추천 종목 섹션 */}
+                {/* 🆕 TOP 3 추천 종목 섹션 (조회 후에만 표시) */}
+                {lastUpdate && (
                 <div className="mb-8 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-3">
@@ -553,7 +554,7 @@
                       <p className="text-sm text-gray-700">
                         <strong className="text-orange-700">💡 선정 기준:</strong> 백테스트 결과 최고 성과 전략인
                         <strong className="text-orange-700"> 고래 감지 + 황금구간(50-79점)</strong>을 우선 선정합니다.
-                        복합 신호와 과열 종목은 자동 제외됩니다.
+                        과열 종목은 자동 제외됩니다.
                       </p>
                     </div>
                     </>
@@ -571,7 +572,6 @@
                         </p>
                         <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
                           <li>고래 감지 신호 필수</li>
-                          <li>복합 신호(고래+조용한매집) 제외</li>
                           <li>과열 종목 제외</li>
                           <li>최소 40점 이상</li>
                         </ul>
@@ -582,6 +582,7 @@
                     </div>
                   )}
                 </div>
+                )}
 
                 {/* 카테고리 필터 */}
                 <CategoryFilter
