@@ -73,7 +73,8 @@ class PerformanceVerifier {
   async simulateScreeningAtDate(targetDate) {
     // 간단 구현: 현재 로직으로 TOP 10 추출 (실제로는 과거 데이터 필요)
     // 실제 프로덕션에서는 targetDate의 데이터로 스크리닝 필요
-    const top10 = await screener.screenAllStocks('ALL', 5); // 5개만 샘플링
+    const result = await screener.screenAllStocks('ALL', 5); // 5개만 샘플링
+    const top10 = result.stocks || []; // stocks 프로퍼티에서 배열 추출
     return top10.map(stock => ({
       stockCode: stock.stockCode,
       stockName: stock.stockName,
