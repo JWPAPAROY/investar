@@ -146,10 +146,35 @@ module.exports = async (req, res) => {
           if (needsRealTimePrice) {
             try {
               const realtimeData = await kisApi.getCurrentPrice(rec.stock_code);
-              if (realtimeData && realtimeData.stck_prpr) {
-                currentPrice = parseInt(realtimeData.stck_prpr);
-                isRealTimePrice = true;
-                console.log(`✅ 실시간 가격 조회 [${rec.stock_name}]: ${currentPrice}원 (이유: ${daysSince === 0 ? '오늘 추천' : latestPriceDate ? '최신 데이터 없음' : 'daily_prices 없음'})`);
+              if (realtimeData) {
+                // 가격 업데이트
+                if (realtimeData.currentPrice) {
+                  currentPrice = realtimeData.currentPrice;
+                  isRealTimePrice = true;
+                  console.log(`✅ 실시간 가격 조회 [${rec.stock_name}]: ${currentPrice}원 (이유: ${daysSince === 0 ? '오늘 추천' : latestPriceDate ? '최신 데이터 없음' : 'daily_prices 없음'})`);
+                }
+
+                // 종목명이 없거나 종목코드인 경우, 실시간 데이터에서 업데이트
+                if (realtimeData.stockName &&
+                    (!rec.stock_name || rec.stock_name === rec.stock_code || rec.stock_name.startsWith('['))) {
+                  rec.stock_name = realtimeData.stockName;
+                  console.log(`✅ 종목명 업데이트 [${rec.stock_code}]: ${realtimeData.stockName}`);
+
+                  // Supabase에도 업데이트
+                  try {
+                    const { createClient } = require('@supabase/supabase-js');
+                    const supabase = createClient(
+                      process.env.SUPABASE_URL,
+                      process.env.SUPABASE_KEY
+                    );
+                    await supabase
+                      .from('screening_recommendations')
+                      .update({ stock_name: realtimeData.stockName })
+                      .eq('stock_code', rec.stock_code);
+                  } catch (updateErr) {
+                    console.warn(`⚠️ 종목명 DB 업데이트 실패 [${rec.stock_code}]:`, updateErr.message);
+                  }
+                }
               }
             } catch (kisErr) {
               console.warn(`⚠️ 실시간 가격 조회 실패 [${rec.stock_code}]:`, kisErr.message);
@@ -368,7 +393,7 @@ module.exports = async (req, res) => {
       }
       byRecommendationDate[date].stocks.push({
         stock_code: stock.stock_code,
-        stock_name: stock.stock_name || stock.stock_code, // 종목명 fallback
+        stock_name: (stock.stock_name && stock.stock_name.trim() !== '') ? stock.stock_name : stock.stock_code, // 종목명 fallback
         recommendation_grade: stock.recommendation_grade,
         total_score: stock.total_score, // 정렬용
         recommended_price: stock.recommended_price,
