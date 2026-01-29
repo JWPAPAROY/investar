@@ -1,6 +1,5 @@
 /**
- * 매일 추천 종목 자동 저장 & 알림 Cron (v3.15)
- * Updated: 2026-01-29
+ * 매일 추천 종목 자동 저장 & 알림 Cron (v3.14)
  *
  * 모드:
  * - save (16:10 KST): 스크리닝 + Supabase 저장
@@ -156,18 +155,9 @@ module.exports = async (req, res) => {
       return res.status(200).json({
         success: true,
         mode: 'alert',
-        version: 'v3.17',
         date: yesterday,
         top3Count: top3.length,
         telegramSent: sent,
-        envCheck: {
-          hasBotToken: !!process.env.TELEGRAM_BOT_TOKEN,
-          hasChatId: !!process.env.TELEGRAM_CHAT_ID,
-          hasSupabaseUrl: !!process.env.SUPABASE_URL,
-          hasSupabaseKey: !!process.env.SUPABASE_ANON_KEY,
-          testVar: process.env.TEST_VAR || 'not found',
-          allEnvKeys: Object.keys(process.env).filter(k => k.includes('TELEGRAM') || k.includes('SUPA') || k.includes('TEST'))
-        },
         stocks: top3.map(s => ({
           stockCode: s.stock_code,
           stockName: s.stock_name,
