@@ -92,12 +92,14 @@
       const [performanceError, setPerformanceError] = useState(null);
 
       // 추천 종목을 Supabase에 저장 (성과 추적용)
+      // ⚠️ v3.10.3부터 프론트엔드 자동 저장 제거 - Cron만 저장
+      // 실제 저장 기준: 50-79점 황금구간 (save-daily-recommendations.js)
       const saveRecommendationsToSupabase = async (stocks) => {
         try {
-          // 백엔드 기준: 점수 45점 이상(B등급 이상)만 저장
-          // B등급 이상 (45-99점) = 선행 신호 단계부터 추적
-          // 과열, S+, S, A, B 모두 저장 (C, D 제외)
-          const stocksToSave = stocks.filter(s => s.totalScore >= 45);
+          // 🆕 v3.12: 황금구간(50-79점)만 저장 (백테스트 검증)
+          // - 50-79점: 승률 43.86%, 평균 +7.87%
+          // - 45-49점: 승률 21.62%, 평균 -5.13% (제외)
+          const stocksToSave = stocks.filter(s => s.totalScore >= 50 && s.totalScore < 80);
 
           if (stocksToSave.length === 0) {
             console.log('저장할 추천 종목 없음 (45점 이상 B등급 없음)');
@@ -1190,7 +1192,7 @@
                         <span>📡 Radar Scoring</span>
                         <span className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full">{stock.radarScore.total}점 / 90점</span>
                       </h4>
-                      <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div className="grid grid-cols-4 gap-2 text-sm">
                         <div className="bg-white p-2 rounded border border-blue-200">
                           <div className="text-xs text-gray-600">Base</div>
                           <div className="text-lg font-bold text-blue-700">{stock.radarScore.baseScore}</div>
@@ -1206,7 +1208,17 @@
                           <div className="text-lg font-bold text-purple-700">{stock.radarScore.trendScore.totalScore}</div>
                           <div className="text-xs text-gray-500">/ 40점</div>
                         </div>
+                        <div className="bg-white p-2 rounded border border-orange-200">
+                          <div className="text-xs text-gray-600">Multi-Signal</div>
+                          <div className="text-lg font-bold text-orange-700">{stock.radarScore.multiSignalBonus || 0}</div>
+                          <div className="text-xs text-gray-500">/ 6점</div>
+                        </div>
                       </div>
+                      {stock.radarScore.multiSignalCount >= 3 && (
+                        <div className="mt-2 text-xs text-orange-600">
+                          📊 {stock.radarScore.multiSignalCount}개 API 동시 등장 → +{stock.radarScore.multiSignalBonus}점 보너스
+                        </div>
+                      )}
                     </div>
                   )}
 
@@ -2227,7 +2239,7 @@
               <div className="mt-3 p-3 bg-blue-100 rounded text-xs text-blue-900">
                 <strong>💡 Dual-Track Scoring:</strong><br/>
                 • <strong>Track 1 (Golden Zones):</strong> 96-99점 - 차트 패턴 기반 선행 신호 (Power Candle, 개미지옥, N자 눌림목, 휴화산)<br/>
-                • <strong>Track 2 (Radar Scoring):</strong> 0-90점 - Base(0-15) + Momentum(0-45) + Trend(0-40)<br/>
+                • <strong>Track 2 (Radar Scoring):</strong> 0-90점 - Base(0-15) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6)<br/>
                 <strong>✨ v3.10.0 핵심:</strong> Golden Zones 패턴 감지 시 96-99점 (S+등급), 미감지 시 Radar Scoring (최대 90점)
               </div>
             </div>
