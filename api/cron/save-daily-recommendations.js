@@ -156,16 +156,17 @@ module.exports = async (req, res) => {
       return res.status(200).json({
         success: true,
         mode: 'alert',
-        version: 'v3.16',
+        version: 'v3.17',
         date: yesterday,
         top3Count: top3.length,
         telegramSent: sent,
         envCheck: {
           hasBotToken: !!process.env.TELEGRAM_BOT_TOKEN,
           hasChatId: !!process.env.TELEGRAM_CHAT_ID,
-          tokenLength: (process.env.TELEGRAM_BOT_TOKEN || '').length,
-          chatIdLength: (process.env.TELEGRAM_CHAT_ID || '').length,
-          testVar: process.env.TEST_VAR || 'not found'
+          hasSupabaseUrl: !!process.env.SUPABASE_URL,
+          hasSupabaseKey: !!process.env.SUPABASE_ANON_KEY,
+          testVar: process.env.TEST_VAR || 'not found',
+          allEnvKeys: Object.keys(process.env).filter(k => k.includes('TELEGRAM') || k.includes('SUPA') || k.includes('TEST'))
         },
         stocks: top3.map(s => ({
           stockCode: s.stock_code,
