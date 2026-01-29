@@ -1,6 +1,7 @@
 /**
- * C, D 등급 (45점 미만) 종목 삭제 API
+ * 저품질 종목 삭제 API
  * GET /api/recommendations/cleanup
+ * GET /api/recommendations/cleanup?mode=etf  (ETF/지수 종목 삭제)
  *
  * 수동 실행용 (일회성)
  */
@@ -36,6 +37,54 @@ module.exports = async (req, res) => {
   }
 
   try {
+    const mode = req.query.mode || 'low_grade';
+
+    // ETF/지수 삭제 모드
+    if (mode === 'etf') {
+      console.log('\n🧹 ETF/지수 연동 종목 삭제 시작...\n');
+
+      // ETF 키워드
+      const etfKeywords = ['200', '150', '300', 'ETF', 'ETN', '파워', 'HK', 'BK', '레버', '인버스', 'KODEX', 'TIGER'];
+
+      // 전체 종목 조회
+      const { data: allStocks, error: selectError } = await supabase
+        .from('screening_recommendations')
+        .select('id, stock_code, stock_name, total_score, recommendation_grade, recommendation_date');
+
+      if (selectError) {
+        return res.status(500).json({ error: selectError.message });
+      }
+
+      // ETF 필터링
+      const etfStocks = allStocks.filter(s => {
+        const name = s.stock_name || '';
+        return etfKeywords.some(k => name.includes(k));
+      });
+
+      if (etfStocks.length === 0) {
+        return res.status(200).json({ success: true, message: 'No ETF stocks to delete', deleted: 0 });
+      }
+
+      console.log(`📊 ETF 삭제 대상: ${etfStocks.length}개`);
+      etfStocks.forEach(s => console.log(`  - ${s.stock_name} (${s.stock_code})`));
+
+      // 일별 가격 삭제
+      const ids = etfStocks.map(s => s.id);
+      await supabase.from('recommendation_daily_prices').delete().in('recommendation_id', ids);
+
+      // 추천 종목 삭제
+      await supabase.from('screening_recommendations').delete().in('id', ids);
+
+      console.log(`\n✅ ETF 삭제 완료: ${etfStocks.length}개\n`);
+      return res.status(200).json({
+        success: true,
+        mode: 'etf',
+        deleted: etfStocks.length,
+        stocks: etfStocks.map(s => ({ name: s.stock_name, code: s.stock_code }))
+      });
+    }
+
+    // 기존 로직: 45점 미만 삭제
     console.log('\n🧹 45점 미만 (C, D 등급) 종목 삭제 시작...\n');
 
     // Step 1: 45점 미만 종목 조회
