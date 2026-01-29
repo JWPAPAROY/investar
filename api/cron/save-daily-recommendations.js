@@ -158,6 +158,10 @@ module.exports = async (req, res) => {
         date: yesterday,
         top3Count: top3.length,
         telegramSent: sent,
+        envCheck: {
+          hasBotToken: !!process.env.TELEGRAM_BOT_TOKEN,
+          hasChatId: !!process.env.TELEGRAM_CHAT_ID
+        },
         stocks: top3.map(s => ({
           stockCode: s.stock_code,
           stockName: s.stock_name,

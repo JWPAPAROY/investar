@@ -1,0 +1,271 @@
+{
+  "timestamp": "2025-12-19T07:18:17.650Z",
+  "totalStocks": 175,
+  "overall": {
+    "label": "전체",
+    "count": 175,
+    "winCount": 60,
+    "lossCount": 115,
+    "winRate": 34.29,
+    "avgReturn": 4.2,
+    "maxReturn": 380.69,
+    "minReturn": -70.38,
+    "profitFactor": 1.83
+  },
+  "byGrade": {
+    "과열": {
+      "label": "과열",
+      "count": 19,
+      "winCount": 4,
+      "lossCount": 15,
+      "winRate": 21.05,
+      "avgReturn": 0.3,
+      "maxReturn": 14.53,
+      "minReturn": -8.18,
+      "profitFactor": 1.37
+    },
+    "B": {
+      "label": "B",
+      "count": 21,
+      "winCount": 9,
+      "lossCount": 12,
+      "winRate": 42.86,
+      "avgReturn": 5.04,
+      "maxReturn": 39.14,
+      "minReturn": -10.17,
+      "profitFactor": 5.47
+    },
+    "C": {
+      "label": "C",
+      "count": 7,
+      "winCount": 0,
+      "lossCount": 7,
+      "winRate": 0,
+      "avgReturn": -0.85,
+      "maxReturn": 0,
+      "minReturn": -5.95,
+      "profitFactor": 0
+    },
+    "D": {
+      "label": "D",
+      "count": 7,
+      "winCount": 2,
+      "lossCount": 5,
+      "winRate": 28.57,
+      "avgReturn": -0.67,
+      "maxReturn": 6.56,
+      "minReturn": -12.25,
+      "profitFactor": 0.62
+    },
+    "A": {
+      "label": "A",
+      "count": 72,
+      "winCount": 28,
+      "lossCount": 44,
+      "winRate": 38.89,
+      "avgReturn": -1.42,
+      "maxReturn": 64.28,
+      "minReturn": -70.38,
+      "profitFactor": 0.81
+    },
+    "S": {
+      "label": "S",
+      "count": 49,
+      "winCount": 17,
+      "lossCount": 32,
+      "winRate": 34.69,
+      "avgReturn": 15.02,
+      "maxReturn": 380.69,
+      "minReturn": -22.59,
+      "profitFactor": 3.46
+    }
+  },
+  "byCategory": {
+    "일반": {
+      "label": "일반",
+      "count": 102,
+      "winCount": 39,
+      "lossCount": 63,
+      "winRate": 38.24,
+      "avgReturn": 2.37,
+      "maxReturn": 265.52,
+      "minReturn": -22.59,
+      "profitFactor": 1.56
+    },
+    "고래감지": {
+      "label": "고래감지",
+      "count": 26,
+      "winCount": 11,
+      "lossCount": 15,
+      "winRate": 42.31,
+      "avgReturn": 13.27,
+      "maxReturn": 74.96,
+      "minReturn": -11.74,
+      "profitFactor": 11.95
+    },
+    "조용한매집": {
+      "label": "조용한매집",
+      "count": 29,
+      "winCount": 8,
+      "lossCount": 21,
+      "winRate": 27.59,
+      "avgReturn": 11.03,
+      "maxReturn": 380.69,
+      "minReturn": -28.59,
+      "profitFactor": 2.6
+    },
+    "복합신호(고래+조용한매집)": {
+      "label": "복합신호(고래+조용한매집)",
+      "count": 18,
+      "winCount": 2,
+      "lossCount": 16,
+      "winRate": 11.11,
+      "avgReturn": -9.54,
+      "maxReturn": 43.57,
+      "minReturn": -70.38,
+      "profitFactor": 0.22
+    }
+  },
+  "byScoreRange": {
+    "25-44점": {
+      "label": "25-44점",
+      "count": 20,
+      "winCount": 0,
+      "lossCount": 20,
+      "winRate": 0,
+      "avgReturn": 0,
+      "maxReturn": 0,
+      "minReturn": 0,
+      "profitFactor": 0
+    },
+    "45-49점": {
+      "label": "45-49점",
+      "count": 37,
+      "winCount": 8,
+      "lossCount": 29,
+      "winRate": 21.62,
+      "avgReturn": -5.13,
+      "maxReturn": 47.71,
+      "minReturn": -21.81,
+      "profitFactor": 0.41
+    },
+    "50-59점": {
+      "label": "50-59점",
+      "count": 67,
+      "winCount": 33,
+      "lossCount": 34,
+      "winRate": 49.25,
+      "avgReturn": 2.01,
+      "maxReturn": 64.28,
+      "minReturn": -70.38,
+      "profitFactor": 1.43
+    },
+    "60-69점": {
+      "label": "60-69점",
+      "count": 35,
+      "winCount": 12,
+      "lossCount": 23,
+      "winRate": 34.29,
+      "avgReturn": -1,
+      "maxReturn": 74.96,
+      "minReturn": -22.59,
+      "profitFactor": 0.83
+    },
+    "70-79점": {
+      "label": "70-79점",
+      "count": 12,
+      "winCount": 6,
+      "lossCount": 6,
+      "winRate": 50,
+      "avgReturn": 66.23,
+      "maxReturn": 380.69,
+      "minReturn": -11.74,
+      "profitFactor": 26.47
+    },
+    "80+점": {
+      "label": "80+점",
+      "count": 4,
+      "winCount": 1,
+      "lossCount": 3,
+      "winRate": 25,
+      "avgReturn": 7.6,
+      "maxReturn": 43.57,
+      "minReturn": -5.95,
+      "profitFactor": 3.31
+    }
+  },
+  "topWinners": [
+    {
+      "name": "천일고속",
+      "grade": "S",
+      "category": "조용한매집",
+      "return": 380.69,
+      "days": 13
+    },
+    {
+      "name": "SK하이닉스",
+      "grade": "S",
+      "category": "일반",
+      "return": 265.52,
+      "days": 29
+    },
+    {
+      "name": "이뮨온시아",
+      "grade": "S",
+      "category": "고래감지",
+      "return": 74.96,
+      "days": 19
+    },
+    {
+      "name": "이뮨온시아",
+      "grade": "S",
+      "category": "고래감지",
+      "return": 69.22,
+      "days": 16
+    },
+    {
+      "name": "이뮨온시아",
+      "grade": "S",
+      "category": "고래감지",
+      "return": 69.22,
+      "days": 18
+    }
+  ],
+  "topLosers": [
+    {
+      "name": "디앤디파마텍",
+      "grade": "A",
+      "category": "복합신호(고래+조용한매집)",
+      "return": -70.38,
+      "days": 27
+    },
+    {
+      "name": "에코글로우",
+      "grade": "A",
+      "category": "조용한매집",
+      "return": -28.59,
+      "days": 19
+    },
+    {
+      "name": "케이쓰리아이",
+      "grade": "A",
+      "category": "복합신호(고래+조용한매집)",
+      "return": -27.23,
+      "days": 22
+    },
+    {
+      "name": "젠큐릭스",
+      "grade": "S",
+      "category": "일반",
+      "return": -22.59,
+      "days": 15
+    },
+    {
+      "name": "벨로크",
+      "grade": "A",
+      "category": "일반",
+      "return": -22.54,
+      "days": 15
+    }
+  ]
+}

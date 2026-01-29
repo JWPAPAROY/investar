@@ -1,0 +1,161 @@
+{
+  "holdingPeriods": {
+    "1": {
+      "count": 6,
+      "winRate": 16.666666666666664,
+      "avgReturn": -1.2766666666666666,
+      "maxReturn": 0.18,
+      "minReturn": -3.27,
+      "byGrade": {
+        "과열": {
+          "count": 2,
+          "winRate": 50,
+          "avgReturn": -0.165
+        },
+        "B": {
+          "count": 4,
+          "winRate": 0,
+          "avgReturn": -1.8325
+        }
+      }
+    },
+    "3": {
+      "count": 6,
+      "winRate": 100,
+      "avgReturn": 4.138333333333333,
+      "maxReturn": 15.92,
+      "minReturn": 0.05,
+      "byGrade": {
+        "과열": {
+          "count": 2,
+          "winRate": 100,
+          "avgReturn": 8.765
+        },
+        "B": {
+          "count": 4,
+          "winRate": 100,
+          "avgReturn": 1.825
+        }
+      }
+    },
+    "5": {
+      "count": 6,
+      "winRate": 100,
+      "avgReturn": 8.558333333333334,
+      "maxReturn": 23.16,
+      "minReturn": 0.1,
+      "byGrade": {
+        "과열": {
+          "count": 2,
+          "winRate": 100,
+          "avgReturn": 19.195
+        },
+        "B": {
+          "count": 4,
+          "winRate": 100,
+          "avgReturn": 3.24
+        }
+      }
+    },
+    "7": {
+      "count": 6,
+      "winRate": 100,
+      "avgReturn": 11.388333333333334,
+      "maxReturn": 24.24,
+      "minReturn": 0.05,
+      "byGrade": {
+        "과열": {
+          "count": 2,
+          "winRate": 100,
+          "avgReturn": 21.564999999999998
+        },
+        "B": {
+          "count": 4,
+          "winRate": 100,
+          "avgReturn": 6.300000000000001
+        }
+      }
+    },
+    "14": {
+      "count": 6,
+      "winRate": 83.33333333333334,
+      "avgReturn": 8.516666666666666,
+      "maxReturn": 19.95,
+      "minReturn": -1.08,
+      "byGrade": {
+        "과열": {
+          "count": 2,
+          "winRate": 100,
+          "avgReturn": 18.755
+        },
+        "B": {
+          "count": 4,
+          "winRate": 75,
+          "avgReturn": 3.3975
+        }
+      }
+    }
+  },
+  "diversity": {
+    "diversity": {
+      "totalSamples": 59,
+      "uniqueStocks": 6,
+      "top10Ratio": "100.0",
+      "avgPerStock": "9.8"
+    },
+    "topStocks": [
+      {
+        "name": "NAVER",
+        "count": 12,
+        "avgReturn": "9.70"
+      },
+      {
+        "name": "한화에어로스페이스",
+        "count": 12,
+        "avgReturn": "13.56"
+      },
+      {
+        "name": "HD현대일렉트릭",
+        "count": 11,
+        "avgReturn": "5.04"
+      },
+      {
+        "name": "유진 챔피언중단기크레딧 X클래스",
+        "count": 11,
+        "avgReturn": "0.20"
+      },
+      {
+        "name": "한국항공우주",
+        "count": 10,
+        "avgReturn": "19.60"
+      },
+      {
+        "name": "대한광통신",
+        "count": 3,
+        "avgReturn": "26.22"
+      }
+    ],
+    "gradeOverlap": {
+      "onlyOverheat": 2,
+      "onlyB": 4,
+      "both": 0
+    }
+  },
+  "timing": {
+    "overheat": {
+      "avgReturn": "21.13",
+      "winRate": "100.0",
+      "strategy": "즉시 매수 + 단기 보유 (3-7일)",
+      "stopLoss": "-5%",
+      "target": "+15~25%"
+    },
+    "gradeB": {
+      "avgReturn": "7.32",
+      "winRate": "100.0",
+      "strategy": "검증 후 매수 + 중장기 보유 (7-14일)",
+      "stopLoss": "-7%",
+      "target": "+5~15%"
+    }
+  },
+  "generatedAt": "2026-01-07T05:12:59.093Z"
+}
