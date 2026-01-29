@@ -13,8 +13,12 @@
       "schedule": "0 7 * * *"
     },
     {
-      "path": "/api/cron/save-daily-recommendations",
-      "schedule": "10 7 * * *"
+      "path": "/api/cron/save-daily-recommendations?mode=save",
+      "schedule": "10 7 * * 1-5"
+    },
+    {
+      "path": "/api/cron/save-daily-recommendations?mode=alert",
+      "schedule": "30 23 * * 0-4"
     }
   ]
 }

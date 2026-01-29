@@ -1,26 +1,177 @@
 /**
- * 매일 추천 종목 자동 저장 Cron (v3.12 개선)
+ * 매일 추천 종목 자동 저장 & 알림 Cron (v3.14)
  *
- * 일정: 월-금 오후 4시 10분 (장마감 후 40분, 가격 업데이트 후 10분)
- * 목적: 황금 구간(50-79점) 종목을 Supabase에 자동 저장
+ * 모드:
+ * - save (16:10 KST): 스크리닝 + Supabase 저장
+ * - alert (08:30 KST): 어제 저장된 TOP 3 텔레그램 알림
+ *
+ * 목적: 황금 구간(50-79점) 종목을 Supabase에 자동 저장 + 아침 알림
  * 백테스팅 검증: 114개, 승률 43.86%, 평균 +7.87% (2025-12-05)
  */
 
 const screener = require('../../backend/screening');
 const supabase = require('../../backend/supabaseClient');
 
+/**
+ * 텔레그램 메시지 전송
+ */
+async function sendTelegramMessage(message) {
+  const botToken = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+
+  if (!botToken || !chatId) {
+    console.log('⚠️ 텔레그램 설정 없음 - 알림 건너뜀');
+    return false;
+  }
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML'
+      })
+    });
+
+    const result = await response.json();
+    if (result.ok) {
+      console.log('✅ 텔레그램 알림 전송 성공');
+      return true;
+    } else {
+      console.error('❌ 텔레그램 전송 실패:', result.description);
+      return false;
+    }
+  } catch (error) {
+    console.error('❌ 텔레그램 전송 오류:', error.message);
+    return false;
+  }
+}
+
+/**
+ * TOP 3 알림 메시지 생성
+ */
+function formatTop3Message(stocks, date) {
+  if (!stocks || stocks.length === 0) {
+    return `📊 <b>Investar 알림</b> (${date})\n\n추천 종목이 없습니다.`;
+  }
+
+  let message = `🏆 <b>오늘의 TOP 3 추천 종목</b>\n`;
+  message += `📅 ${date} 기준\n\n`;
+
+  stocks.slice(0, 3).forEach((stock, i) => {
+    const medal = ['🥇', '🥈', '🥉'][i];
+    const stopLoss5 = Math.floor(stock.recommended_price * 0.95);
+
+    message += `${medal} <b>${stock.stock_name}</b> (${stock.stock_code})\n`;
+    message += `   📊 ${stock.total_score.toFixed(1)}점 | ${stock.recommendation_grade}등급\n`;
+    message += `   💰 ${stock.recommended_price.toLocaleString()}원\n`;
+    message += `   🛡️ 손절가: ${stopLoss5.toLocaleString()}원 (-5%)\n`;
+
+    // 카테고리 표시
+    const categories = [];
+    if (stock.whale_detected) categories.push('🐋고래');
+    if (stock.accumulation_detected) categories.push('🤫매집');
+    if (categories.length > 0) {
+      message += `   ${categories.join(' ')}\n`;
+    }
+    message += `\n`;
+  });
+
+  message += `💡 <i>고래+황금구간 전략 (승률 76.9%)</i>\n`;
+  message += `🔗 https://investar-xi.vercel.app`;
+
+  return message;
+}
+
+/**
+ * 어제 날짜 구하기 (KST 기준)
+ */
+function getYesterdayDateKST() {
+  const now = new Date();
+  // UTC+9 적용
+  const kstOffset = 9 * 60 * 60 * 1000;
+  const kstNow = new Date(now.getTime() + kstOffset);
+  // 하루 전
+  kstNow.setDate(kstNow.getDate() - 1);
+  return kstNow.toISOString().slice(0, 10);
+}
+
 module.exports = async (req, res) => {
-  console.log('📊 일일 추천 종목 자동 저장 시작...\n');
+  const mode = req.query.mode || 'save';
+  console.log(`📊 Cron 실행 (mode: ${mode})\n`);
 
   try {
     // Supabase 비활성화 체크
     if (!supabase) {
-      console.log('⚠️ Supabase 미설정 - 저장 건너뜀');
+      console.log('⚠️ Supabase 미설정 - 건너뜀');
       return res.status(200).json({
         success: false,
         message: 'Supabase not configured'
       });
     }
+
+    // =============================================
+    // 🔔 ALERT 모드: 아침 알림 (08:30 KST)
+    // =============================================
+    if (mode === 'alert') {
+      console.log('🔔 아침 알림 모드 시작...');
+
+      // 어제 저장된 TOP 3 조회 (고래 + 황금구간 우선)
+      const yesterday = getYesterdayDateKST();
+      console.log(`📅 조회 날짜: ${yesterday}`);
+
+      const { data: stocks, error } = await supabase
+        .from('screening_recommendations')
+        .select('*')
+        .eq('recommendation_date', yesterday)
+        .eq('is_active', true)
+        .gte('total_score', 50)
+        .lt('total_score', 80)
+        .order('total_score', { ascending: false });
+
+      if (error) {
+        console.error('❌ Supabase 조회 실패:', error);
+        return res.status(500).json({ success: false, error: error.message });
+      }
+
+      // 고래 감지 종목 우선 정렬
+      const sortedStocks = (stocks || []).sort((a, b) => {
+        // 고래 감지 우선
+        if (a.whale_detected && !b.whale_detected) return -1;
+        if (!a.whale_detected && b.whale_detected) return 1;
+        // 점수순
+        return b.total_score - a.total_score;
+      });
+
+      const top3 = sortedStocks.slice(0, 3);
+      console.log(`✅ TOP 3 조회 완료: ${top3.length}개`);
+
+      // 텔레그램 알림 전송
+      const message = formatTop3Message(top3, yesterday);
+      const sent = await sendTelegramMessage(message);
+
+      return res.status(200).json({
+        success: true,
+        mode: 'alert',
+        date: yesterday,
+        top3Count: top3.length,
+        telegramSent: sent,
+        stocks: top3.map(s => ({
+          stockCode: s.stock_code,
+          stockName: s.stock_name,
+          score: s.total_score,
+          grade: s.recommendation_grade,
+          whale: s.whale_detected
+        }))
+      });
+    }
+
+    // =============================================
+    // 💾 SAVE 모드: 저장 (16:10 KST) - 기존 로직
+    // =============================================
+    console.log('💾 저장 모드 시작...');
 
     // Step 1: 종합 스크리닝 (전체 종목)
     console.log('🔍 종합 스크리닝 실행 중...');
@@ -66,7 +217,9 @@ module.exports = async (req, res) => {
     const recommendations = filteredStocks.map(stock => ({
       recommendation_date: today,
       stock_code: stock.stockCode,
-      stock_name: stock.stockName || stock.stockCode,
+      stock_name: (stock.stockName && stock.stockName.trim() !== '' && !stock.stockName.startsWith('['))
+        ? stock.stockName
+        : stock.stockCode,  // 종목명이 비어있거나 [코드] 형태면 코드만 저장
       recommended_price: stock.currentPrice || 0,
       recommendation_grade: stock.recommendation?.grade || 'D',
       total_score: stock.totalScore || 0,
