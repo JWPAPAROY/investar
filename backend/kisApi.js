@@ -134,9 +134,16 @@ class KISApi {
         return null;
       }
 
-      // 캐싱된 종목명 우선 사용, 없으면 API 응답, 그것도 없으면 종목코드 표시
-      const cachedName = this.getCachedStockName(stockCode);
-      const stockName = cachedName || output.prdt_name || `[${stockCode}]`;
+      // 캐싱된 종목명 우선 사용, 없으면 API 응답
+      let cachedName = this.getCachedStockName(stockCode);
+      let stockName = cachedName || output.prdt_name;
+
+      // 종목명이 여전히 없으면 별도 API로 조회
+      if (!stockName || stockName.trim() === '') {
+        console.log(`⚠️ 종목명 누락 [${stockCode}], 별도 조회 시도...`);
+        const fetchedName = await this.getStockName(stockCode);
+        stockName = fetchedName || `[${stockCode}]`;
+      }
 
       const price = parseInt(output.stck_prpr);
       const change = parseFloat(output.prdy_ctrt);
@@ -559,6 +566,7 @@ class KISApi {
       'ELW', 'DAISHIN', 'HANA', 'KOREA', 'EUGENE', 'CAPE', 'HMC', 'MERITZ', 'HANWHA',
       // 지수 관련 ETF/ETN/ELW
       'K200', 'KOSPI200', 'KOSDAQ150', 'KRX300',
+      'HK200', 'BK', ' 200', ' 150', ' 300', // 지수 연동 상품 (파워 200 등)
       // 특수 펀드/파생상품
       'plus', 'PLUS', 'Plus', 'rise', 'RISE', 'Rise', // rise 계열 ETF 추가
       'unicorn', 'UNICORN', 'Unicorn',
@@ -630,7 +638,10 @@ class KISApi {
 
         filteredPriceChange.forEach(item => {
           if (!stockMap.has(item.code)) {
-            stockMap.set(item.code, item.name);
+            // 종목명이 유효한 경우에만 캐시에 저장
+            if (item.name && item.name.trim() !== '') {
+              stockMap.set(item.code, item.name);
+            }
             badgeMap.set(item.code, { priceChange: true, volumeSurge: false, volume: false, tradingValue: false });
           } else {
             badgeMap.get(item.code).priceChange = true;
@@ -651,7 +662,10 @@ class KISApi {
 
         filteredVolumeSurge.forEach(item => {
           if (!stockMap.has(item.code)) {
-            stockMap.set(item.code, item.name);
+            // 종목명이 유효한 경우에만 캐시에 저장
+            if (item.name && item.name.trim() !== '') {
+              stockMap.set(item.code, item.name);
+            }
             badgeMap.set(item.code, { priceChange: false, volumeSurge: true, volume: false, tradingValue: false });
           } else {
             badgeMap.get(item.code).volumeSurge = true;
@@ -672,7 +686,10 @@ class KISApi {
 
         filteredVolume.forEach(item => {
           if (!stockMap.has(item.code)) {
-            stockMap.set(item.code, item.name);
+            // 종목명이 유효한 경우에만 캐시에 저장
+            if (item.name && item.name.trim() !== '') {
+              stockMap.set(item.code, item.name);
+            }
             badgeMap.set(item.code, { priceChange: false, volumeSurge: false, volume: true, tradingValue: false });
           } else {
             badgeMap.get(item.code).volume = true;
@@ -693,7 +710,10 @@ class KISApi {
 
         filteredTradingValue.forEach(item => {
           if (!stockMap.has(item.code)) {
-            stockMap.set(item.code, item.name);
+            // 종목명이 유효한 경우에만 캐시에 저장
+            if (item.name && item.name.trim() !== '') {
+              stockMap.set(item.code, item.name);
+            }
             badgeMap.set(item.code, { priceChange: false, volumeSurge: false, volume: false, tradingValue: true });
           } else {
             badgeMap.get(item.code).tradingValue = true;
@@ -795,6 +815,47 @@ class KISApi {
       };
 
       return { codes, nameMap: new Map(), badgeMap: new Map() };
+    }
+  }
+
+  /**
+   * 종목명 조회 전용 함수 (종목기본정보 API 사용)
+   * @param {string} stockCode - 종목코드
+   * @returns {Promise<string|null>} - 종목명 또는 null
+   */
+  async getStockName(stockCode) {
+    try {
+      const token = await this.getAccessToken();
+
+      const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-price`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'authorization': `Bearer ${token}`,
+          'appkey': this.appKey,
+          'appsecret': this.appSecret,
+          'tr_id': 'FHKST01010100'
+        },
+        params: {
+          FID_COND_MRKT_DIV_CODE: 'J',
+          FID_INPUT_ISCD: stockCode
+        }
+      });
+
+      if (response.data.rt_cd === '0' && response.data.output) {
+        const stockName = response.data.output.prdt_name;
+
+        // 캐시에 저장
+        if (stockName && this.stockNameCache) {
+          this.stockNameCache.set(stockCode, stockName);
+        }
+
+        return stockName || null;
+      }
+
+      return null;
+    } catch (error) {
+      console.warn(`⚠️ 종목명 조회 실패 [${stockCode}]:`, error.message);
+      return null;
     }
   }
 
