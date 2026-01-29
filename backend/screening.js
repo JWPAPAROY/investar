@@ -1257,20 +1257,41 @@ class StockScreener {
       let totalScore = 0;
       let radarScore = null;
 
+      // 🆕 v3.14: 중복 등장 가중치 (Multi-Signal Bonus)
+      // 여러 API에서 동시 등장하는 종목 = 더 강한 신호
+      const rankBadgesForScore = kisApi.getCachedRankBadges(stockCode);
+      let multiSignalBonus = 0;
+      let multiSignalCount = 0;
+      if (rankBadgesForScore) {
+        multiSignalCount = Object.values(rankBadgesForScore).filter(Boolean).length;
+        // 2개 API: +0점, 3개 API: +3점, 4개 API: +6점
+        if (multiSignalCount >= 4) multiSignalBonus = 6;
+        else if (multiSignalCount >= 3) multiSignalBonus = 3;
+      }
+
       if (goldenZone.detected) {
         // Track 1: Golden Zones 점수 사용 (96-99점)
         totalScore = goldenZone.score; // 99, 98, 97, 96
         console.log(`🎯 Golden Zone 감지: ${goldenZone.pattern} (${totalScore}점)`);
       } else {
-        // Track 2: Radar Scoring 합산 (0-90점)
+        // Track 2: Radar Scoring 합산 (0-90점) + Multi-Signal Bonus
+        const rawRadarScore = baseScore + momentumScore.totalScore + trendScore.totalScore;
+        const bonusAppliedScore = rawRadarScore + multiSignalBonus;
+
         radarScore = {
           baseScore: parseFloat(baseScore.toFixed(2)),
           momentumScore: momentumScore,
           trendScore: trendScore,
-          total: parseFloat((baseScore + momentumScore.totalScore + trendScore.totalScore).toFixed(2))
+          multiSignalBonus: multiSignalBonus, // 🆕 중복 등장 보너스
+          multiSignalCount: multiSignalCount, // 🆕 등장 API 개수
+          total: parseFloat(Math.min(bonusAppliedScore, 90).toFixed(2))
         };
 
-        totalScore = Math.min(radarScore.total, 90); // Cap at 90
+        totalScore = Math.min(bonusAppliedScore, 90); // Cap at 90
+
+        if (multiSignalBonus > 0) {
+          console.log(`📊 Multi-Signal Bonus: ${multiSignalCount}개 API 등장 → +${multiSignalBonus}점`);
+        }
       }
 
       // 4. 과열 감지 (v3.10.0 NEW - RSI > 80 OR 이격도 > 115)
@@ -1387,12 +1408,22 @@ class StockScreener {
           }
         },
 
-        // 4. 최종 점수
+        // 4. Multi-Signal Bonus (🆕 v3.14)
+        multiSignalBonus: {
+          name: '중복 등장 가중치 (0-6점) 🆕',
+          score: multiSignalBonus,
+          apiCount: multiSignalCount,
+          details: multiSignalCount >= 2
+            ? `${multiSignalCount}개 API 동시 등장 → +${multiSignalBonus}점`
+            : '단일 API 등장'
+        },
+
+        // 5. 최종 점수
         finalScore: parseFloat(totalScore.toFixed(2)),
         maxScore: goldenZone.detected ? 99 : 90,
         formula: goldenZone.detected
           ? 'Track 1: Golden Zones Pattern Score (96-99)'
-          : 'Track 2: Base(0-15) + Momentum(0-45) + Trend(0-40) = Radar(0-90)' // v3.10.0
+          : 'Track 2: Base(0-15) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6) = Radar(0-90)' // v3.14
       };
 
       // 랭킹 뱃지 가져오기
@@ -1938,10 +1969,11 @@ class StockScreener {
     console.log(`  └─ TOP 3 후보: ${eligibleCount}개`);
 
     // 전략 메타데이터 추가 함수
+    // 🆕 v3.14: 2순위 전략 업데이트 (60점→70점, 대박구간)
     const addStrategyMeta = (stock, priority) => {
       const strategies = {
         1: { name: '황금구간(50-79점)', winRate: 76.9, avgReturn: 27.02 },
-        2: { name: '60점 이상', winRate: 71.4, avgReturn: 23.0 },
+        2: { name: '대박구간(70점+)', winRate: 50.0, avgReturn: 66.23 },
         3: { name: '고래 단독', winRate: 64.7, avgReturn: 20.31 }
       };
 
@@ -1978,10 +2010,12 @@ class StockScreener {
     top3.push(...priority1.slice(0, 3));
 
     // 3개 미만이면 2순위에서 충원
+    // 🆕 v3.14: 60점 → 70점 상향 (60-69점 혼재구간 제외)
+    // 백테스트: 60-69점 승률 35.3%, 평균 -1.03% (역전 현상)
     if (top3.length < 3) {
-      console.log(`\n  📍 2순위 선정 (고래 + 60점 이상)...`);
+      console.log(`\n  📍 2순위 선정 (고래 + 70점 이상)...`);
       const priority2 = allStocks
-        .filter(s => isEligible(s) && s.totalScore >= 60 && !top3.some(t => t.stockCode === s.stockCode))
+        .filter(s => isEligible(s) && s.totalScore >= 70 && !top3.some(t => t.stockCode === s.stockCode))
         .sort((a, b) => b.totalScore - a.totalScore)
         .map(s => addStrategyMeta(s, 2));
 
