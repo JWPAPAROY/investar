@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.14 (중복 등장 가중치 & TOP 3 전략 최적화)
-- **최종 업데이트**: 2025-12-11
+- **버전**: 3.15 (텔레그램 아침 알림 시스템)
+- **최종 업데이트**: 2026-01-29
 
 ---
 
@@ -1183,6 +1183,40 @@ async function testGoldenZones() {
 ---
 
 ## 📝 변경 이력
+
+### v3.15 (2026-01-29) - 📱 텔레그램 아침 알림 시스템
+
+**사용자 요청**: "자동으로 알림 받고 싶어"
+
+#### 텔레그램 알림 기능 추가 🆕
+
+**구현 내용**: 기존 `save-daily-recommendations.js`에 mode 파라미터 추가
+- `mode=save` (16:10 KST): 기존 스크리닝 + Supabase 저장
+- `mode=alert` (08:30 KST): 전날 저장된 TOP 3 텔레그램 알림
+
+**Cron 스케줄 (vercel.json)**:
+| 시간 (UTC) | 시간 (KST) | 모드 | 동작 |
+|-----------|-----------|------|------|
+| 07:10 | 16:10 | save | 당일 스크리닝 → Supabase 저장 |
+| 23:30 | 08:30 | alert | 전날 TOP 3 → 텔레그램 알림 |
+
+**알림 메시지 내용**:
+- 🥇🥈🥉 TOP 3 종목 (고래 감지 종목 우선)
+- 종목명, 코드, 점수, 등급
+- 추천가, 손절가 (-5%)
+- 고래/매집 태그
+
+**환경변수 (Vercel)**:
+- `TELEGRAM_BOT_TOKEN`: 텔레그램 봇 토큰
+- `TELEGRAM_CHAT_ID`: 알림 받을 채팅 ID
+
+**수정 파일**:
+- `api/cron/save-daily-recommendations.js`: alert 모드 추가
+- `vercel.json`: Cron 스케줄 추가
+
+**핵심 철학**: "API 추가 없이 기존 파일에 mode 파라미터로 기능 확장"
+
+---
 
 ### v3.14 (2026-01-29) - 📊 중복 등장 가중치 & TOP 3 전략 최적화
 
