@@ -156,7 +156,7 @@ module.exports = async (req, res) => {
       return res.status(200).json({
         success: true,
         mode: 'alert',
-        version: 'v3.15',
+        version: 'v3.16',
         date: yesterday,
         top3Count: top3.length,
         telegramSent: sent,
@@ -164,7 +164,8 @@ module.exports = async (req, res) => {
           hasBotToken: !!process.env.TELEGRAM_BOT_TOKEN,
           hasChatId: !!process.env.TELEGRAM_CHAT_ID,
           tokenLength: (process.env.TELEGRAM_BOT_TOKEN || '').length,
-          chatIdLength: (process.env.TELEGRAM_CHAT_ID || '').length
+          chatIdLength: (process.env.TELEGRAM_CHAT_ID || '').length,
+          testVar: process.env.TEST_VAR || 'not found'
         },
         stocks: top3.map(s => ({
           stockCode: s.stock_code,
