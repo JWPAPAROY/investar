@@ -116,12 +116,13 @@ function calculateVWAP(chartData) {
   let cumulativeTPV = 0;  // 누적 (Typical Price × Volume)
   let cumulativeVolume = 0;
 
-  for (let i = 0; i < chartData.length; i++) {
+  // chartData는 내림차순(최신=0), VWAP은 과거→현재로 누적해야 함
+  for (let i = chartData.length - 1; i >= 0; i--) {
     const typicalPrice = (chartData[i].high + chartData[i].low + chartData[i].close) / 3;
     cumulativeTPV += typicalPrice * chartData[i].volume;
     cumulativeVolume += chartData[i].volume;
 
-    vwap.push({
+    vwap.unshift({  // unshift로 원래 내림차순 순서 유지
       date: chartData[i].date,
       vwap: cumulativeVolume === 0 ? 0 : (cumulativeTPV / cumulativeVolume).toFixed(2)
     });
@@ -203,19 +204,19 @@ function analyzeVolume(chartData) {
       date: latestData.date,
       price: latestData.close,
       volume: latestData.volume,
-      volumeMA20: volumeMA20[volumeMA20.length - 1]?.volumeMA
+      volumeMA20: volumeMA20[0]?.volumeMA
     },
     indicators: {
-      obv: obv[obv.length - 1]?.obv,
-      mfi: parseFloat(mfi[mfi.length - 1]?.mfi),
-      vwap: parseFloat(vwap[vwap.length - 1]?.vwap),
-      adLine: parseFloat(adLine[adLine.length - 1]?.adLine)
+      obv: obv[0]?.obv,
+      mfi: parseFloat(mfi[0]?.mfi),
+      vwap: parseFloat(vwap[0]?.vwap),
+      adLine: parseFloat(adLine[0]?.adLine)
     },
     signals: {
-      volumeSurge: volumeSurge.slice(-5),  // 최근 5개 급등 신호
-      mfiSignal: getMFISignal(parseFloat(mfi[mfi.length - 1]?.mfi)),
-      obvTrend: getOBVTrend(obv.slice(-10)),
-      priceVsVWAP: latestData.close > parseFloat(vwap[vwap.length - 1]?.vwap) ? '상승세' : '하락세'
+      volumeSurge: volumeSurge.slice(0, 5),  // 최근 5개 급등 신호
+      mfiSignal: getMFISignal(parseFloat(mfi[0]?.mfi)),
+      obvTrend: getOBVTrend(obv.slice(0, 10)),
+      priceVsVWAP: latestData.close > parseFloat(vwap[0]?.vwap) ? '상승세' : '하락세'
     },
     chartData: {
       volumeMA20: volumeMA20,
@@ -284,8 +285,8 @@ function calculateVPT(chartData) {
 function calculateVPTSlope(vptData) {
   if (vptData.length < 5) return 0;
 
-  const recent = vptData[vptData.length - 1].vpt;
-  const fiveDaysAgo = vptData[vptData.length - 5].vpt;
+  const recent = vptData[0].vpt;      // 최신
+  const fiveDaysAgo = vptData[4].vpt;  // 5일전
 
   return (recent - fiveDaysAgo) / 5;
 }

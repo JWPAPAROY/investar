@@ -137,7 +137,7 @@ function detectSilentAccumulation(chartData) {
     maxPrice: Math.round(maxPrice),
     minPrice: Math.round(minPrice),
     signal: isSilentAccumulation ? '🤫 조용한 매집 진행중' : '없음',
-    score: isSilentAccumulation ? Math.max(volumeGrowth, 10) : 0
+    score: isSilentAccumulation ? Math.min(volumeGrowth, 25) : 0
   };
 }
 
@@ -148,15 +148,15 @@ function detectSilentAccumulation(chartData) {
  * + Closing Strength 검증 추가 (윗꼬리 필터)
  */
 function detectEscapeVelocity(chartData) {
-  const recent = chartData.slice(-30);
-  const latest = recent[recent.length - 1];
-  const yesterday = recent[recent.length - 2];
+  const recent = chartData.slice(0, 30); // 최근 30일 (chartData[0]=오늘, 내림차순)
+  const latest = recent[0];    // 최신 = 오늘
+  const yesterday = recent[1]; // 어제
 
-  // 최근 20일 고가 (저항선)
-  const resistance = Math.max(...recent.slice(0, -5).map(d => d.high));
+  // 최근 30일 중 최근 5일 제외한 고가 (저항선)
+  const resistance = Math.max(...recent.slice(5).map(d => d.high));
 
-  // 평균 거래량
-  const avgVolume = recent.slice(0, -5).reduce((sum, d) => sum + d.volume, 0) / 25;
+  // 평균 거래량 (최근 5일 제외)
+  const avgVolume = recent.slice(5).reduce((sum, d) => sum + d.volume, 0) / Math.min(25, recent.slice(5).length);
 
   // Closing Strength: 종가가 당일 거래범위에서 차지하는 위치 (0~100%)
   const range = latest.high - latest.low;
@@ -216,8 +216,8 @@ function detectEscapeVelocity(chartData) {
  * 큰 움직임 직전 신호 (스프링 압축)
  */
 function detectLiquidityDrain(chartData) {
-  const recent = chartData.slice(-10); // 최근 10일
-  const previous = chartData.slice(-30, -10); // 이전 20일
+  const recent = chartData.slice(0, 10); // 최근 10일 (chartData[0]=오늘, 내림차순)
+  const previous = chartData.slice(10, 30); // 이전 20일
 
   // 평균 거래량 비교
   const avgVolumeRecent = recent.reduce((sum, d) => sum + d.volume, 0) / 10;
@@ -255,7 +255,7 @@ function detectLiquidityDrain(chartData) {
  * 실제 매수세/매도세 강도 측정
  */
 function calculateAsymmetricVolume(chartData) {
-  const recent = chartData.slice(-20);
+  const recent = chartData.slice(0, 20); // 최근 20일
 
   let upVolume = 0;
   let downVolume = 0;
@@ -289,18 +289,20 @@ function calculateAsymmetricVolume(chartData) {
  * 거래량 3일 연속 순증 체크
  */
 function checkVolumeConsecutiveIncrease(chartData, days = 3) {
-  const recent = chartData.slice(-days - 1); // N+1일 데이터 필요
+  const recent = chartData.slice(0, days + 1); // 최근 N+1일 (내림차순: [0]=오늘)
 
   if (recent.length < days + 1) {
     return { consecutive: false, days: 0 };
   }
 
+  // 내림차순이므로 recent[0]=오늘, recent[1]=어제...
+  // 연속 증가: 오늘>어제>그제 = recent[0]>recent[1]>recent[2]
   let consecutiveDays = 0;
-  for (let i = 1; i < recent.length; i++) {
-    if (recent[i].volume > recent[i - 1].volume) {
+  for (let i = 0; i < recent.length - 1; i++) {
+    if (recent[i].volume > recent[i + 1].volume) {
       consecutiveDays++;
     } else {
-      consecutiveDays = 0; // 연속 끊김
+      break; // 연속 끊김
     }
   }
 
@@ -317,26 +319,27 @@ function checkVolumeConsecutiveIncrease(chartData, days = 3) {
  * + 거래량 3일 연속 순증 조건 추가
  */
 function detectGradualAccumulation(chartData) {
-  const recent20 = chartData.slice(-20);
+  const recent20 = chartData.slice(0, 20); // 최근 20일 (내림차순: [0]=오늘)
   const volumeTrend = [];
 
-  // 5일 단위로 거래량 평균 계산
-  for (let i = 0; i < 4; i++) {
+  // 5일 단위로 거래량 평균 계산 (내림차순이므로 [0-4]=최근, [15-19]=가장 오래됨)
+  // 점진적 증가를 보려면 오래된→최근 순으로 비교해야 함
+  for (let i = 3; i >= 0; i--) {
     const period = recent20.slice(i * 5, (i + 1) * 5);
-    const avgVolume = period.reduce((sum, d) => sum + d.volume, 0) / 5;
+    const avgVolume = period.reduce((sum, d) => sum + d.volume, 0) / period.length;
     volumeTrend.push(avgVolume);
   }
 
-  // 점진적 증가: 각 주차마다 10% 이상 증가
+  // 점진적 증가: 각 주차마다 10% 이상 증가 (오래된→최근)
   const isGradualIncrease =
     volumeTrend[1] > volumeTrend[0] * 1.1 &&
     volumeTrend[2] > volumeTrend[1] * 1.1 &&
     volumeTrend[3] > volumeTrend[2] * 1.1;
 
   // 가격은 안정적 (최근 20일 변동폭 5% 이내)
-  const firstPrice = recent20[0].close;
-  const lastPrice = recent20[recent20.length - 1].close;
-  const priceChange = Math.abs((lastPrice - firstPrice) / firstPrice);
+  const currentPrice = recent20[0].close;  // 오늘 가격
+  const oldestPrice = recent20[recent20.length - 1].close;  // 20일 전 가격
+  const priceChange = Math.abs((currentPrice - oldestPrice) / oldestPrice);
   const priceStable = priceChange < 0.05;
 
   // 거래량 3일 연속 순증 체크
@@ -371,7 +374,7 @@ function detectGradualAccumulation(chartData) {
  * 대형 거래(기관/외국인) vs 소형 거래(개인) 비교
  */
 function detectSmartMoney(chartData) {
-  const recent10 = chartData.slice(-10);
+  const recent10 = chartData.slice(0, 10); // 최근 10일
 
   // 거래량 기준 정렬 (복사본 사용)
   const sortedByVolume = [...recent10].sort((a, b) => b.volume - a.volume);
@@ -421,24 +424,24 @@ function detectSmartMoney(chartData) {
  * 하락 후 거래량 급감 → 바닥 신호
  */
 function detectBottomFormation(chartData) {
-  const recent30 = chartData.slice(-30);
+  const recent30 = chartData.slice(0, 30); // 최근 30일 (내림차순: [0]=오늘)
 
-  // 1단계: 최근 고점 대비 15% 이상 하락
-  const highPrice = Math.max(...recent30.slice(0, 10).map(d => d.high));
-  const currentPrice = recent30[recent30.length - 1].close;
+  // 1단계: 30일 내 고점 대비 15% 이상 하락
+  const highPrice = Math.max(...recent30.map(d => d.high));
+  const currentPrice = recent30[0].close; // 오늘 가격
   const decline = ((currentPrice - highPrice) / highPrice) * 100;
   const declined = decline < -15;
 
   // 2단계: 최근 5일간 거래량 급감 (공포 소멸)
   const recentVolume =
-    recent30.slice(-5).reduce((sum, d) => sum + d.volume, 0) / 5;
+    recent30.slice(0, 5).reduce((sum, d) => sum + d.volume, 0) / 5;
   const avgVolume =
-    recent30.slice(0, 20).reduce((sum, d) => sum + d.volume, 0) / 20;
+    recent30.slice(5, 25).reduce((sum, d) => sum + d.volume, 0) / 20;
   const volumeRatio = recentVolume / avgVolume;
   const volumeDrying = volumeRatio < 0.5;
 
   // 3단계: 가격 횡보 (바닥 다지기) - 최근 5일 변동 3% 이내
-  const recent5Prices = recent30.slice(-5).map(d => d.close);
+  const recent5Prices = recent30.slice(0, 5).map(d => d.close);
   const maxPrice = Math.max(...recent5Prices);
   const minPrice = Math.min(...recent5Prices);
   const priceRange = ((maxPrice - minPrice) / currentPrice) * 100;
@@ -466,11 +469,11 @@ function detectBottomFormation(chartData) {
  * Phase 4B-1: 저항선 돌파 "직전" 포착
  */
 function detectBreakoutPreparation(chartData) {
-  const recent30 = chartData.slice(-30);
-  const currentPrice = recent30[recent30.length - 1].close;
+  const recent30 = chartData.slice(0, 30); // 최근 30일 (내림차순: [0]=오늘)
+  const currentPrice = recent30[0].close; // 오늘 가격
 
-  // 저항선 계산 (최근 30일 중 초반 25일의 고점)
-  const resistance = Math.max(...recent30.slice(0, 25).map(d => d.high));
+  // 저항선 계산 (최근 5일 제외한 25일의 고점)
+  const resistance = Math.max(...recent30.slice(5).map(d => d.high));
 
   // 저항선 터치 횟수 (2% 이내 접근)
   const touchCount = recent30.filter(
@@ -483,9 +486,9 @@ function detectBreakoutPreparation(chartData) {
 
   // 거래량 증가 추세 (돌파 준비)
   const recent5Volume =
-    recent30.slice(-5).reduce((sum, d) => sum + d.volume, 0) / 5;
+    recent30.slice(0, 5).reduce((sum, d) => sum + d.volume, 0) / 5;
   const prev5Volume =
-    recent30.slice(-10, -5).reduce((sum, d) => sum + d.volume, 0) / 5;
+    recent30.slice(5, 10).reduce((sum, d) => sum + d.volume, 0) / 5;
   const volumeIncreasing = recent5Volume > prev5Volume * 1.3;
 
   const detected = touchCount >= 3 && nearResistance && volumeIncreasing;
@@ -512,11 +515,11 @@ function detectBreakoutPreparation(chartData) {
  * + 고가 대비 낙폭 체크 추가 (10% 이상 경고)
  */
 function checkOverheating(chartData, currentPrice, volumeRatio, mfi) {
-  const recent10 = chartData.slice(-10);
-  const latest = chartData[0];  // chartData는 내림차순 (최신 데이터가 0번 인덱스)
+  const recent10 = chartData.slice(0, 10); // 최근 10일 (내림차순: [0]=오늘)
+  const latest = chartData[0];
 
   // 1. 최근 10일간 30% 이상 급등
-  const firstPrice = recent10[0].close;
+  const firstPrice = recent10[recent10.length - 1].close; // 10일 전 가격
   const surgePercent = ((currentPrice - firstPrice) / firstPrice) * 100;
   const surge = surgePercent > 30;
 
@@ -771,7 +774,7 @@ function checkInstitutionalFlow(investorData) {
  * 20일 고가 돌파 + 거래량 동반 여부 확인
  */
 function detectBreakoutConfirmation(chartData, currentPrice, currentVolume) {
-  const recent20 = chartData.slice(-20);
+  const recent20 = chartData.slice(0, 20); // 최근 20일
 
   // 20일 고가 (저항선)
   const resistance20d = Math.max(...recent20.map(d => d.high));
@@ -805,8 +808,8 @@ function detectBreakoutConfirmation(chartData, currentPrice, currentVolume) {
  * Z-Score 기반 통계적 이상치 감지
  */
 function detectAnomaly(chartData) {
-  const recent20 = chartData.slice(-20);
-  const latest = recent20[recent20.length - 1];
+  const recent20 = chartData.slice(0, 20); // 최근 20일
+  const latest = recent20[0]; // 오늘
 
   // 거래량 Z-Score 계산
   const volumes = recent20.map(d => d.volume);
@@ -844,7 +847,7 @@ function detectAnomaly(chartData) {
  * 변동성(표준편차) 대비 수익률 계산 (Sharpe Ratio 간소화 버전)
  */
 function calculateRiskAdjustedScore(chartData) {
-  const recent20 = chartData.slice(-20);
+  const recent20 = chartData.slice(0, 20); // 최근 20일
 
   // 일별 수익률 계산
   const returns = [];
@@ -965,7 +968,7 @@ function calculateConfluenceScore(analysisResult, additionalIndicators = {}) {
  * 최근 1~2일 내 발생한 신호만 높은 점수
  */
 function calculateSignalFreshness(chartData, analysisResult, additionalIndicators = {}) {
-  const recentData = chartData.slice(-2); // 최근 2일
+  // chartData[0]=오늘, chartData[1]=어제 (아래 latestDate/yesterdayDate에서 직접 참조)
   const latestDate = chartData[0].date;  // chartData는 내림차순 (최신 데이터가 0번 인덱스)
   const yesterdayDate = chartData.length >= 2 ? chartData[1].date : null;  // 1번 인덱스가 어제
 
@@ -1043,14 +1046,15 @@ function calculateSignalFreshness(chartData, analysisResult, additionalIndicator
  * 최근 20일 데이터로 내일 거래량 예측
  */
 function predictVolume(chartData) {
-  const recent20 = chartData.slice(-20);
+  const recent20 = chartData.slice(0, 20); // 최근 20일 (내림차순: [0]=오늘)
 
   // 선형회귀: y = a*x + b
   const n = recent20.length;
   let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0;
 
+  // 내림차순이므로 recent20[0]=오늘(가장 최근). x축은 오래된→최근 순으로 매핑
   recent20.forEach((d, i) => {
-    const x = i + 1; // 1, 2, 3, ..., 20
+    const x = n - i; // 20, 19, ..., 1 (오래된=20, 오늘=1 → 시간 순)
     const y = d.volume;
     sumX += x;
     sumY += y;
@@ -1062,12 +1066,12 @@ function predictVolume(chartData) {
   const intercept = (sumY - slope * sumX) / n;
 
   // 내일(21일) 예측
-  const predicted = slope * 21 + intercept;
+  const predicted = slope * (n + 1) + intercept;
   const avgVolume = sumY / n;
 
   // 가속도 감지 (최근 5일 vs 이전 15일)
-  const recent5 = recent20.slice(-5);
-  const before15 = recent20.slice(0, 15);
+  const recent5 = recent20.slice(0, 5);   // 최근 5일
+  const before15 = recent20.slice(5, 20); // 이전 15일
 
   const slope_recent = recent5.reduce((sum, d, i) => sum + (d.volume * (i + 1)), 0) / 15;
   const slope_before = before15.reduce((sum, d, i) => sum + (d.volume * (i + 1)), 0) / 120;
@@ -1091,7 +1095,7 @@ function predictVolume(chartData) {
 
   return {
     predicted: Math.round(predicted),
-    current: recent20[recent20.length - 1].volume,
+    current: recent20[0].volume, // 오늘 거래량
     average: Math.round(avgVolume),
     ratio: (predicted / avgVolume).toFixed(2),
     trend,
@@ -1369,12 +1373,13 @@ function detectCupAndHandle(chartData) {
     return { detected: false, signal: "데이터 부족" };
   }
 
-  const recent30 = chartData.slice(-30);
+  const recent30 = chartData.slice(0, 30); // 최근 30일 (내림차순: [0]=오늘)
 
   // 1. Cup 형성 (U자형): 하락 → 바닥 → 상승
-  const firstThird = recent30.slice(0, 10);
-  const middleThird = recent30.slice(10, 20);
-  const lastThird = recent30.slice(20, 30);
+  // 내림차순이므로: [20-29]=가장 오래됨(초반), [10-19]=중간, [0-9]=최근
+  const firstThird = recent30.slice(20, 30); // 가장 오래된 10일 (cup 시작)
+  const middleThird = recent30.slice(10, 20); // 중간 10일 (cup 바닥)
+  const lastThird = recent30.slice(0, 10);    // 최근 10일 (cup 회복)
 
   const firstAvg = firstThird.reduce((sum, d) => sum + d.close, 0) / 10;
   const middleAvg = middleThird.reduce((sum, d) => sum + d.close, 0) / 10;
@@ -1389,8 +1394,8 @@ function detectCupAndHandle(chartData) {
     return { detected: false, signal: "Cup 미형성" };
   }
 
-  // 2. Handle 형성 (작은 하락 후 횡보)
-  const handle = recent30.slice(-5);
+  // 2. Handle 형성 (작은 하락 후 횡보) - 최근 5일
+  const handle = recent30.slice(0, 5);
   const handleHigh = Math.max(...handle.map(d => d.high));
   const handleLow = Math.min(...handle.map(d => d.low));
   const handleRange = (handleHigh - handleLow) / handleLow;
@@ -1426,9 +1431,9 @@ function detectTriangle(chartData) {
     return { detected: false, signal: "데이터 부족" };
   }
 
-  const recent20 = chartData.slice(-20);
+  const recent20 = chartData.slice(0, 20); // 최근 20일 (내림차순: [0]=오늘)
 
-  // 고점/저점 찾기
+  // 고점/저점 찾기 (내림차순 데이터에서 시간순 비교)
   const highs = [];
   const lows = [];
 
@@ -1449,24 +1454,25 @@ function detectTriangle(chartData) {
     return { detected: false, signal: "고점/저점 부족" };
   }
 
-  // 고점 추세선 (하향)
-  const highSlope = (highs[highs.length - 1].value - highs[0].value) / (highs.length - 1);
+  // 내림차순이므로 highs[0]=최근, highs[last]=오래됨
+  // 시간순(오래됨→최근) 고점 추세: 하향이면 수렴
+  const highSlope = (highs[0].value - highs[highs.length - 1].value) / (highs.length - 1);
 
-  // 저점 추세선 (상향)
-  const lowSlope = (lows[lows.length - 1].value - lows[0].value) / (lows.length - 1);
+  // 시간순 저점 추세: 상향이면 수렴
+  const lowSlope = (lows[0].value - lows[lows.length - 1].value) / (lows.length - 1);
 
   // Triangle 조건: 고점 하향 + 저점 상향 (수렴)
   const triangleFormed = highSlope < 0 && lowSlope > 0;
 
-  // 수렴도 (범위가 좁아지는 정도)
-  const initialRange = highs[0].value - lows[0].value;
-  const currentRange = highs[highs.length - 1].value - lows[lows.length - 1].value;
+  // 수렴도 (범위가 좁아지는 정도) — 내림차순이므로 [last]=오래됨, [0]=최근
+  const initialRange = highs[highs.length - 1].value - lows[lows.length - 1].value; // 오래된 범위
+  const currentRange = highs[0].value - lows[0].value; // 최근 범위
   const convergence = (1 - currentRange / initialRange) * 100;
 
-  // 거래량 감소 (삼각수렴 특징)
-  const first10Vol = recent20.slice(0, 10).reduce((sum, d) => sum + d.volume, 0) / 10;
-  const last10Vol = recent20.slice(-10).reduce((sum, d) => sum + d.volume, 0) / 10;
-  const volumeDecreasing = last10Vol < first10Vol * 0.8;
+  // 거래량 감소 (삼각수렴 특징) — 내림차순: [0-9]=최근, [10-19]=오래됨
+  const recentVolTotal = recent20.slice(0, 10).reduce((sum, d) => sum + d.volume, 0) / 10;
+  const olderVolTotal = recent20.slice(10, 20).reduce((sum, d) => sum + d.volume, 0) / 10;
+  const volumeDecreasing = recentVolTotal < olderVolTotal * 0.8;
 
   const detected = triangleFormed && convergence > 30 && volumeDecreasing;
 
@@ -1492,7 +1498,7 @@ function detectManipulation(chartData, marketCap) {
   const lowMarketCap = marketCap < 50000000000; // 500억원
 
   // 2. 급등락 반복 패턴 체크 (최근 20일)
-  const recent20 = chartData.slice(-20);
+  const recent20 = chartData.slice(0, 20);
   const priceChanges = [];
 
   for (let i = 1; i < recent20.length; i++) {
@@ -1527,7 +1533,7 @@ function detectManipulation(chartData, marketCap) {
  * 일평균 거래대금 체크
  */
 function checkLiquidity(chartData) {
-  const recent10 = chartData.slice(-10);
+  const recent10 = chartData.slice(0, 10); // 최근 10일
 
   // 일평균 거래대금 계산 (원 단위)
   const avgTradingValue = recent10.reduce((sum, d) => sum + d.tradingValue, 0) / 10;
@@ -1559,19 +1565,19 @@ function checkLiquidity(chartData) {
  * 최근 30일 내 이미 급등한 종목 제외
  */
 function checkPreviousSurge(chartData) {
-  const recent30 = chartData.slice(-30);
+  const recent30 = chartData.slice(0, 30); // 최근 30일 (내림차순: [0]=오늘)
 
   // 30일 전 가격 대비 현재 가격
-  const firstPrice = recent30[0].close;
-  const currentPrice = recent30[recent30.length - 1].close;
-  const totalChange = ((currentPrice - firstPrice) / firstPrice) * 100;
+  const oldestPrice = recent30[recent30.length - 1].close; // 30일 전
+  const currentPrice = recent30[0].close; // 오늘
+  const totalChange = ((currentPrice - oldestPrice) / oldestPrice) * 100;
 
   // 40% 이상 이미 급등
   const alreadySurged = totalChange >= 40;
 
   // 최근 10일간 추가 급등 여부 (20% 이상)
-  const recent10 = recent30.slice(-10);
-  const recent10Change = ((recent10[recent10.length - 1].close - recent10[0].close) / recent10[0].close) * 100;
+  const recent10 = recent30.slice(0, 10);
+  const recent10Change = ((recent10[0].close - recent10[recent10.length - 1].close) / recent10[recent10.length - 1].close) * 100;
   const recentSurge = recent10Change >= 20;
 
   return {
