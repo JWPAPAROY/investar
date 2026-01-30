@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.16 (S+ 등급 정리 & Golden Zones 완화)
+- **버전**: 3.17 (데이터 정확성 복원 — slice/인덱싱 버그 일괄 수정)
 - **최종 업데이트**: 2026-01-30
 
 ---
@@ -1184,6 +1184,98 @@ async function testGoldenZones() {
 
 ## 📝 변경 이력
 
+### v3.17 (2026-01-30) - 🐛 데이터 정확성 복원 — slice/인덱싱 버그 일괄 수정
+
+**배경**: v3.3에서 chartData 내림차순 인덱싱 버그를 일부 수정했으나, 전체 코드 감사 결과 advancedIndicators.js에 23개, volumeIndicators.js에 5개의 동일 버그가 추가 발견됨
+
+#### 근본 원인
+
+chartData는 **내림차순** (`chartData[0]`=오늘, `chartData[29]`=30일전).
+`slice(-N)`은 가장 **오래된** N개를 반환하므로, "최근 N일"을 원하면 `slice(0, N)`을 써야 함.
+
+```javascript
+// 버그 (모든 함수에서 반복)
+const recent = chartData.slice(-30);  // ❌ 가장 오래된 30개
+const latest = recent[recent.length - 1];  // ❌ 가장 오래된 1개
+
+// 수정
+const recent = chartData.slice(0, 30);  // ✅ 최근 30개
+const latest = recent[0];  // ✅ 가장 최신
+```
+
+#### 1️⃣ advancedIndicators.js — slice(-N) 23개 일괄 수정
+
+**수정 함수 목록** (23개):
+detectEscapeVelocity, detectLiquidityDrain, calculateAsymmetricVolume,
+checkVolumeConsecutiveIncrease, detectGradualAccumulation, detectSmartMoney,
+detectBottomFormation, detectBreakoutPreparation, checkOverheating,
+detectBreakoutConfirmation, detectAnomaly, calculateRiskAdjustedScore,
+calculateSignalFreshness, predictVolume, detectCupAndHandle, detectTriangle,
+detectManipulation, checkLiquidity, checkPreviousSurge
+
+**수정 패턴**: 각 함수에서 `slice(-N)` → `slice(0, N)` + 내부 인덱스 참조 교정
+- `array[length-1]`(최신으로 착각) → `array[0]`(실제 최신)
+- 시간 순서 비교/반복문 방향 교정
+- 가격 변화율 계산의 분자/분모 교정
+
+#### 2️⃣ advancedIndicators.js — 조용한 매집 점수 반전 수정
+
+```javascript
+// 버그: volumeGrowth=0.5%여도 Math.max(0.5, 10) = 10점
+score: isSilentAccumulation ? Math.max(volumeGrowth, 10) : 0  // ❌
+
+// 수정: volumeGrowth에 비례, 최대 25점 캡
+score: isSilentAccumulation ? Math.min(volumeGrowth, 25) : 0  // ✅
+```
+
+#### 3️⃣ volumeIndicators.js — indicators/signals 인덱싱 수정
+
+```javascript
+// 버그: 가장 오래된 값 반환
+obv: obv[obv.length - 1]?.obv  // ❌ 30일전 OBV
+
+// 수정: 최신 값 반환
+obv: obv[0]?.obv  // ✅ 오늘 OBV
+```
+
+동일하게 volumeMA20, mfi, vwap, adLine, volumeSurge, mfiSignal, obvTrend, priceVsVWAP 수정.
+
+#### 4️⃣ volumeIndicators.js — VWAP 누적 방향 수정
+
+VWAP은 세션 시작(과거)부터 현재까지 누적 계산해야 함.
+기존: 최신→과거 순으로 누적 (역방향) → 수정: 과거→최신 순으로 누적.
+
+#### 5️⃣ volumeIndicators.js — VPTSlope 인덱싱 수정
+
+```javascript
+// 버그
+const recent = vptData[vptData.length - 1].vpt;  // ❌ 가장 오래된
+
+// 수정
+const recent = vptData[0].vpt;  // ✅ 최신
+```
+
+#### 6️⃣ save-daily-recommendations.js — 저장 필터 확장
+
+```javascript
+// 기존: S등급(75-89점) 저장 안 됨
+return score >= 50 && score < 80;  // ❌
+
+// 수정: S등급까지 저장하여 성과 추적
+return score >= 50 && score < 90;  // ✅
+```
+
+TOP 3 알림의 2순위가 70점+ 종목을 추천하므로, 추천 종목은 반드시 저장되어야 함.
+
+**수정 파일**:
+- `backend/advancedIndicators.js`: slice(-N) 23개 + 조용한 매집 점수
+- `backend/volumeIndicators.js`: indicators 인덱싱 + VWAP 방향 + VPTSlope
+- `api/cron/save-daily-recommendations.js`: 저장 필터 확장
+
+**영향**: 모든 고급 지표가 최신 데이터 기반으로 정확히 계산됨. 점수 분포가 변할 수 있으므로 1-2주 모니터링 권장.
+
+---
+
 ### v3.16 (2026-01-30) - 🔧 S+ 등급 정리 & Golden Zones 기준 완화
 
 **배경**: S+ 등급 성과 분석 결과, v3.13에서 도입한 "과열=기회" 전략이 과적합된 백테스트에 기반한 것으로 판명
@@ -1720,10 +1812,10 @@ Base(0-25) + Momentum(0-40) + Trend(0-35) = Total(0-100)
 ---
 
 **Last Updated**: 2026-01-30
-**Version**: 3.16 (S+ 등급 정리 & Golden Zones 기준 완화)
+**Version**: 3.17 (데이터 정확성 복원 — slice/인덱싱 버그 일괄 수정)
 **Author**: Claude Code with @knwwhr
 
-**✨ v3.16: 과열=경고 복원, Golden Zones 기준 완화로 S+ 등급 정상화**
+**🐛 v3.17: advancedIndicators 23개 + volumeIndicators 5개 slice/인덱싱 버그 수정, 저장 필터 50-90 확장**
 **🔧 등급: ⚠️과열(RSI/이격도) > S+(90+, Golden Zones) > S(75-89) > A(60-74) > B(45-59) > C(30-44) > D(<30)**
 
 ---
@@ -1772,6 +1864,8 @@ const latestDate = chartData[0].date;  // ✅ 11월 6일
 - ⚠️ KIS API는 **내림차순** 응답 (최신 데이터가 첫 번째)
 - ⚠️ 배열 인덱싱 시 API 응답 구조 명확히 확인 필요
 - ⚠️ 로컬과 Vercel 환경의 데이터 일관성 테스트 필요
+
+**후속 조치 (v3.17)**: v3.3에서 일부만 수정된 동일 버그 클래스가 advancedIndicators.js 23개, volumeIndicators.js 5개에서 추가 발견되어 일괄 수정 완료. `slice(-N)` → `slice(0, N)` 패턴 전수 교정.
 
 ---
 
