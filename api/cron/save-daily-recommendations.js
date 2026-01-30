@@ -61,17 +61,20 @@ async function sendTelegramMessage(message) {
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
+  // v3.16: 과열 종목 제외 (과열=경고, 추천 대상 아님)
+  const eligible = stocks.filter(s => s.recommendation_grade !== '과열');
+
   const top3 = [];
 
   // 1순위: 고래 + 황금구간(50-79점)
-  const whaleGolden = stocks
+  const whaleGolden = eligible
     .filter(s => s.whale_detected && s.total_score >= 50 && s.total_score < 80)
     .sort((a, b) => b.total_score - a.total_score);
   top3.push(...whaleGolden.slice(0, 3));
 
   // 2순위: 70점+ (고래 무관, 중복 제외)
   if (top3.length < 3) {
-    const highScore = stocks
+    const highScore = eligible
       .filter(s => s.total_score >= 70 && !top3.some(t => t.stock_code === s.stock_code))
       .sort((a, b) => b.total_score - a.total_score);
     top3.push(...highScore.slice(0, 3 - top3.length));
