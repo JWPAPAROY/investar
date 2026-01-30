@@ -123,14 +123,15 @@ function formatAlertMessage(top3, date, prevDayResults) {
     message += `📈 <b>지난 추천 결과</b>\n\n`;
 
     prevDayResults.forEach(day => {
-      message += `📅 ${day.date}\n`;
+      message += `📅 ${day.date} 추천\n`;
       day.stocks.forEach((stock, i) => {
         const r = stock.latestReturn;
         const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
         const emoji = r >= 0 ? '✅' : '❌';
         const priceStr = stock.latestPrice ? stock.latestPrice.toLocaleString() : '?';
+        const dateTag = stock.priceDate !== day.date ? ` (${stock.priceDate})` : '';
 
-        message += `  ${i + 1}. ${stock.stock_name} → ${priceStr}원 (${returnStr}) ${emoji}\n`;
+        message += `  ${i + 1}. ${stock.stock_name} → ${priceStr}원${dateTag} ${returnStr} ${emoji}\n`;
       });
       message += `\n`;
     });
@@ -243,7 +244,8 @@ module.exports = async (req, res) => {
               stock_code: stock.stock_code,
               recommended_price: stock.recommended_price,
               latestPrice: latestPrice,
-              latestReturn: returnRate
+              latestReturn: returnRate,
+              priceDate: latest?.tracking_date || prevDate
             });
           }
 
