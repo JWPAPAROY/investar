@@ -1,12 +1,14 @@
 /**
- * 매일 추천 종목 자동 저장 & 알림 Cron (v3.14)
+ * 매일 추천 종목 자동 저장 & 알림 Cron (v3.15)
  *
  * 모드:
  * - save (16:10 KST): 스크리닝 + Supabase 저장
- * - alert (08:30 KST): 어제 저장된 TOP 3 텔레그램 알림
+ * - alert (08:30 KST): TOP 3 텔레그램 알림 + 이전 추천 결과
  *
- * 목적: 황금 구간(50-79점) 종목을 Supabase에 자동 저장 + 아침 알림
- * 백테스팅 검증: 114개, 승률 43.86%, 평균 +7.87% (2025-12-05)
+ * TOP 3 선별 전략 (screening.js selectTop3와 동일):
+ * - 1순위: 고래 + 황금구간(50-79점) → 승률 76.9%
+ * - 2순위: 70점+ 점수순 (고래 무관) → 승률 50.0%
+ * - Fallback: 조건 미충족 시 "추천 없음" 알림
  */
 
 const screener = require('../../backend/screening');
@@ -50,34 +52,83 @@ async function sendTelegramMessage(message) {
 }
 
 /**
- * TOP 3 알림 메시지 생성
+ * TOP 3 선별 (screening.js selectTop3와 동일한 전략)
+ *
+ * 1순위: 고래 + 황금구간(50-79점) - 승률 76.9%
+ * 2순위: 70점+ 점수순 (고래 무관) - 승률 50.0%
+ * Fallback: 조건 미충족 시 빈 배열
  */
-function formatTop3Message(stocks, date) {
-  if (!stocks || stocks.length === 0) {
-    return `📊 <b>Investar 알림</b> (${date})\n\n추천 종목이 없습니다.`;
+function selectAlertTop3(stocks) {
+  if (!stocks || stocks.length === 0) return [];
+
+  const top3 = [];
+
+  // 1순위: 고래 + 황금구간(50-79점)
+  const whaleGolden = stocks
+    .filter(s => s.whale_detected && s.total_score >= 50 && s.total_score < 80)
+    .sort((a, b) => b.total_score - a.total_score);
+  top3.push(...whaleGolden.slice(0, 3));
+
+  // 2순위: 70점+ (고래 무관, 중복 제외)
+  if (top3.length < 3) {
+    const highScore = stocks
+      .filter(s => s.total_score >= 70 && !top3.some(t => t.stock_code === s.stock_code))
+      .sort((a, b) => b.total_score - a.total_score);
+    top3.push(...highScore.slice(0, 3 - top3.length));
   }
 
-  let message = `🏆 <b>오늘의 TOP 3 추천 종목</b>\n`;
-  message += `📅 ${date} 기준\n\n`;
+  return top3;
+}
 
-  stocks.slice(0, 3).forEach((stock, i) => {
-    const medal = ['🥇', '🥈', '🥉'][i];
-    const stopLoss5 = Math.floor(stock.recommended_price * 0.95);
+/**
+ * TOP 3 알림 메시지 생성 (추천 + 이전 결과)
+ */
+function formatAlertMessage(top3, date, prevResults) {
+  let message = '';
 
-    message += `${medal} <b>${stock.stock_name}</b> (${stock.stock_code})\n`;
-    message += `   📊 ${stock.total_score.toFixed(1)}점 | ${stock.recommendation_grade}등급\n`;
-    message += `   💰 ${stock.recommended_price.toLocaleString()}원\n`;
-    message += `   🛡️ 손절가: ${stopLoss5.toLocaleString()}원 (-5%)\n`;
+  // ── 오늘의 TOP 3 ──
+  if (!top3 || top3.length === 0) {
+    message += `📊 <b>Investar 알림</b> (${date})\n\n`;
+    message += `조건을 충족하는 종목이 없습니다.\n`;
+    message += `다음 거래일을 기다려주세요.\n`;
+  } else {
+    message += `🏆 <b>오늘의 TOP 3 추천 종목</b>\n`;
+    message += `📅 ${date} 기준\n\n`;
 
-    // 카테고리 표시
-    const categories = [];
-    if (stock.whale_detected) categories.push('🐋고래');
-    if (stock.accumulation_detected) categories.push('🤫매집');
-    if (categories.length > 0) {
-      message += `   ${categories.join(' ')}\n`;
-    }
+    top3.forEach((stock, i) => {
+      const medal = ['🥇', '🥈', '🥉'][i];
+      const stopLoss5 = Math.floor(stock.recommended_price * 0.95);
+
+      message += `${medal} <b>${stock.stock_name}</b> (${stock.stock_code})\n`;
+      message += `   📊 ${stock.total_score.toFixed(1)}점 | ${stock.recommendation_grade}등급\n`;
+      message += `   💰 ${stock.recommended_price.toLocaleString()}원\n`;
+      message += `   🛡️ 손절가: ${stopLoss5.toLocaleString()}원 (-5%)\n`;
+
+      const categories = [];
+      if (stock.whale_detected) categories.push('🐋고래');
+      if (stock.accumulation_detected) categories.push('🤫매집');
+      if (categories.length > 0) {
+        message += `   ${categories.join(' ')}\n`;
+      }
+      message += `\n`;
+    });
+  }
+
+  // ── 이전 추천 결과 ──
+  if (prevResults && prevResults.length > 0) {
+    message += `━━━━━━━━━━━━━━━━━━━━\n`;
+    message += `📈 <b>지난 추천 결과</b> (${prevResults[0].recommendation_date})\n\n`;
+
+    prevResults.forEach((stock, i) => {
+      const returnRate = stock.latestReturn;
+      const returnStr = returnRate >= 0 ? `+${returnRate.toFixed(1)}%` : `${returnRate.toFixed(1)}%`;
+      const emoji = returnRate >= 0 ? '✅' : '❌';
+      const priceStr = stock.latestPrice ? stock.latestPrice.toLocaleString() : '?';
+
+      message += `${i + 1}. ${stock.stock_name} → ${priceStr}원 (${returnStr}) ${emoji}\n`;
+    });
     message += `\n`;
-  });
+  }
 
   message += `💡 <i>고래+황금구간 전략 (승률 76.9%)</i>\n`;
   message += `🔗 https://investar-xi.vercel.app`;
@@ -118,17 +169,15 @@ module.exports = async (req, res) => {
     if (mode === 'alert') {
       console.log('🔔 아침 알림 모드 시작...');
 
-      // 어제 저장된 TOP 3 조회 (고래 + 황금구간 우선)
       const yesterday = getYesterdayDateKST();
       console.log(`📅 조회 날짜: ${yesterday}`);
 
+      // Step 1: 어제 저장된 종목 조회
       const { data: stocks, error } = await supabase
         .from('screening_recommendations')
         .select('*')
         .eq('recommendation_date', yesterday)
         .eq('is_active', true)
-        .gte('total_score', 50)
-        .lt('total_score', 80)
         .order('total_score', { ascending: false });
 
       if (error) {
@@ -136,20 +185,70 @@ module.exports = async (req, res) => {
         return res.status(500).json({ success: false, error: error.message });
       }
 
-      // 고래 감지 종목 우선 정렬
-      const sortedStocks = (stocks || []).sort((a, b) => {
-        // 고래 감지 우선
-        if (a.whale_detected && !b.whale_detected) return -1;
-        if (!a.whale_detected && b.whale_detected) return 1;
-        // 점수순
-        return b.total_score - a.total_score;
+      // Step 2: TOP 3 선별 (screening.js selectTop3 전략 동일)
+      const top3 = selectAlertTop3(stocks || []);
+      console.log(`✅ TOP 3 선정: ${top3.length}개`);
+      top3.forEach((s, i) => {
+        console.log(`  ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
       });
 
-      const top3 = sortedStocks.slice(0, 3);
-      console.log(`✅ TOP 3 조회 완료: ${top3.length}개`);
+      // Step 3: 직전 추천 종목 성과 조회
+      let prevResults = [];
+      try {
+        // 직전 추천일 찾기 (yesterday 이전 가장 최근)
+        const { data: prevDates } = await supabase
+          .from('screening_recommendations')
+          .select('recommendation_date')
+          .lt('recommendation_date', yesterday)
+          .order('recommendation_date', { ascending: false })
+          .limit(1);
 
-      // 텔레그램 알림 전송
-      const message = formatTop3Message(top3, yesterday);
+        const prevDate = prevDates?.[0]?.recommendation_date;
+        if (prevDate) {
+          console.log(`📅 이전 추천일: ${prevDate}`);
+
+          // 이전 추천 종목 조회
+          const { data: prevStocks } = await supabase
+            .from('screening_recommendations')
+            .select('*')
+            .eq('recommendation_date', prevDate)
+            .eq('is_active', true)
+            .order('total_score', { ascending: false });
+
+          // 같은 TOP 3 전략으로 선별
+          const prevTop3 = selectAlertTop3(prevStocks || []);
+
+          // 각 종목의 최신 종가 조회
+          for (const stock of prevTop3) {
+            const { data: priceData } = await supabase
+              .from('recommendation_daily_prices')
+              .select('closing_price, cumulative_return, tracking_date')
+              .eq('recommendation_id', stock.id)
+              .order('tracking_date', { ascending: false })
+              .limit(1);
+
+            const latest = priceData?.[0];
+            if (latest) {
+              const returnRate = ((latest.closing_price - stock.recommended_price) / stock.recommended_price) * 100;
+              prevResults.push({
+                stock_name: stock.stock_name,
+                stock_code: stock.stock_code,
+                recommendation_date: prevDate,
+                recommended_price: stock.recommended_price,
+                latestPrice: latest.closing_price,
+                latestReturn: returnRate,
+                trackingDate: latest.tracking_date
+              });
+            }
+          }
+          console.log(`✅ 이전 추천 결과: ${prevResults.length}개`);
+        }
+      } catch (prevError) {
+        console.warn('⚠️ 이전 추천 결과 조회 실패 (무시):', prevError.message);
+      }
+
+      // Step 4: 텔레그램 알림 전송
+      const message = formatAlertMessage(top3, yesterday, prevResults);
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -164,6 +263,12 @@ module.exports = async (req, res) => {
           score: s.total_score,
           grade: s.recommendation_grade,
           whale: s.whale_detected
+        })),
+        prevResults: prevResults.map(s => ({
+          stockName: s.stock_name,
+          recommendedPrice: s.recommended_price,
+          latestPrice: s.latestPrice,
+          returnRate: s.latestReturn?.toFixed(2)
         }))
       });
     }
