@@ -81,9 +81,12 @@ function selectAlertTop3(stocks) {
 }
 
 /**
- * TOP 3 알림 메시지 생성 (추천 + 이전 결과)
+ * 알림 메시지 생성 (추천 + 최근 3일 결과)
+ * @param {Array} top3 - 오늘의 TOP 3
+ * @param {string} date - 기준일
+ * @param {Array} prevDayResults - [{ date, stocks: [...] }, ...]
  */
-function formatAlertMessage(top3, date, prevResults) {
+function formatAlertMessage(top3, date, prevDayResults) {
   let message = '';
 
   // ── 오늘의 TOP 3 ──
@@ -114,20 +117,23 @@ function formatAlertMessage(top3, date, prevResults) {
     });
   }
 
-  // ── 이전 추천 결과 ──
-  if (prevResults && prevResults.length > 0) {
+  // ── 최근 3일 추천 결과 ──
+  if (prevDayResults && prevDayResults.length > 0) {
     message += `━━━━━━━━━━━━━━━━━━━━\n`;
-    message += `📈 <b>지난 추천 결과</b> (${prevResults[0].recommendation_date})\n\n`;
+    message += `📈 <b>지난 추천 결과</b>\n\n`;
 
-    prevResults.forEach((stock, i) => {
-      const returnRate = stock.latestReturn;
-      const returnStr = returnRate >= 0 ? `+${returnRate.toFixed(1)}%` : `${returnRate.toFixed(1)}%`;
-      const emoji = returnRate >= 0 ? '✅' : '❌';
-      const priceStr = stock.latestPrice ? stock.latestPrice.toLocaleString() : '?';
+    prevDayResults.forEach(day => {
+      message += `📅 ${day.date}\n`;
+      day.stocks.forEach((stock, i) => {
+        const r = stock.latestReturn;
+        const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
+        const emoji = r >= 0 ? '✅' : '❌';
+        const priceStr = stock.latestPrice ? stock.latestPrice.toLocaleString() : '?';
 
-      message += `${i + 1}. ${stock.stock_name} → ${priceStr}원 (${returnStr}) ${emoji}\n`;
+        message += `  ${i + 1}. ${stock.stock_name} → ${priceStr}원 (${returnStr}) ${emoji}\n`;
+      });
+      message += `\n`;
     });
-    message += `\n`;
   }
 
   message += `💡 <i>고래+황금구간 전략 (승률 76.9%)</i>\n`;
@@ -192,22 +198,22 @@ module.exports = async (req, res) => {
         console.log(`  ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
       });
 
-      // Step 3: 직전 추천 종목 성과 조회
-      let prevResults = [];
+      // Step 3: 최근 3일치 추천 종목 성과 조회
+      let prevDayResults = []; // [{ date, stocks: [...] }, ...]
       try {
-        // 직전 추천일 찾기 (yesterday 이전 가장 최근)
-        const { data: prevDates } = await supabase
+        // 최근 3개 추천일 찾기 (yesterday 이전, 중복 제거)
+        const { data: prevDateRows } = await supabase
           .from('screening_recommendations')
           .select('recommendation_date')
           .lt('recommendation_date', yesterday)
-          .order('recommendation_date', { ascending: false })
-          .limit(1);
+          .order('recommendation_date', { ascending: false });
 
-        const prevDate = prevDates?.[0]?.recommendation_date;
-        if (prevDate) {
-          console.log(`📅 이전 추천일: ${prevDate}`);
+        // 중복 날짜 제거 후 최근 3일
+        const uniqueDates = [...new Set((prevDateRows || []).map(r => r.recommendation_date))].slice(0, 3);
+        console.log(`📅 이전 추천일: ${uniqueDates.join(', ') || '없음'}`);
 
-          // 이전 추천 종목 조회
+        for (const prevDate of uniqueDates) {
+          // 해당 날짜 종목 조회
           const { data: prevStocks } = await supabase
             .from('screening_recommendations')
             .select('*')
@@ -215,40 +221,43 @@ module.exports = async (req, res) => {
             .eq('is_active', true)
             .order('total_score', { ascending: false });
 
-          // 저장된 종목 중 상위 3개 (점수순, 성과 추적 목적)
-          const prevTop3 = (prevStocks || []).slice(0, 3);
+          // 같은 TOP 3 기준 적용
+          const prevTop3 = selectAlertTop3(prevStocks || []);
+          if (prevTop3.length === 0) continue;
 
-          // 각 종목의 최신 종가 조회
+          const dayStocks = [];
           for (const stock of prevTop3) {
             const { data: priceData } = await supabase
               .from('recommendation_daily_prices')
-              .select('closing_price, cumulative_return, tracking_date')
+              .select('closing_price, tracking_date')
               .eq('recommendation_id', stock.id)
               .order('tracking_date', { ascending: false })
               .limit(1);
 
             const latest = priceData?.[0];
-            if (latest) {
-              const returnRate = ((latest.closing_price - stock.recommended_price) / stock.recommended_price) * 100;
-              prevResults.push({
-                stock_name: stock.stock_name,
-                stock_code: stock.stock_code,
-                recommendation_date: prevDate,
-                recommended_price: stock.recommended_price,
-                latestPrice: latest.closing_price,
-                latestReturn: returnRate,
-                trackingDate: latest.tracking_date
-              });
-            }
+            const latestPrice = latest?.closing_price || stock.recommended_price;
+            const returnRate = ((latestPrice - stock.recommended_price) / stock.recommended_price) * 100;
+
+            dayStocks.push({
+              stock_name: stock.stock_name,
+              stock_code: stock.stock_code,
+              recommended_price: stock.recommended_price,
+              latestPrice: latestPrice,
+              latestReturn: returnRate
+            });
           }
-          console.log(`✅ 이전 추천 결과: ${prevResults.length}개`);
+
+          if (dayStocks.length > 0) {
+            prevDayResults.push({ date: prevDate, stocks: dayStocks });
+          }
         }
+        console.log(`✅ 이전 추천 결과: ${prevDayResults.length}일치`);
       } catch (prevError) {
         console.warn('⚠️ 이전 추천 결과 조회 실패 (무시):', prevError.message);
       }
 
       // Step 4: 텔레그램 알림 전송
-      const message = formatAlertMessage(top3, yesterday, prevResults);
+      const message = formatAlertMessage(top3, yesterday, prevDayResults);
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -264,12 +273,7 @@ module.exports = async (req, res) => {
           grade: s.recommendation_grade,
           whale: s.whale_detected
         })),
-        prevResults: prevResults.map(s => ({
-          stockName: s.stock_name,
-          recommendedPrice: s.recommended_price,
-          latestPrice: s.latestPrice,
-          returnRate: s.latestReturn?.toFixed(2)
-        }))
+        prevDayResults
       });
     }
 
