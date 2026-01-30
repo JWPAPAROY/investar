@@ -1192,8 +1192,8 @@ class StockScreener {
       // 거래량 지표 분석
       const volumeAnalysis = volumeIndicators.analyzeVolume(chartData);
 
-      // 창의적 지표 분석 (Phase 4 신규 지표 포함)
-      const advancedAnalysis = advancedIndicators.analyzeAdvanced(chartData);
+      // 창의적 지표 분석 (Phase 4 신규 지표 포함, v3.16: 시총 전달)
+      const advancedAnalysis = advancedIndicators.analyzeAdvanced(chartData, currentData.marketCap);
 
       // 신규 지표 추가
       const institutionalFlow = advancedIndicators.checkInstitutionalFlow(investorData);

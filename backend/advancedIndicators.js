@@ -12,9 +12,18 @@
  * 기관/외국인 등 큰 손의 매매 패턴 포착
  * + 윗꼬리 필터링 추가 (30% 이상 시 점수 감점)
  */
-function detectWhale(chartData) {
+function detectWhale(chartData, marketCap = 0) {
   const recentData = chartData.slice(0, 10); // 최근 10일 (chartData[0]=오늘, 내림차순)
   const avgVolume = chartData.slice(10, 30).reduce((sum, d) => sum + d.volume, 0) / Math.min(20, chartData.slice(10, 30).length || 1);
+
+  // v3.16: 시총 기반 거래량 기준 차등 적용
+  // 대형주는 거래대금 자체가 크므로 낮은 배수도 의미 있음
+  let volumeThreshold = 2.5; // 소형주 (<1조): 기본 2.5배
+  if (marketCap >= 10000000000000) {       // 대형주 (10조+)
+    volumeThreshold = 1.5;
+  } else if (marketCap >= 1000000000000) { // 중형주 (1조~10조)
+    volumeThreshold = 2.0;
+  }
 
   const whaleSignals = [];
 
@@ -34,11 +43,9 @@ function detectWhale(chartData) {
       ? ((data.high - data.close) / data.high) * 100
       : 0;
 
-    // 고래 감지 조건:
-    // 1. 거래량이 평균의 2.5배 이상
-    // 2. 가격 변동률 3% 이상
-    // 3. 거래대금 상위권
-    if (volumeRatio >= 2.5 && priceChange >= 3) {
+    // 고래 감지 조건 (시총별 차등):
+    // 대형주(10조+): 1.5배, 중형주(1~10조): 2.0배, 소형주(<1조): 2.5배
+    if (volumeRatio >= volumeThreshold && priceChange >= 3) {
       const isUpWhale = data.close > data.open; // 상승 고래 vs 하락 고래
 
       // 기본 강도 점수
@@ -581,9 +588,9 @@ function checkOverheating(chartData, currentPrice, volumeRatio, mfi) {
 /**
  * 종합 분석 및 점수화 (Phase 4 통합)
  */
-function analyzeAdvanced(chartData) {
+function analyzeAdvanced(chartData, marketCap = 0) {
   // 기존 지표
-  const whale = detectWhale(chartData);
+  const whale = detectWhale(chartData, marketCap);
   const accumulation = detectSilentAccumulation(chartData);
   const escape = detectEscapeVelocity(chartData);
   const drain = detectLiquidityDrain(chartData);
