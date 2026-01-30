@@ -13,8 +13,8 @@
  * + 윗꼬리 필터링 추가 (30% 이상 시 점수 감점)
  */
 function detectWhale(chartData) {
-  const recentData = chartData.slice(-10); // 최근 10일
-  const avgVolume = chartData.slice(-30, -10).reduce((sum, d) => sum + d.volume, 0) / 20;
+  const recentData = chartData.slice(0, 10); // 최근 10일 (chartData[0]=오늘, 내림차순)
+  const avgVolume = chartData.slice(10, 30).reduce((sum, d) => sum + d.volume, 0) / Math.min(20, chartData.slice(10, 30).length || 1);
 
   const whaleSignals = [];
 
@@ -1135,16 +1135,16 @@ function calculateVPT(chartData) {
  * 검증된 로직만 사용
  */
 function analyzeVolumePriceDivergence(chartData, vpt, institutionalFlow) {
-  const recent5 = chartData.slice(-5);
-  const recent30 = chartData.slice(-30);
+  const recent5 = chartData.slice(0, 5);   // 최근 5일 (chartData[0]=오늘, 내림차순)
+  const recent30 = chartData.slice(0, 30); // 최근 30일
 
-  // 가격 추세
-  const priceChange5d = (recent5[4].close - recent5[0].close) / recent5[0].close;
-  const priceChange30d = (recent30[29].close - recent30[0].close) / recent30[0].close;
+  // 가격 추세 (최신 vs 과거: [0]=오늘, [4]=5일전, [29]=30일전)
+  const priceChange5d = (recent5[0].close - recent5[recent5.length - 1].close) / recent5[recent5.length - 1].close;
+  const priceChange30d = (recent30[0].close - recent30[recent30.length - 1].close) / recent30[recent30.length - 1].close;
 
   // 거래량 추세
   const avgVol_recent = recent5.reduce((sum, d) => sum + d.volume, 0) / 5;
-  const avgVol_before = recent30.slice(0, 20).reduce((sum, d) => sum + d.volume, 0) / 20;
+  const avgVol_before = chartData.slice(5, 25).reduce((sum, d) => sum + d.volume, 0) / Math.min(20, chartData.slice(5, 25).length || 1);
   const volumeChange = (avgVol_recent - avgVol_before) / avgVol_before;
 
   // VPT 추세
