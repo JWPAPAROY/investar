@@ -297,22 +297,18 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 2: 황금 구간(50-79점)만 필터링 ⭐ v3.12 개선
+    // Step 2: 황금 구간(50-79점) + Golden Zones 감지 종목 필터링
     const filteredStocks = stocks.filter(stock => {
       const score = stock.totalScore;
 
-      // 백테스팅 검증 결과 (2025-12-05):
-      // - 50-79점: 114개, 승률 43.86%, 평균 +7.87% ✅ 최고 성과!
-      // - 70-79점(12개): 평균 +60.28% 대박 구간
-      // - 50-59점(65개): 평균 +2.08% 안정적 수익
-      //
-      // 배제 근거:
-      // - 45-49점: 37개, 승률 21.62%, 평균 -5.13% ❌
-      // - 80+점: 4개, 승률 25%, 평균 +7.60% (샘플 부족, 불안정)
+      // v3.16: Golden Zones 감지 종목(96-99점)도 저장하여 실적 추적
+      if (stock.goldenZone && stock.goldenZone.detected) return true;
+
+      // 황금 구간(50-79점)만 저장
       return score >= 50 && score < 80;
     });
 
-    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (황금 구간 50-79점)`);
+    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (황금구간 + Golden Zones)`);
 
     if (filteredStocks.length === 0) {
       return res.status(200).json({

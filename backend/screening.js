@@ -671,7 +671,7 @@ class StockScreener {
   /**
    * 패턴 1: 🔥 Power Candle (시동)
    * Priority: 1 | Score: 99점
-   * v3.10.0 완화: 거래대금 100억→50억, 20일평균 1.0→0.8
+   * v3.16 완화: 전일대비 1.5배, 등락률 3~15%, 아래꼬리 1.0%, 거래대금 30억
    */
   detectPowerCandle(chartData, currentData) {
     const today = chartData[0];
@@ -680,28 +680,28 @@ class StockScreener {
     // 20일 평균 거래량
     const avgVol20 = chartData.slice(0, 20).reduce((sum, d) => sum + d.volume, 0) / 20;
 
-    // 조건 1: 거래량 >= 전일×2.0 & >= 20일평균×0.8 (완화: 1.0→0.8)
+    // 조건 1: 거래량 >= 전일×1.5 & >= 20일평균×0.8
     const volumeRatioVsYesterday = today.volume / yesterday.volume;
     const volumeRatioVs20MA = today.volume / avgVol20;
 
-    // 조건 2: 등락률 +5.0~12.0%
+    // 조건 2: 등락률 +3.0~15.0%
     const changeRate = ((today.close - yesterday.close) / yesterday.close) * 100;
 
-    // 조건 3: 시가 ≒ 저가 (꽉 찬 양봉, 오차 0.5% 이내)
+    // 조건 3: 시가 ≒ 저가 (꽉 찬 양봉, 오차 1.0% 이내)
     const bodySize = Math.abs(today.close - today.open);
     const lowerShadow = today.open - today.low;
     const lowerShadowRatio = bodySize > 0 ? (lowerShadow / bodySize) * 100 : 100;
 
-    // 노이즈 필터: 거래대금 >= 50억 (완화: 100억→50억)
+    // 노이즈 필터: 거래대금 >= 30억
     const tradingValue = today.close * today.volume;
 
     const detected = (
-      volumeRatioVsYesterday >= 2.0 &&
-      volumeRatioVs20MA >= 0.8 && // 완화: 1.0→0.8
-      changeRate >= 5.0 &&
-      changeRate <= 12.0 &&
-      lowerShadowRatio <= 0.5 && // 아래꼬리 매우 짧음
-      tradingValue >= 5000000000 // 완화: 100억→50억
+      volumeRatioVsYesterday >= 1.5 &&
+      volumeRatioVs20MA >= 0.8 &&
+      changeRate >= 3.0 &&
+      changeRate <= 15.0 &&
+      lowerShadowRatio <= 1.0 &&
+      tradingValue >= 3000000000
     );
 
     return {
@@ -723,16 +723,16 @@ class StockScreener {
   /**
    * 패턴 2: 🕳️ 개미지옥 (속임수)
    * Priority: 2 | Score: 98점
-   * v3.10.0 완화: 아래꼬리 2.0→1.5
+   * v3.16 완화: 전일저가 이탈 -2%, 아래꼬리 1.2배
    */
   detectAntTrap(chartData, currentData) {
     const today = chartData[0];
     const yesterday = chartData[1];
 
-    // 조건 1: 장중 저가 < 전일 저가 × 0.97 (-3% 이탈)
-    const lowBreakdown = today.low < (yesterday.low * 0.97);
+    // 조건 1: 장중 저가 < 전일 저가 × 0.98 (-2% 이탈)
+    const lowBreakdown = today.low < (yesterday.low * 0.98);
 
-    // 조건 2: 아래꼬리 >= 몸통 × 1.5 (완화: 2.0→1.5)
+    // 조건 2: 아래꼬리 >= 몸통 × 1.2
     const bodySize = Math.abs(today.close - today.open);
     const lowerShadow = Math.min(today.open, today.close) - today.low;
     const shadowRatio = bodySize > 0 ? lowerShadow / bodySize : 0;
@@ -746,7 +746,7 @@ class StockScreener {
 
     const detected = (
       lowBreakdown &&
-      shadowRatio >= 1.5 && // 완화: 2.0→1.5
+      shadowRatio >= 1.2 &&
       isBullish &&
       isNewLow
     );
@@ -769,7 +769,7 @@ class StockScreener {
   /**
    * 패턴 3: ⚡ N자 눌림목 (재장전)
    * Priority: 3 | Score: 97점
-   * v3.10.0 완화: 급등기준 15%→12%
+   * v3.16 완화: 급등 8%, 조정 -3~-15%, 거래량 0.8배, 기준봉 60%
    */
   detectNShapePullback(chartData, currentData) {
     if (chartData.length < 6) {
@@ -778,7 +778,7 @@ class StockScreener {
 
     const today = chartData[0];
 
-    // 조건 1: 5일 내 +12% 이상 급등일 존재 (완화: 15%→12%)
+    // 조건 1: 5일 내 +8% 이상 급등일 존재 (v3.16 완화: 12%→8%)
     let surgeDay = null;
     let surgeIndex = -1;
     for (let i = 1; i <= 5; i++) {
@@ -786,7 +786,7 @@ class StockScreener {
       const prevDay = chartData[i + 1];
       if (prevDay) {
         const changeRate = ((day.close - prevDay.close) / prevDay.close) * 100;
-        if (changeRate >= 12) { // 완화: 15→12
+        if (changeRate >= 8) { // v3.16 완화: 12→8
           surgeDay = day;
           surgeIndex = i;
           break;
@@ -798,22 +798,22 @@ class StockScreener {
       return { detected: false, name: 'N자 눌림목', score: 97, bonus: 97, confidence: 0 };
     }
 
-    // 조건 2: 고점 대비 -5~-12% 조정
+    // 조건 2: 고점 대비 -3~-15% 조정 (v3.16 완화)
     const recent5High = Math.max(...chartData.slice(0, 6).map(d => d.high));
     const pullbackRate = ((today.close - recent5High) / recent5High) * 100;
 
-    // 조건 3: 금일 거래량 < 20일평균 × 0.7
+    // 조건 3: 금일 거래량 < 20일평균 × 0.8 (v3.16 완화: 0.7→0.8)
     const avgVol20 = chartData.slice(0, 20).reduce((sum, d) => sum + d.volume, 0) / 20;
     const volumeRatio = today.volume / avgVol20;
 
-    // 노이즈 필터: 거래량 < 기준봉 × 50%
+    // 노이즈 필터: 거래량 < 기준봉 × 60% (v3.16 완화: 50%→60%)
     const surgeVolumeRatio = today.volume / surgeDay.volume;
 
     const detected = (
-      pullbackRate >= -12 &&
-      pullbackRate <= -5 &&
-      volumeRatio < 0.7 &&
-      surgeVolumeRatio < 0.5
+      pullbackRate >= -15 &&
+      pullbackRate <= -3 &&
+      volumeRatio < 0.8 &&
+      surgeVolumeRatio < 0.6
     );
 
     return {
@@ -834,7 +834,7 @@ class StockScreener {
   /**
    * 패턴 4: 🌋 휴화산 (응축)
    * Priority: 4 | Score: 96점
-   * v3.10.0 완화: BB Width 0.1→0.15
+   * v3.16 완화: 거래량 0.5배, 몸통 2.0%, BB Width 0.20
    */
   detectDormantVolcano(chartData, currentData) {
     if (chartData.length < 25) {
@@ -843,14 +843,14 @@ class StockScreener {
 
     const today = chartData[0];
 
-    // 조건 1: 거래량 <= 20일평균 × 0.4
+    // 조건 1: 거래량 <= 20일평균 × 0.5 (v3.16 완화: 0.4→0.5)
     const avgVol20 = chartData.slice(0, 20).reduce((sum, d) => sum + d.volume, 0) / 20;
     const volumeRatio = today.volume / avgVol20;
 
-    // 조건 2: 캔들 몸통 <= 1.5%
+    // 조건 2: 캔들 몸통 <= 2.0% (v3.16 완화: 1.5→2.0)
     const bodySize = Math.abs((today.close - today.open) / today.open) * 100;
 
-    // 조건 3: Bollinger Band Width < 0.15 (완화: 0.1→0.15)
+    // 조건 3: Bollinger Band Width < 0.20 (v3.16 완화: 0.15→0.20)
     const recent20 = chartData.slice(0, 20);
     const avgPrice = recent20.reduce((sum, d) => sum + d.close, 0) / 20;
     const stdDev = Math.sqrt(
@@ -864,9 +864,9 @@ class StockScreener {
     const tradingValue = today.close * today.volume;
 
     const detected = (
-      volumeRatio <= 0.4 &&
-      bodySize <= 1.5 &&
-      bbWidth < 0.15 && // 완화: 0.1→0.15
+      volumeRatio <= 0.5 &&
+      bodySize <= 2.0 &&
+      bbWidth < 0.20 &&
       above5MA &&
       tradingValue >= 3000000000
     );
@@ -1572,32 +1572,14 @@ class StockScreener {
   getRecommendation(score, tier, overheating, overheatingV2 = null) {
     let grade, text, color, tooltip;
 
-    // 🆕 v3.13 Option A: 과열 = 기회 전략 ⭐
-    // 백테스트 검증: 과열등급 100% 승률, +30.72% 평균 (419샘플)
-    // Priority 0: Overheating + Golden Zone (50-79점)
+    // v3.16: 과열 감지 시 점수 무관하게 "과열" 등급 (v3.13 "과열=기회" 전략 제거)
+    // 실제 성과: 64% 승률, +1.08% 평균, 28% 폭락률 → 과열은 경고로 복원
     if (overheatingV2 && overheatingV2.overheated) {
-      if (score >= 50 && score < 80) {
-        // 과열 + 황금구간 → 최우선 추천! (백테스트 검증됨)
-        grade = 'S+';
-        text = '🔥🎯 과열 + 황금구간';
-        color = '#ff0000';
-        tooltip = `${overheatingV2.reason} + 황금구간(50-79점) - 강력한 상승 모멘텀 (백테스트: 100% 승률, +30.72%)`;
-        return { grade, text, color, tier, overheating: overheatingV2.reason, tooltip };
-      } else if (score >= 80) {
-        // 과열 + 고득점 → 과열 경고 (과도한 급등)
-        grade = '과열';
-        text = '⚠️ 과열 경고';
-        color = '#ff0000';
-        tooltip = `${overheatingV2.reason} + 고득점(80+) - 과도한 급등, 단기 조정 가능성`;
-        return { grade, text, color, tier, overheating: overheatingV2.reason, tooltip };
-      } else {
-        // 과열 + 저득점(<50) → 일반 과열 경고
-        grade = '과열';
-        text = '⚠️ 과열 경고';
-        color = '#ff0000';
-        tooltip = `${overheatingV2.reason} - 단기 조정 가능성 높음`;
-        return { grade, text, color, tier, overheating: overheatingV2.reason, tooltip };
-      }
+      grade = '과열';
+      text = '⚠️ 과열 경고';
+      color = '#ff0000';
+      tooltip = `${overheatingV2.reason} - 단기 조정 가능성 높음`;
+      return { grade, text, color, tier, overheating: overheatingV2.reason, tooltip };
     }
 
     // 등급 체계 (점수 내림차순, 7-Tier System)
