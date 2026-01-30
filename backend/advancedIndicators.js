@@ -732,7 +732,8 @@ function checkInstitutionalFlow(investorData) {
   let foreignConsecutive = 0;
 
   for (const day of investorData) {
-    if (day.institution.netBuyQty > 0) {
+    const instNet = day.institution?.netBuyQty || parseInt(day.institution_net_buy || 0);
+    if (instNet > 0) {
       institutionConsecutive++;
     } else {
       break;
@@ -740,7 +741,8 @@ function checkInstitutionalFlow(investorData) {
   }
 
   for (const day of investorData) {
-    if (day.foreign.netBuyQty > 0) {
+    const foreignNet = day.foreign?.netBuyQty || parseInt(day.foreign_net_buy || 0);
+    if (foreignNet > 0) {
       foreignConsecutive++;
     } else {
       break;
