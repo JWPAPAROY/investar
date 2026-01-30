@@ -1197,7 +1197,7 @@ class StockScreener {
       const [currentData, chartData, investorData] = await Promise.all([
         kisApi.getCurrentPrice(stockCode),
         kisApi.getDailyChart(stockCode, 30),
-        kisApi.getInvestorData(stockCode, 5).catch(() => null) // 실패해도 진행
+        kisApi.getInvestorData(stockCode, 5).catch(e => { console.warn(`⚠️ 투자자 데이터 실패 [${stockCode}]: ${e.message}`); return null; })
       ]);
 
       // getCurrentPrice가 null 반환하면 스킵
@@ -1449,6 +1449,7 @@ class StockScreener {
       // 🆕 v3.13: 지속적 폭락 감지
       const crashCheck = this.detectContinuousDecline(chartData);
 
+      const recommendation = this.getRecommendation(totalScore, advancedAnalysis.tier, overheating, overheatingV2);
       return {
         stockCode,
         stockName: currentData.stockName,
@@ -1498,7 +1499,8 @@ class StockScreener {
         radarScore, // v3.10.0: Radar Scoring 상세 (Track 2, null if Golden Zone detected)
         overheatingV2, // v3.10.0: 과열 감지 v2 (RSI + 이격도)
         totalScore,
-        recommendation: this.getRecommendation(totalScore, advancedAnalysis.tier, overheating, overheatingV2),
+        grade: recommendation.grade,
+        recommendation,
         rankBadges: rankBadges || {}
       };
     } catch (error) {

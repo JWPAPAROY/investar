@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.17 (데이터 정확성 복원 — slice/인덱싱 버그 일괄 수정)
-- **최종 업데이트**: 2026-01-30
+- **버전**: 3.18.1 (죽은 컴포넌트 활성화 + 데이터 구조 불일치 수정)
+- **최종 업데이트**: 2026-01-31
 
 ---
 
@@ -1184,6 +1184,98 @@ async function testGoldenZones() {
 
 ## 📝 변경 이력
 
+### v3.18.1 (2026-01-31) - 🐛 기관/외국인 매집 데이터 구조 불일치 수정
+
+**배경**: v3.18에서 기관/외국인 매집 점수가 여전히 전원 0점 → 원인 조사 결과 데이터 구조 불일치 발견
+
+#### 근본 원인
+
+KIS API(`kisApi.js`)는 중첩 구조로 반환하지만, `screening.js`는 플랫 구조를 참조:
+
+```javascript
+// KIS API 반환 (kisApi.js:918-951)
+day.institution.netBuyQty   // ✅ 중첩 구조 (실제 데이터)
+day.foreign.netBuyQty
+
+// screening.js가 참조 (버그)
+day.institution_net_buy     // ❌ 플랫 구조 (존재하지 않음 → undefined → 0)
+day.foreign_net_buy
+```
+
+결과: `parseInt(undefined || 0)` = 항상 0 → 기관/외국인 매수일 0일 → 매집 점수 전원 0점
+
+#### 수정 내용
+
+**1️⃣ screening.js — analyzeInstitutionalAccumulation (line 197-198)**
+```javascript
+// 수정: optional chaining으로 양쪽 구조 모두 지원
+const institutionNet = parseInt(day.institution?.netBuyQty || day.institution_net_buy || 0);
+const foreignNet = parseInt(day.foreign?.netBuyQty || day.foreign_net_buy || 0);
+```
+
+**2️⃣ screening.js — calculateStateAtDay (line 461-462)**
+동일 패턴 수정 (기관 진입 가속 계산에 사용)
+
+**3️⃣ advancedIndicators.js — checkInstitutionalFlow (line 735, 743)**
+```javascript
+// 수정 전: optional chaining 없이 직접 접근 (crash 위험)
+day.institution.netBuyQty   // ❌
+
+// 수정 후: 안전한 접근 + 폴백
+day.institution?.netBuyQty || parseInt(day.institution_net_buy || 0)  // ✅
+```
+
+#### 수정 결과
+
+| 지표 | v3.18 (수정 전) | v3.18.1 (수정 후) |
+|------|---------------|-----------------|
+| 평균 점수 | 41.7 | **47.0 (+5.3)** |
+| 최고 점수 | 66.07 | **67.07 (+1.0)** |
+| 기관 매집 작동 | 0/21종목 | **다수 작동** |
+| 로보티즈 매집 | 0점 | **5점 (5일, strong)** |
+| SK스퀘어 매집 | 0점 | **4점 (3일, moderate)** |
+
+**수정 파일**:
+- `backend/screening.js`: analyzeInstitutionalAccumulation + calculateStateAtDay 필드명 수정
+- `backend/advancedIndicators.js`: checkInstitutionalFlow optional chaining 추가
+
+---
+
+### v3.18 (2026-01-31) - 🔧 죽은 컴포넌트 활성화 — 임계값 조정
+
+**배경**: v3.17 데이터 정확성 복원 후 점수 하락 (평균 38.2점). 원인: Trend/Multi 컴포넌트 3개가 전원 0점 — 임계값이 현실 데이터와 불일치.
+
+#### 변경 내용
+
+**1️⃣ 변동성 수축 (analyzeVolatilityContraction) — 새 등급 추가**
+```javascript
+// 기존: ≤0.85 이하만 점수 → 실데이터 ratio 1.09~1.96 (전부 expanding)
+// 수정: stable(≤1.0→4점), mild_expansion(≤1.2→2점) 추가
+```
+
+**2️⃣ 기관/외국인 매집 (analyzeInstitutionalAccumulation) — 총 매수일 카운트**
+```javascript
+// 기존: 연속 매수일만 카운트 (5일 중 연속 3일+ 달성 어려움)
+// 수정: 총 매수일 카운트 + 기관/외국인 개별 추적
+// 합산 4일+→5점, 3일→4점, 2일→3점, 단독 3일+→2점, 단독 2일+→1점
+```
+
+**3️⃣ Multi-Signal 보너스 — 2개 API 등장 인정**
+```javascript
+// 기존: 3개 API→+3, 4개→+6 (대부분 1개 API → 전원 0점)
+// 수정: 2개 API→+2, 3개→+4, 4개→+6
+```
+
+**4️⃣ 거래량 가속 (analyzeVolumeAcceleration) — moderate 진입 완화**
+```javascript
+// 기존: recent>1.2 & mid>1.0 → 10점
+// 수정: recent>1.1 & mid>1.0 → 11점, 새 mild 등급(recent>1.0 & mid>1.0 → 4점) 추가
+```
+
+**수정 파일**: `backend/screening.js` (4개 함수 임계값 조정)
+
+---
+
 ### v3.17 (2026-01-30) - 🐛 데이터 정확성 복원 — slice/인덱싱 버그 일괄 수정
 
 **배경**: v3.3에서 chartData 내림차순 인덱싱 버그를 일부 수정했으나, 전체 코드 감사 결과 advancedIndicators.js에 23개, volumeIndicators.js에 5개의 동일 버그가 추가 발견됨
@@ -1811,11 +1903,12 @@ Base(0-25) + Momentum(0-40) + Trend(0-35) = Total(0-100)
 
 ---
 
-**Last Updated**: 2026-01-30
-**Version**: 3.17 (데이터 정확성 복원 — slice/인덱싱 버그 일괄 수정)
+**Last Updated**: 2026-01-31
+**Version**: 3.18.1 (죽은 컴포넌트 활성화 + 데이터 구조 불일치 수정)
 **Author**: Claude Code with @knwwhr
 
-**🐛 v3.17: advancedIndicators 23개 + volumeIndicators 5개 slice/인덱싱 버그 수정, 저장 필터 50-90 확장**
+**🐛 v3.18.1: 기관/외국인 매집 데이터 구조 불일치 수정 (institution_net_buy → institution.netBuyQty)**
+**🔧 v3.18: 변동성 수축/기관 매집/Multi-Signal/거래량 가속 임계값 조정**
 **🔧 등급: ⚠️과열(RSI/이격도) > S+(90+, Golden Zones) > S(75-89) > A(60-74) > B(45-59) > C(30-44) > D(<30)**
 
 ---
