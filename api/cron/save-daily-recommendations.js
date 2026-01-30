@@ -215,8 +215,8 @@ module.exports = async (req, res) => {
             .eq('is_active', true)
             .order('total_score', { ascending: false });
 
-          // 같은 TOP 3 전략으로 선별
-          const prevTop3 = selectAlertTop3(prevStocks || []);
+          // 저장된 종목 중 상위 3개 (점수순, 성과 추적 목적)
+          const prevTop3 = (prevStocks || []).slice(0, 3);
 
           // 각 종목의 최신 종가 조회
           for (const stock of prevTop3) {
