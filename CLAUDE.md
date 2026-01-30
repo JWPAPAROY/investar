@@ -96,7 +96,7 @@
 │ 총점 = 기본 점수 (0-20) + 선행 지표 (0-80)                   │
 │                                                              │
 │ 등급 산정 (7-Tier 시스템, 점수 내림차순) ⭐ v3.10.2 실제 코드 │
-│ ├─ ⚠️ 과열: RSI > 80 OR 이격도 > 115 (점수 무관)            │
+│ ├─ ⚠️ 과열: RSI > 80 AND 이격도 > 115 (점수 무관)            │
 │ │   └─ 과열 감지 시 점수와 무관하게 최우선 경고 표시        │
 │ ├─ S+등급: 90+점 (🌟 최상위 매수)                           │
 │ │   └─ Golden Zones 패턴 또는 완벽한 Radar Score           │
@@ -149,7 +149,7 @@
 총점 (0-100점) = 기본 점수 (0-20점) + 선행 지표 (0-80점)
 
 추천 등급 (v3.10.2 실제 코드 기준, 7-Tier System) ⭐ 정확성 개선!
-⚠️ 과열: RSI > 80 OR 이격도 > 115 (점수 무관, 최우선 경고)
+⚠️ 과열: RSI > 80 AND 이격도 > 115 (점수 무관, 최우선 경고)
 S+등급: 90+ (최상위 매수, Golden Zones 또는 완벽한 Radar Score)
 S등급: 75-89 (최우선 매수, 거래량 폭발, 기관 본격 매수)
 A등급: 60-74 (적극 매수, 거래량 증가 시작, 기관 초기 진입)
@@ -523,7 +523,7 @@ divergence = volumeRatio - priceRatio
 
 **7-Tier System (실제 코드 기준, v3.10.2):**
 
-- **⚠️ 과열** (RSI > 80 OR 이격도 > 115): ⚠️ 과열 경고
+- **⚠️ 과열** (RSI > 80 AND 이격도 > 115): ⚠️ 과열 경고
   - 점수 무관, RSI/이격도 기반 감지
   - 단기 조정 가능성 높음
 
@@ -1184,9 +1184,9 @@ async function testGoldenZones() {
 
 ## 📝 변경 이력
 
-### v3.18.1 (2026-01-31) - 🐛 기관/외국인 매집 데이터 구조 불일치 수정
+### v3.18.1 (2026-01-31) - 🐛 기관 매집 데이터 수정 + 과열 기준 AND 전환 + grade 필드 추가
 
-**배경**: v3.18에서 기관/외국인 매집 점수가 여전히 전원 0점 → 원인 조사 결과 데이터 구조 불일치 발견
+**배경**: v3.18에서 기관/외국인 매집 점수가 여전히 전원 0점, 과열 판정 82%로 등급 시스템 무력화
 
 #### 근본 원인
 
@@ -1235,8 +1235,42 @@ day.institution?.netBuyQty || parseInt(day.institution_net_buy || 0)  // ✅
 | 로보티즈 매집 | 0점 | **5점 (5일, strong)** |
 | SK스퀘어 매집 | 0점 | **4점 (3일, moderate)** |
 
+#### 4️⃣ 과열 기준 OR → AND 전환
+
+```javascript
+// 기존: RSI > 80 OR 이격도 > 115 → 82% 과열 (등급 시스템 무력화)
+const overheated = (rsi > 80) || (disparity > 115);  // ❌
+
+// 수정: RSI > 80 AND 이격도 > 115 → 48% 과열 (진짜 과열만 감지)
+const overheated = (rsi > 80) && (disparity > 115);  // ✅
+```
+
+스크리닝 풀 자체가 거래량/가격 활동 종목이라 이격도가 높은 건 정상.
+이격도만 높고 RSI가 정상인 종목(로보티즈, 아주IB투자 등)은 상승 추세이지 과열이 아님.
+
+#### 5️⃣ 최상위 grade 필드 추가 + investorData 에러 로깅
+
+```javascript
+// grade가 recommendation.grade에만 있어 접근 불편 → 최상위에도 추가
+grade: recommendation.grade,
+
+// investorData 실패 시 silent → warning 로그 추가
+.catch(e => { console.warn(`⚠️ 투자자 데이터 실패: ${e.message}`); return null; })
+```
+
+#### 종합 수정 결과
+
+| 지표 | v3.18 | v3.18.1 |
+|------|-------|---------|
+| 평균 점수 | 41.7 | **47.0 (+5.3)** |
+| 최고 점수 | 66.07 | **70.3 (+4.2)** |
+| 과열 비율 | 82% | **48%** |
+| A등급 | 0개 | **2개** |
+| B등급 | 3개 | **5개** |
+| 기관 매집 평균 | 0점 | **3.6점** |
+
 **수정 파일**:
-- `backend/screening.js`: analyzeInstitutionalAccumulation + calculateStateAtDay 필드명 수정
+- `backend/screening.js`: 데이터 구조 수정 + 과열 AND + grade 필드 + 에러 로깅
 - `backend/advancedIndicators.js`: checkInstitutionalFlow optional chaining 추가
 
 ---
@@ -1634,7 +1668,7 @@ timingWarning: {
 
 - ✅ **과열 등급 기준 수정**
   - 잘못된 기준: 89+점 (점수 기반)
-  - **실제 기준**: RSI > 80 OR 이격도 > 115 (점수 무관)
+  - **실제 기준**: RSI > 80 AND 이격도 > 115 (점수 무관)
   - 로직: overheatingV2 최우선 감지, 점수와 무관하게 과열 경고
 
 - ✅ **등급 범위 정확히 반영**
@@ -1654,7 +1688,7 @@ timingWarning: {
   // Priority 0: Overheating Detection (최우선)
   if (overheatingV2 && overheatingV2.overheated) {
     grade = '과열';
-    // RSI > 80 OR 이격도 > 115 감지
+    // RSI > 80 AND 이격도 > 115 감지
   }
 
   // 등급 체계 (점수 내림차순, 7-Tier System)
@@ -1763,7 +1797,7 @@ Base(0-25) + Momentum(0-40) + Trend(0-35) = Total(0-100)
 
 **실제 등급 체계 (v3.10.2 기준)**:
 - S+: 90+점, S: 75-89점, A: 60-74점, B: 45-59점, C: 30-44점, D: <30점
-- 과열: RSI > 80 OR 이격도 > 115 (점수 무관)
+- 과열: RSI > 80 AND 이격도 > 115 (점수 무관)
 
 ### v3.7 (2025-11-14) - 📊 백테스트 시스템 구현 & 등급 체계 재정의
 - ✅ **단기 백테스트 API 구현** (api/backtest/simple.js)
@@ -1907,9 +1941,9 @@ Base(0-25) + Momentum(0-40) + Trend(0-35) = Total(0-100)
 **Version**: 3.18.1 (죽은 컴포넌트 활성화 + 데이터 구조 불일치 수정)
 **Author**: Claude Code with @knwwhr
 
-**🐛 v3.18.1: 기관/외국인 매집 데이터 구조 불일치 수정 (institution_net_buy → institution.netBuyQty)**
+**🐛 v3.18.1: 기관 매집 데이터 수정 + 과열 OR→AND + grade 필드 + 에러 로깅**
 **🔧 v3.18: 변동성 수축/기관 매집/Multi-Signal/거래량 가속 임계값 조정**
-**🔧 등급: ⚠️과열(RSI/이격도) > S+(90+, Golden Zones) > S(75-89) > A(60-74) > B(45-59) > C(30-44) > D(<30)**
+**🔧 등급: ⚠️과열(RSI>80 AND 이격도>115) > S+(90+) > S(75-89) > A(60-74) > B(45-59) > C(30-44) > D(<30)**
 
 ---
 
