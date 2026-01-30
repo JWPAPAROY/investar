@@ -92,10 +92,10 @@ function selectWhaleStocks(stocks, top3) {
 
   const top3Codes = (top3 || []).map(s => s.stock_code);
 
+  // 고래 감지 종목 (과열 포함, TOP 3 제외)
   return stocks
     .filter(s =>
       s.whale_detected &&
-      s.recommendation_grade !== '과열' &&
       !top3Codes.includes(s.stock_code)
     )
     .sort((a, b) => b.total_score - a.total_score);
@@ -145,7 +145,8 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults) {
       message += `🐋 <b>고래 감지 종목</b>\n`;
       whaleStocks.forEach((stock, i) => {
         const stopLoss5 = Math.floor(stock.recommended_price * 0.95);
-        message += `  ${i + 1}. <b>${stock.stock_name}</b> (${stock.stock_code})\n`;
+        const overheatTag = stock.recommendation_grade === '과열' ? ' ⚠️과열' : '';
+        message += `  ${i + 1}. <b>${stock.stock_name}</b> (${stock.stock_code})${overheatTag}\n`;
         message += `     ${stock.total_score.toFixed(1)}점 | ${stock.recommendation_grade}등급 | ${stock.recommended_price.toLocaleString()}원\n`;
         message += `     🛡️ 손절: ${stopLoss5.toLocaleString()}원\n`;
       });
