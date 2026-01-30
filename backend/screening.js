@@ -194,8 +194,8 @@ class StockScreener {
     let totalNetBuy = 0;
 
     for (const day of investorData) {
-      const institutionNet = parseInt(day.institution_net_buy || 0);
-      const foreignNet = parseInt(day.foreign_net_buy || 0);
+      const institutionNet = parseInt(day.institution?.netBuyQty || day.institution_net_buy || 0);
+      const foreignNet = parseInt(day.foreign?.netBuyQty || day.foreign_net_buy || 0);
 
       if (institutionNet > 0) institutionBuyDays++;
       if (foreignNet > 0) foreignBuyDays++;
@@ -458,8 +458,8 @@ class StockScreener {
     let institutionalBuyDays = 0;
     if (slicedInvestorData && slicedInvestorData.length > 0) {
       for (const day of slicedInvestorData.slice(0, 5)) {
-        const institutionNet = parseInt(day.institution_net_buy || 0);
-        const foreignNet = parseInt(day.foreign_net_buy || 0);
+        const institutionNet = parseInt(day.institution?.netBuyQty || day.institution_net_buy || 0);
+        const foreignNet = parseInt(day.foreign?.netBuyQty || day.foreign_net_buy || 0);
         if (institutionNet + foreignNet > 0) {
           institutionalBuyDays++;
         } else {
