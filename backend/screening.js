@@ -978,7 +978,8 @@ class StockScreener {
    * @param {number} currentPrice - 현재가
    * @returns {Object} { overheated, rsi, disparity, reason }
    *
-   * 기준: RSI(14) > 80 OR 이격도(20일) > 115
+   * 기준: RSI(14) > 80 AND 이격도(20일) > 115 (v3.18.1: OR→AND 변경)
+   * v3.18.1: OR 조건이 82% 과열 → AND로 변경하여 진짜 과열만 감지
    */
   detectOverheatingV2(chartData, currentPrice) {
     if (!chartData || !currentPrice) {
@@ -988,15 +989,12 @@ class StockScreener {
     const rsi = this.calculateRSI(chartData, 14);
     const disparity = this.calculateDisparity(chartData, currentPrice, 20);
 
-    const overheated = (rsi > 80) || (disparity > 115);
+    // v3.18.1: OR→AND 변경 (RSI와 이격도 모두 과열이어야 과열 판정)
+    const overheated = (rsi > 80) && (disparity > 115);
     let reason = 'normal';
 
     if (rsi > 80 && disparity > 115) {
       reason = `과열 (RSI ${rsi.toFixed(1)} > 80 AND 이격도 ${disparity.toFixed(1)} > 115)`;
-    } else if (rsi > 80) {
-      reason = `과열 (RSI ${rsi.toFixed(1)} > 80)`;
-    } else if (disparity > 115) {
-      reason = `과열 (이격도 ${disparity.toFixed(1)} > 115)`;
     }
 
     return {
