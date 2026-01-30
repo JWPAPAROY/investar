@@ -147,18 +147,19 @@ class StockScreener {
     let score = 0;
     let trend = 'flat';
 
+    // v3.18: moderate/weak 기준 완화 + mild 등급 추가
     if (recentVsMid > 1.1 && midVsOld > 1.1 && oldVsOldest > 1.0) {
-      // 모든 구간이 점진적 증가 (이상적 패턴!)
-      score = 15; // 10→15 증가 ⬆️
+      score = 15;
       trend = 'strong_acceleration';
-    } else if (recentVsMid > 1.2 && midVsOld > 1.0) {
-      // 최근 2개 구간 증가 (유효한 패턴)
-      score = 10; // 7→10 증가 ⬆️
+    } else if (recentVsMid > 1.1 && midVsOld > 1.0) {
+      score = 11;
       trend = 'moderate_acceleration';
-    } else if (recentVsMid > 1.15) {
-      // 최근 구간만 증가 (약한 신호)
-      score = 6; // 4→6 증가 ⬆️
+    } else if (recentVsMid > 1.1) {
+      score = 7;
       trend = 'weak_acceleration';
+    } else if (recentVsMid > 1.0 && midVsOld > 1.0) {
+      score = 4;
+      trend = 'mild_acceleration';
     }
 
     return {
@@ -186,35 +187,44 @@ class StockScreener {
       return { score: 0, detected: false, strength: 'none', days: 0 };
     }
 
-    // 기관 + 외국인 순매수 연속일 카운트
-    let consecutiveBuyDays = 0;
+    // v3.18: 총 매수일 카운트 (연속 아닌 전체), 기관/외국인 개별 추적
+    let combinedBuyDays = 0;
+    let institutionBuyDays = 0;
+    let foreignBuyDays = 0;
     let totalNetBuy = 0;
 
     for (const day of investorData) {
       const institutionNet = parseInt(day.institution_net_buy || 0);
       const foreignNet = parseInt(day.foreign_net_buy || 0);
-      const totalNet = institutionNet + foreignNet;
 
-      if (totalNet > 0) {
-        consecutiveBuyDays++;
-        totalNetBuy += totalNet;
-      } else {
-        break; // 연속성 깨짐
+      if (institutionNet > 0) institutionBuyDays++;
+      if (foreignNet > 0) foreignBuyDays++;
+      if (institutionNet + foreignNet > 0) {
+        combinedBuyDays++;
+        totalNetBuy += (institutionNet + foreignNet);
       }
     }
+
+    const bestSingleCount = Math.max(institutionBuyDays, foreignBuyDays);
 
     // 점수 부여
     let score = 0;
     let strength = 'none';
 
-    if (consecutiveBuyDays >= 5) {
-      score = 5; // 5일 이상 연속 매수 (강력한 신호)
+    if (combinedBuyDays >= 4) {
+      score = 5;
       strength = 'strong';
-    } else if (consecutiveBuyDays >= 3) {
-      score = 3; // 3-4일 연속 매수 (유효한 신호)
+    } else if (combinedBuyDays >= 3) {
+      score = 4;
       strength = 'moderate';
-    } else if (consecutiveBuyDays >= 1) {
-      score = 1; // 1-2일 연속 매수 (약한 신호)
+    } else if (combinedBuyDays >= 2) {
+      score = 3;
+      strength = 'mild';
+    } else if (bestSingleCount >= 3) {
+      score = 2;
+      strength = 'single_accumulation';
+    } else if (bestSingleCount >= 2) {
+      score = 1;
       strength = 'weak';
     }
 
@@ -222,7 +232,9 @@ class StockScreener {
       score,
       detected: score > 0,
       strength,
-      days: consecutiveBuyDays,
+      days: combinedBuyDays,
+      institutionBuyDays,
+      foreignBuyDays,
       totalNetBuy
     };
   }
@@ -258,18 +270,22 @@ class StockScreener {
     let trend = 'expanding';
 
     // 변동성이 수축할수록 높은 점수 (급등 전조!)
+    // v3.18: 안정/소폭확장도 인정 (기존 기준이 너무 엄격하여 전원 0점)
     if (contractionRatio <= 0.5) {
-      // 변동성 50% 이하로 수축 → 강력한 신호!
       score = 10;
       trend = 'strong_contraction';
     } else if (contractionRatio <= 0.7) {
-      // 변동성 70% 이하로 수축
-      score = 7;
+      score = 8;
       trend = 'moderate_contraction';
     } else if (contractionRatio <= 0.85) {
-      // 변동성 85% 이하로 수축
+      score = 6;
+      trend = 'mild_contraction';
+    } else if (contractionRatio <= 1.0) {
       score = 4;
-      trend = 'weak_contraction';
+      trend = 'stable';
+    } else if (contractionRatio <= 1.2) {
+      score = 2;
+      trend = 'mild_expansion';
     }
 
     return {
@@ -1264,9 +1280,10 @@ class StockScreener {
       let multiSignalCount = 0;
       if (rankBadgesForScore) {
         multiSignalCount = Object.values(rankBadgesForScore).filter(Boolean).length;
-        // 2개 API: +0점, 3개 API: +3점, 4개 API: +6점
+        // v3.18: 2개 API: +2점, 3개 API: +4점, 4개 API: +6점
         if (multiSignalCount >= 4) multiSignalBonus = 6;
-        else if (multiSignalCount >= 3) multiSignalBonus = 3;
+        else if (multiSignalCount >= 3) multiSignalBonus = 4;
+        else if (multiSignalCount >= 2) multiSignalBonus = 2;
       }
 
       if (goldenZone.detected) {
