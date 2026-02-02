@@ -189,41 +189,51 @@ function calculateADLine(chartData) {
 
 /**
  * 종합 거래량 분석
+ *
+ * v3.20: chartData는 내림차순(최신=0)이지만 계산 함수들은 오름차순(과거→최신)을 기대.
+ * v3.17에서 반환 인덱스만 수정했으나 계산 자체가 역방향이라 volumeMA20/MFI가 null.
+ * 근본 수정: 오름차순으로 변환 후 계산, 최신 값은 마지막 인덱스에서 추출.
  */
 function analyzeVolume(chartData) {
-  const latestData = chartData[0];  // chartData는 내림차순 (최신 데이터가 0번 인덱스)
-  const volumeMA20 = calculateVolumeMA(chartData, 20);
-  const obv = calculateOBV(chartData);
-  const mfi = calculateMFI(chartData, 14);
-  const vwap = calculateVWAP(chartData);
-  const adLine = calculateADLine(chartData);
-  const volumeSurge = detectVolumeSurge(chartData, 1.5);
+  const latestData = chartData[0];  // 내림차순 원본에서 최신 데이터
 
+  // 계산 함수용 오름차순 변환 (과거→최신)
+  const ascending = [...chartData].reverse();
+  const lastIdx = ascending.length - 1;
+
+  const volumeMA20 = calculateVolumeMA(ascending, 20);
+  const obv = calculateOBV(ascending);
+  const mfi = calculateMFI(ascending, 14);
+  const vwap = calculateVWAP(chartData); // v3.17에서 이미 내림차순 대응
+  const adLine = calculateADLine(ascending);
+  const volumeSurge = detectVolumeSurge(ascending, 1.5);
+
+  // 오름차순 결과의 마지막 인덱스 = 최신(오늘) 데이터
   return {
     current: {
       date: latestData.date,
       price: latestData.close,
       volume: latestData.volume,
-      volumeMA20: volumeMA20[0]?.volumeMA
+      volumeMA20: volumeMA20[lastIdx]?.volumeMA
     },
     indicators: {
-      obv: obv[0]?.obv,
-      mfi: parseFloat(mfi[0]?.mfi),
-      vwap: parseFloat(vwap[0]?.vwap),
-      adLine: parseFloat(adLine[0]?.adLine)
+      obv: obv[lastIdx]?.obv,
+      mfi: parseFloat(mfi[lastIdx]?.mfi),
+      vwap: parseFloat(vwap[0]?.vwap), // VWAP은 이미 내림차순 결과
+      adLine: parseFloat(adLine[lastIdx]?.adLine)
     },
     signals: {
-      volumeSurge: volumeSurge.slice(0, 5),  // 최근 5개 급등 신호
-      mfiSignal: getMFISignal(parseFloat(mfi[0]?.mfi)),
-      obvTrend: getOBVTrend(obv.slice(0, 10)),
+      volumeSurge: volumeSurge.slice(-5).reverse(),  // 최근 5개, 내림차순 변환
+      mfiSignal: getMFISignal(parseFloat(mfi[lastIdx]?.mfi)),
+      obvTrend: getOBVTrend(obv.slice(-10)),  // 최근 10개 (오름차순, getOBVTrend가 기대하는 형태)
       priceVsVWAP: latestData.close > parseFloat(vwap[0]?.vwap) ? '상승세' : '하락세'
     },
     chartData: {
-      volumeMA20: volumeMA20,
-      obv: obv,
-      mfi: mfi,
-      vwap: vwap,
-      adLine: adLine
+      volumeMA20: [...volumeMA20].reverse(),  // 내림차순 반환 (프론트엔드 호환)
+      obv: [...obv].reverse(),
+      mfi: [...mfi].reverse(),
+      vwap: vwap,  // 이미 내림차순
+      adLine: [...adLine].reverse()
     }
   };
 }
