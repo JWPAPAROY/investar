@@ -93,16 +93,16 @@
 
       // 추천 종목을 Supabase에 저장 (성과 추적용)
       // ⚠️ v3.10.3부터 프론트엔드 자동 저장 제거 - Cron만 저장
-      // 실제 저장 기준: 50-79점 황금구간 (save-daily-recommendations.js)
+      // 실제 저장 기준: 50-89점 (save-daily-recommendations.js, v3.17에서 50-90으로 확장)
       const saveRecommendationsToSupabase = async (stocks) => {
         try {
-          // 🆕 v3.12: 황금구간(50-79점)만 저장 (백테스트 검증)
-          // - 50-79점: 승률 43.86%, 평균 +7.87%
+          // v3.17: 저장 범위 확장 (S등급 75-89점 포함)
+          // - 50-89점: B~S등급 성과 추적
           // - 45-49점: 승률 21.62%, 평균 -5.13% (제외)
-          const stocksToSave = stocks.filter(s => s.totalScore >= 50 && s.totalScore < 80);
+          const stocksToSave = stocks.filter(s => s.totalScore >= 50 && s.totalScore < 90);
 
           if (stocksToSave.length === 0) {
-            console.log('저장할 추천 종목 없음 (45점 이상 B등급 없음)');
+            console.log('저장할 추천 종목 없음 (50점 이상 범위 없음)');
             return;
           }
 
@@ -447,7 +447,7 @@
                       <div>
                         <h3 className="text-2xl font-bold text-orange-800">반드시 매수해야 할 TOP 3</h3>
                         <p className="text-sm text-orange-600 mt-1">
-                          고래 감지 + 황금구간 전략 (승률 76.9%, 평균 +27.02%)
+                          고래 감지 + 저장구간 전략 (승률 76.9%, 평균 +27.02%)
                         </p>
                       </div>
                     </div>
@@ -542,9 +542,9 @@
                                 🐋 고래 감지
                               </span>
                             )}
-                            {stock.totalScore >= 50 && stock.totalScore < 80 && (
+                            {stock.totalScore >= 50 && stock.totalScore < 90 && (
                               <span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">
-                                ⭐ 황금구간
+                                ⭐ 저장구간
                               </span>
                             )}
                           </div>
@@ -555,7 +555,7 @@
                     <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                       <p className="text-sm text-gray-700">
                         <strong className="text-orange-700">💡 선정 기준:</strong> 백테스트 결과 최고 성과 전략인
-                        <strong className="text-orange-700"> 고래 감지 + 황금구간(50-79점)</strong>을 우선 선정합니다.
+                        <strong className="text-orange-700"> 고래 감지 + 저장구간(50-89점)</strong>을 우선 선정합니다.
                         과열 종목은 자동 제외됩니다.
                       </p>
                     </div>
@@ -767,7 +767,7 @@
               {/* 추천 등급 기준 */}
               <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-l-4 border-blue-500 p-3 mt-2 rounded-lg">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm font-bold text-blue-900">📌 추천 등급 기준 (v3.10.0)</span>
+                  <span className="text-sm font-bold text-blue-900">📌 추천 등급 기준 (v3.18.1)</span>
                   <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
                     stock.recommendation.grade === '과열' ? 'bg-red-200 text-red-800' :
                     stock.recommendation.grade === 'S+' ? 'bg-red-100 text-red-700' :
@@ -799,7 +799,7 @@
                   <div className="text-xs text-gray-800 space-y-1.5">
                     <div className="font-semibold text-red-700">⚠️과열 경고 - 단기 조정 가능성</div>
                     <div className="pl-3 space-y-0.5">
-                      <div>• RSI > 80 OR 이격도 > 115</div>
+                      <div>• RSI > 80 AND 이격도 > 115</div>
                       <div>• 단기 조정 가능성 매우 높음</div>
                       <div>• 신규 진입 비추천, 기존 보유자는 차익 실현 검토</div>
                     </div>
@@ -1130,10 +1130,10 @@
                 </div>
               </div>
 
-              {/* v3.10.0 Dual-Track Scoring 정보 */}
+              {/* v3.18.1 Dual-Track Scoring 정보 */}
               {(stock.goldenZone || stock.radarScore || stock.scoreBreakdown) && (
                 <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-300 rounded-xl p-6">
-                  <h3 className="text-xl font-bold mb-4">🎯 v3.10.0 Dual-Track Scoring System</h3>
+                  <h3 className="text-xl font-bold mb-4">🎯 v3.18.1 Dual-Track Scoring System</h3>
 
                   {/* Scoring Track 표시 */}
                   {stock.scoreBreakdown && stock.scoreBreakdown.scoringTrack && (
@@ -1226,7 +1226,7 @@
                   {stock.overheatingV2 && stock.overheatingV2.overheated && (
                     <div className="p-4 bg-red-100 border-2 border-red-400 rounded-lg">
                       <h4 className="font-bold text-red-800 mb-2 flex items-center gap-2">
-                        <span>⚠️과열 감지 (v3.10.0)</span>
+                        <span>⚠️과열 감지 (v3.18.1)</span>
                       </h4>
                       <div className="space-y-2 text-sm">
                         <div className="flex items-center gap-2">
@@ -2016,7 +2016,7 @@
                     <div>
                       <h3 className="text-2xl font-bold text-orange-800">TOP 3 전략 성과</h3>
                       <p className="text-sm text-orange-600 mt-1">
-                        고래 감지 + 황금구간(50-79점) 전략 실전 성과
+                        고래 감지 + 저장구간(50-89점) 전략 실전 성과
                       </p>
                     </div>
                   </div>
@@ -2103,7 +2103,7 @@
                 <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                   <p className="text-sm text-gray-700">
                     <strong className="text-orange-700">💡 전략 검증:</strong> 백테스트로 검증된
-                    <strong className="text-orange-700"> 고래 감지 + 황금구간(50-79점)</strong> 전략의 실전 성과입니다.
+                    <strong className="text-orange-700"> 고래 감지 + 저장구간(50-89점)</strong> 전략의 실전 성과입니다.
                     {top3WinRate >= 76.9 && top3AvgReturn >= 27 ? (
                       <span className="text-green-700"> ✅ 예상 성과를 달성하고 있습니다!</span>
                     ) : top3WinRate >= 60 || top3AvgReturn >= 0 ? (
@@ -2196,13 +2196,13 @@
           <div className="bg-white rounded-xl shadow-lg p-6">
             <h3 className="text-2xl font-bold mb-4">📊 등급별 성과</h3>
 
-            {/* 등급 기준 설명 (v3.10.0 Dual-Track Scoring System) */}
+            {/* 등급 기준 설명 (v3.18.1 Dual-Track Scoring System) */}
             <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg">
-              <h4 className="font-bold text-blue-900 mb-3">🎯 등급 부여 기준 (v3.10.0 Dual-Track Scoring System)</h4>
+              <h4 className="font-bold text-blue-900 mb-3">🎯 등급 부여 기준 (v3.18.1 Dual-Track Scoring System)</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
                 <div className="bg-white p-3 rounded border-l-4 border-red-600">
                   <div className="font-bold text-red-700 mb-1">⚠️과열</div>
-                  <div className="text-gray-700">과열 경고 (RSI > 80 OR 이격도 > 115)</div>
+                  <div className="text-gray-700">과열 경고 (RSI > 80 AND 이격도 > 115)</div>
                   <div className="text-xs text-gray-500 mt-1">단기 조정 가능성 높음</div>
                 </div>
                 <div className="bg-white p-3 rounded border-l-4 border-red-500">
@@ -2240,7 +2240,7 @@
                 <strong>💡 Dual-Track Scoring:</strong><br/>
                 • <strong>Track 1 (Golden Zones):</strong> 96-99점 - 차트 패턴 기반 선행 신호 (Power Candle, 개미지옥, N자 눌림목, 휴화산)<br/>
                 • <strong>Track 2 (Radar Scoring):</strong> 0-90점 - Base(0-15) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6)<br/>
-                <strong>✨ v3.10.0 핵심:</strong> Golden Zones 패턴 감지 시 96-99점 (S+등급), 미감지 시 Radar Scoring (최대 90점)
+                <strong>✨ v3.18.1 핵심:</strong> Golden Zones 패턴 감지 시 96-99점 (S+등급), 미감지 시 Radar Scoring (최대 90점)
               </div>
             </div>
 
