@@ -447,7 +447,7 @@
                       <div>
                         <h3 className="text-2xl font-bold text-orange-800">반드시 매수해야 할 TOP 3</h3>
                         <p className="text-sm text-orange-600 mt-1">
-                          고래 감지 + 저장구간 전략 (승률 76.9%, 평균 +27.02%)
+                          고래 감지 전략 (1순위 50-79점: 승률 76.9%)
                         </p>
                       </div>
                     </div>
@@ -555,8 +555,8 @@
                     <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                       <p className="text-sm text-gray-700">
                         <strong className="text-orange-700">💡 선정 기준:</strong> 백테스트 결과 최고 성과 전략인
-                        <strong className="text-orange-700"> 고래 감지 + 저장구간(50-89점)</strong>을 우선 선정합니다.
-                        과열 종목은 자동 제외됩니다.
+                        <strong className="text-orange-700"> 고래 감지 종목</strong>을 우선 선정합니다.
+                        1순위: 50-79점, 2순위: 70점+, 3순위: 40점+. 과열 종목은 자동 제외됩니다.
                       </p>
                     </div>
                     </>
@@ -573,9 +573,10 @@
                           <strong>TOP 3 선정 조건:</strong>
                         </p>
                         <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
-                          <li>고래 감지 신호 필수</li>
-                          <li>과열 종목 제외</li>
-                          <li>최소 40점 이상</li>
+                          <li>과열 종목 제외, 고래 감지 신호 필수</li>
+                          <li>1순위: 고래 + 50~79점 (승률 76.9%)</li>
+                          <li>2순위: 고래 + 70점 이상</li>
+                          <li>3순위: 고래 + 40점 이상</li>
                         </ul>
                         <p className="text-sm text-gray-500 mt-3">
                           💡 새로고침 버튼을 눌러 최신 데이터를 확인하거나, 종합집계 탭에서 다른 추천 종목을 확인하세요.
@@ -646,13 +647,13 @@
           id: 'whale',
           name: '🐋 고래 감지',
           icon: '🐋',
-          desc: '거래량 2.5배 + 가격 3% 이상 = 세력 매수 신호'
+          desc: '거래량 1.5~2.5배(시총별) + 가격 3% 이상 = 세력 매수 신호'
         },
         {
           id: 'accumulation',
           name: '🤫 조용한 매집',
           icon: '🤫',
-          desc: '가격 안정 + 거래량 증가 20% = 1~2주 후 급등 전조'
+          desc: '가격 변동 10% 이내 + 거래량 증가 = 조용한 매집 신호'
         }
       ];
 
@@ -981,7 +982,7 @@
                     <div>• 3-5배: 🔥🔥 대량 (세력)</div>
                     <div>• 2-3배: 🔥 급증 (관심)</div>
                     <div>• 1.5배-: 📈 정상</div>
-                    <div className="text-red-300 mt-1">⚠️ 10배+ =과열 위험</div>
+                    <div className="text-red-300 mt-1">⚠️ 과열 판정은 RSI+이격도 기준</div>
                   </div>
                   <div className="absolute top-full left-6 transform -mt-1">
                     <div className="border-4 border-transparent border-t-gray-900"></div>
@@ -1010,6 +1011,7 @@
                     <div className="text-blue-300">• 20-30: 🔵 과매도 (기회)</div>
                     <div className="text-indigo-300">• 20-: 💙 극과매도 (최대기회)</div>
                     <div className="text-yellow-300 mt-1">⚠️ 과매수 ≠ 매도 (강세 지속 가능)</div>
+                    <div className="text-gray-400 mt-1">※ 참고 지표 (등급 판정에 미사용)</div>
                   </div>
                   <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
                     <div className="border-4 border-transparent border-t-gray-900"></div>
@@ -2016,7 +2018,7 @@
                     <div>
                       <h3 className="text-2xl font-bold text-orange-800">TOP 3 전략 성과</h3>
                       <p className="text-sm text-orange-600 mt-1">
-                        고래 감지 + 저장구간(50-89점) 전략 실전 성과
+                        고래 감지 (1순위 50-79점 / 2순위 70점+) 전략 실전 성과
                       </p>
                     </div>
                   </div>
@@ -2103,7 +2105,7 @@
                 <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                   <p className="text-sm text-gray-700">
                     <strong className="text-orange-700">💡 전략 검증:</strong> 백테스트로 검증된
-                    <strong className="text-orange-700"> 고래 감지 + 저장구간(50-89점)</strong> 전략의 실전 성과입니다.
+                    <strong className="text-orange-700"> 고래 감지 (1순위 50-79점 / 2순위 70점+)</strong> 전략의 실전 성과입니다.
                     {top3WinRate >= 76.9 && top3AvgReturn >= 27 ? (
                       <span className="text-green-700"> ✅ 예상 성과를 달성하고 있습니다!</span>
                     ) : top3WinRate >= 60 || top3AvgReturn >= 0 ? (
