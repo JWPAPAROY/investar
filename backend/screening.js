@@ -351,11 +351,11 @@ class StockScreener {
    * 30일 추세 점수 계산 (Trend Score) (0-40점)
    * KIS API 30일 제한 내에서 매집 패턴 분석
    *
-   * v3.10.0: 35→40점 확대 (Radar Scoring Track 2)
-   * - 거래량 점진 증가: 0-20점 (15→20 증가)
-   * - 변동성 수축: 0-10점 (유지)
-   * - 기관/외국인 장기 매집: 0-5점 (유지)
-   * - VPD 강화 추세: 0-5점 (유지)
+   * v3.20: 기여도 기반 리밸런싱 (Radar Scoring Track 2)
+   * - 거래량 점진 증가: 0-20점 (유지)
+   * - 변동성 수축: 0-5점 (10→5 축소, 구조적 한계)
+   * - 기관/외국인 장기 매집: 0-8점 (5→8 확대)
+   * - VPD 강화 추세: 0-7점 (5→7 확대)
    */
   calculateTrendScore(chartData, investorData) {
     if (!chartData || chartData.length < 25) {
@@ -374,14 +374,19 @@ class StockScreener {
     const scaledVolumeScore = (volumeAcceleration.score / 15) * 20;
     volumeAcceleration.score = parseFloat(scaledVolumeScore.toFixed(2));
 
-    // 2. 변동성 수축 (0-10점) - 유지
+    // 2. 변동성 수축 (0-5점) v3.20: 10→5 축소 (상승장에서 구조적 한계)
     const volatilityContraction = this.analyzeVolatilityContraction(chartData);
+    volatilityContraction.score = Math.min(volatilityContraction.score, 5); // 최대 5점 캡
 
-    // 3. 기관/외국인 장기 매집 (0-5점) - 유지
+    // 3. 기관/외국인 장기 매집 (0-8점) v3.20: 5→8 확대
     const institutionalAccumulation = this.analyzeInstitutionalAccumulation(investorData);
+    const scaledInstAcc = (institutionalAccumulation.score / 5) * 8;
+    institutionalAccumulation.score = parseFloat(scaledInstAcc.toFixed(2));
 
-    // 4. VPD 강화 추세 (0-5점) - 유지
+    // 4. VPD 강화 추세 (0-7점) v3.20: 5→7 확대
     const vpdStrengthening = this.analyzeVPDStrengthening(chartData);
+    const scaledVPDStr = (vpdStrengthening.score / 5) * 7;
+    vpdStrengthening.score = parseFloat(scaledVPDStr.toFixed(2));
 
     const totalScore = volumeAcceleration.score + volatilityContraction.score +
                        institutionalAccumulation.score + vpdStrengthening.score;
@@ -831,11 +836,11 @@ class StockScreener {
 
   /**
    * 5일 변화율 종합 점수 계산 (Momentum Score) (0-45점)
-   * v3.10.0: 40→45점 확대 (Radar Scoring Track 2)
-   * - 거래량 가속도: 0-18점 (15→18 증가)
-   * - VPD 개선도: 0-12점 (10→12 증가)
-   * - 선행 지표 강화: 0-10점 (유지)
-   * - 기관 진입 가속: 0-5점 (유지)
+   * v3.20: 기여도 기반 리밸런싱 (Radar Scoring Track 2)
+   * - 거래량 가속도: 0-15점 (18→15 축소)
+   * - VPD 개선도: 0-20점 (12→20 확대, 핵심 철학 지표)
+   * - 기관 진입 가속: 0-10점 (5→10 확대)
+   * - 선행 지표 강화: 제거 (Volume Acceleration과 중복)
    */
   calculate5DayMomentum(chartData, investorData) {
     if (!chartData || chartData.length < 10) {
@@ -843,7 +848,6 @@ class StockScreener {
         totalScore: 0,
         volumeAcceleration: { score: 0, trend: 'insufficient_data' },
         vpdImprovement: { score: 0, trend: 'insufficient_data' },
-        patternStrengthening: { score: 0, trend: 'insufficient_data' },
         institutionalEntry: { score: 0, trend: 'insufficient_data' }
       };
     }
@@ -859,7 +863,6 @@ class StockScreener {
         totalScore: 0,
         volumeAcceleration: { score: 0, trend: 'insufficient_data' },
         vpdImprovement: { score: 0, trend: 'insufficient_data' },
-        patternStrengthening: { score: 0, trend: 'insufficient_data' },
         institutionalEntry: { score: 0, trend: 'insufficient_data' }
       };
     }
@@ -867,24 +870,22 @@ class StockScreener {
     // 각 변화율 점수 계산
     const volumeAcceleration = this.calcVolumeAccelerationScore(d5State, d0State);
     const vpdImprovement = this.calcVPDImprovementScore(d5State, d0State);
-    const patternStrengthening = this.calcPatternStrengtheningScore(d5State, d0State);
     const institutionalEntry = this.calcInstitutionalEntryScore(d5State, d0State);
 
-    // v3.10.0: Scale to 45 points (from 40)
-    // volumeAcceleration: 15 → 18 points
-    // vpdImprovement: 10 → 12 points
-    // patternStrengthening: 10 → 10 points (unchanged)
-    // institutionalEntry: 5 → 5 points (unchanged)
-    const scaledVolumeAccel = (volumeAcceleration.score / 15) * 18;
-    const scaledVPD = (vpdImprovement.score / 10) * 12;
+    // v3.20: 기여도 기반 리밸런싱 (45점 유지)
+    // volumeAcceleration: 15 → 15 points (스케일링 제거)
+    // vpdImprovement: 10 → 20 points (핵심 철학 지표, 2배 확대)
+    // institutionalEntry: 5 → 10 points (신규 진입 신호, 2배 확대)
+    // patternStrengthening: 제거 (Volume Acceleration과 중복)
+    const scaledVPD = (vpdImprovement.score / 10) * 20;
+    const scaledInstitutional = (institutionalEntry.score / 5) * 10;
 
-    volumeAcceleration.score = parseFloat(scaledVolumeAccel.toFixed(2));
     vpdImprovement.score = parseFloat(scaledVPD.toFixed(2));
+    institutionalEntry.score = parseFloat(scaledInstitutional.toFixed(2));
 
     const totalScore = Math.max(0,
       volumeAcceleration.score +
       vpdImprovement.score +
-      patternStrengthening.score +
       institutionalEntry.score
     );
 
@@ -892,7 +893,6 @@ class StockScreener {
       totalScore: parseFloat(totalScore.toFixed(2)),
       volumeAcceleration,
       vpdImprovement,
-      patternStrengthening,
       institutionalEntry,
       d5State,
       d0State
@@ -1025,73 +1025,66 @@ class StockScreener {
         scoringTrack: 'Radar Scoring',
 
         structure: {
-          base: '0-15점 (품질 체크) ⬇️',
-          momentum: '0-45점 (D-5일 변화율) ⬆️',
-          trend: '0-40점 (30일 장기 추세) ⬆️'
+          base: '0-15점 (품질 체크)',
+          momentum: '0-45점 (D-5일 변화율)',
+          trend: '0-40점 (30일 장기 추세)'
         },
 
-        // 1. 기본 점수 (0-15점) v3.10.0
+        // 1. 기본 점수 (0-15점) v3.20
         baseScore: parseFloat(baseScore.toFixed(2)),
         baseComponents: {
-          volumeRatio: '거래량 비율 (0-3점) ⬇️',
-          obvTrend: 'OBV 추세 (0-3점) ⬇️',
-          vwapMomentum: 'VWAP 모멘텀 (0-3점) ⬇️',
-          asymmetric: '비대칭 비율 (0-4점) ⬇️',
-          liquidity: '유동성 필터 (0-2점) ⬇️',
-          drawdownPenalty: '되돌림 페널티 (-2~0점) 완화'
+          volumeRatio: '거래량 비율 (0-3점)',
+          obvTrend: 'OBV 추세 (0-3점)',
+          vwapMomentum: 'VWAP 모멘텀 (0-3점)',
+          asymmetric: '비대칭 비율 (0-6점) ⬆️',
+          drawdownPenalty: '되돌림 페널티 (-2~0점)'
         },
 
-        // 2. 변화율 점수 (0-45점) ⭐ v3.10.0 확대!
+        // 2. 변화율 점수 (0-45점) v3.20 리밸런싱
         momentumScore: parseFloat(momentumScore.totalScore.toFixed(2)),
         momentumComponents: {
           volumeAcceleration: {
-            name: '거래량 가속도 (0-18점) ⬆️',
+            name: '거래량 가속도 (0-15점)',
             score: momentumScore.volumeAcceleration.score,
             trend: momentumScore.volumeAcceleration.trend,
             details: `D-5: ${momentumScore.volumeAcceleration.d5Volume?.toLocaleString()}주 → D-0: ${momentumScore.volumeAcceleration.d0Volume?.toLocaleString()}주 (${momentumScore.volumeAcceleration.ratio}배)`
           },
           vpdImprovement: {
-            name: 'VPD 개선도 (0-12점) ⬆️',
+            name: 'VPD 개선도 (0-20점) ⬆️ 핵심',
             score: momentumScore.vpdImprovement.score,
             trend: momentumScore.vpdImprovement.trend,
             details: `D-5 VPD: ${momentumScore.vpdImprovement.d5VPD} → D-0 VPD: ${momentumScore.vpdImprovement.d0VPD} (개선도: ${momentumScore.vpdImprovement.improvement})`
           },
-          patternStrengthening: {
-            name: '선행 지표 강화 (0-10점)',
-            score: momentumScore.patternStrengthening.score,
-            trend: momentumScore.patternStrengthening.trend,
-            details: `D-5: ${momentumScore.patternStrengthening.d5Score}점 → D-0: ${momentumScore.patternStrengthening.d0Score}점 (${momentumScore.patternStrengthening.ratio}배)`
-          },
           institutionalEntry: {
-            name: '기관 진입 가속 (0-5점)',
+            name: '기관 진입 가속 (0-10점) ⬆️',
             score: momentumScore.institutionalEntry.score,
             trend: momentumScore.institutionalEntry.trend,
             details: `D-5: ${momentumScore.institutionalEntry.d5Days}일 → D-0: ${momentumScore.institutionalEntry.d0Days}일`
           }
         },
 
-        // 3. 추세 점수 (0-40점) ⬆️ v3.10.0 확대!
+        // 3. 추세 점수 (0-40점) v3.20 리밸런싱
         trendScore: parseFloat(trendScore.totalScore.toFixed(2)),
         trendComponents: {
           volumeAcceleration: {
-            name: '거래량 점진 증가 (0-20점) ⬆️',
+            name: '거래량 점진 증가 (0-20점)',
             score: trendScore.volumeAcceleration.score,
             trend: trendScore.volumeAcceleration.trend
           },
           volatilityContraction: {
-            name: '변동성 수축 (0-10점) 🆕',
+            name: '변동성 수축 (0-5점) ⬇️',
             score: trendScore.volatilityContraction?.score || 0,
             trend: trendScore.volatilityContraction?.trend || 'unknown',
             details: trendScore.volatilityContraction?.details || null
           },
           institutionalAccumulation: {
-            name: '기관/외국인 장기 매집 (0-5점)',
+            name: '기관/외국인 장기 매집 (0-8점) ⬆️',
             score: trendScore.institutionalAccumulation.score,
             days: trendScore.institutionalAccumulation.days,
             strength: trendScore.institutionalAccumulation.strength
           },
           vpdStrengthening: {
-            name: 'VPD 강화 추세 (0-5점)',
+            name: 'VPD 강화 추세 (0-7점) ⬆️',
             score: trendScore.vpdStrengthening.score,
             trend: trendScore.vpdStrengthening.trend
           }
@@ -1110,7 +1103,7 @@ class StockScreener {
         // 5. 최종 점수
         finalScore: parseFloat(totalScore.toFixed(2)),
         maxScore: 90,
-        formula: 'Base(0-15) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6) = Radar(0-90)'
+        formula: 'Base(0-15) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6) = Radar(0-90) [v3.20 리밸런싱]'
       };
 
       // 랭킹 뱃지 가져오기
@@ -1164,13 +1157,13 @@ class StockScreener {
    * 기본 점수 계산 (Base Score) v3.10.0 - Radar Scoring
    * 급등 '예정' 종목 발굴에 최적화
    *
-   * v3.10.0: Base 25점 → 15점 (품질 체크만, Track 2 Radar Scoring)
-   * - 거래량 비율: 0-3점 (5→3 축소)
-   * - OBV 추세: 0-3점 (5→3 축소)
-   * - VWAP 모멘텀: 0-3점 (5→3 축소)
-   * - 비대칭 비율: 0-4점 (7→4 축소)
-   * - 유동성 필터: 0-2점 (3→2 축소)
-   * - 되돌림 페널티: -2~0점 (-3→-2 완화)
+   * v3.20: 기여도 기반 리밸런싱 (품질 체크, 0-15점)
+   * - 거래량 비율: 0-3점
+   * - OBV 추세: 0-3점
+   * - VWAP 모멘텀: 0-3점
+   * - 비대칭 비율: 0-6점 (4→6 확대, 차별화 능력 우수)
+   * - 유동성 필터: 제거 (풀 종목 전부 2점, 차별화 0)
+   * - 되돌림 페널티: -2~0점
    */
   calculateTotalScore(volumeAnalysis, advancedAnalysis, trendScore = null, chartData = null, currentPrice = null) {
     let baseScore = 0;
@@ -1191,23 +1184,15 @@ class StockScreener {
     // 3. VWAP 모멘텀 (0-3점) ⬇️ 5→3 축소
     if (volumeAnalysis.signals.priceVsVWAP === '상승세') baseScore += 3;
 
-    // 4. 비대칭 비율 (0-4점) ⬇️ 7→4 축소
+    // 4. 비대칭 비율 (0-6점) v3.20: 4→6 확대 (차별화 능력 우수)
     const asymmetric = advancedAnalysis?.indicators?.asymmetric;
     if (asymmetric && asymmetric.score) {
-      baseScore += Math.min(asymmetric.score / 10 * 0.57, 4); // 최대 4점 (7→4 scale)
+      baseScore += Math.min(asymmetric.score / 10 * 0.857, 6); // 최대 6점
     }
 
-    // 5. 유동성 필터 (0-2점) ⬇️ 3→2 축소
-    if (chartData && currentPrice) {
-      // 간이 유동성: 최근 5일 평균 거래대금
-      const recent5 = chartData.slice(0, 5);
-      const avgTradingValue = recent5.reduce((sum, d) => sum + (d.close * d.volume), 0) / recent5.length;
+    // 5. 유동성 필터: v3.20에서 제거 (풀 종목 전부 2점, 차별화 0)
 
-      if (avgTradingValue >= 10000000000) baseScore += 2;      // 100억 이상: 2점
-      else if (avgTradingValue >= 5000000000) baseScore += 1;  // 50억 이상: 1점
-    }
-
-    // 6. 고점 대비 되돌림 페널티 (-2~0점) ⬇️ -3→-2 완화
+    // 6. 고점 대비 되돌림 페널티 (-2~0점)
     if (chartData && currentPrice) {
       const recentHigh = Math.max(...chartData.slice(0, 30).map(d => d.high));
       const drawdownPercent = ((recentHigh - currentPrice) / recentHigh) * 100;
@@ -1225,9 +1210,9 @@ class StockScreener {
   }
 
   /**
-   * 추천 등급 산출 v3.19 - Radar Scoring + 7-Tier Grade System
+   * 추천 등급 산출 v3.20 - Radar Scoring + 7-Tier Grade System
    *
-   * Radar Scoring: 0-90점 (Base 15 + Momentum 45 + Trend 40 + MultiSignal 6)
+   * Radar Scoring: 0-90점 (Base 15 + Momentum 45 + Trend 40 + MultiSignal 6) [v3.20 리밸런싱]
    *
    * 7-Tier Grade System (Priority Order):
    * - 과열 (priority 0): RSI > 80 AND 이격도 > 115

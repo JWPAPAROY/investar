@@ -35,7 +35,6 @@ async function checkTopStocks() {
       const mc = top.scoreBreakdown.momentumComponents;
       console.log(`  거래량 가속도: ${mc.volumeAcceleration.score}점 (${mc.volumeAcceleration.trend})`);
       console.log(`  VPD 개선도: ${mc.vpdImprovement.score}점 (${mc.vpdImprovement.trend})`);
-      console.log(`  패턴 강화도: ${mc.patternStrengthening.score}점 (${mc.patternStrengthening.trend})`);
       console.log(`  기관 진입: ${mc.institutionalEntry.score}점 (${mc.institutionalEntry.trend})\n`);
     }
   } catch (error) {
