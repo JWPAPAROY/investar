@@ -349,18 +349,13 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 2: 황금 구간(50-79점) + Golden Zones 감지 종목 필터링
+    // Step 2: 저장 구간(50-89점) 필터링
     const filteredStocks = stocks.filter(stock => {
       const score = stock.totalScore;
-
-      // v3.16: Golden Zones 감지 종목(96-99점)도 저장하여 실적 추적
-      if (stock.goldenZone && stock.goldenZone.detected) return true;
-
-      // 황금 구간(50-89점)만 저장 (S등급 포함)
       return score >= 50 && score < 90;
     });
 
-    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (황금구간 + Golden Zones)`);
+    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (저장 구간 50-89)`);
 
     if (filteredStocks.length === 0) {
       return res.status(200).json({
