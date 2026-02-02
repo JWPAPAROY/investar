@@ -389,7 +389,7 @@ class StockScreener {
     vpdStrengthening.score = parseFloat(scaledVPDStr.toFixed(2));
 
     const totalScore = volumeAcceleration.score + volatilityContraction.score +
-                       institutionalAccumulation.score + vpdStrengthening.score;
+      institutionalAccumulation.score + vpdStrengthening.score;
 
     return {
       totalScore: parseFloat(totalScore.toFixed(2)),
@@ -961,11 +961,11 @@ class StockScreener {
       const trendAnalysis = this.calculateTrendAnalysis(chartData, currentData);
 
       // ========================================
-      // 점수 계산: v3.19 Single-Track Radar Scoring
-      // Base(0-15) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6) = 0-90점
+      // 점수 계산: v3.21 Single-Track Radar Scoring
+      // Base(0-17) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6) = 0-92점
       // ========================================
 
-      const baseScore = this.calculateTotalScore(volumeAnalysis, advancedAnalysis, null, chartData, currentData.currentPrice);
+      const baseScore = this.calculateTotalScore(volumeAnalysis, advancedAnalysis, null, chartData, currentData.currentPrice, volumePriceDivergence, trendAnalysis);
 
       let momentumScore = this.calculate5DayMomentum(chartData, investorData);
       const d0DailyPenalty = this.calculateDailyRisePenalty(chartData);
@@ -987,7 +987,7 @@ class StockScreener {
 
       // 점수 합산
       const rawScore = baseScore + momentumScore.totalScore + trendScore.totalScore + multiSignalBonus;
-      let totalScore = Math.min(rawScore, 90); // Cap at 90
+      let totalScore = Math.min(rawScore, 92); // Cap at 92 (v3.21)
 
       const radarScore = {
         baseScore: parseFloat(baseScore.toFixed(2)),
@@ -1025,18 +1025,20 @@ class StockScreener {
         scoringTrack: 'Radar Scoring',
 
         structure: {
-          base: '0-15점 (품질 체크)',
+          base: '0-17점 (품질 체크) v3.21',
           momentum: '0-45점 (D-5일 변화율)',
           trend: '0-40점 (30일 장기 추세)'
         },
 
-        // 1. 기본 점수 (0-15점) v3.20
+        // 1. 기본 점수 (0-17점) v3.21
         baseScore: parseFloat(baseScore.toFixed(2)),
         baseComponents: {
           volumeRatio: '거래량 비율 (0-3점)',
           obvTrend: 'OBV 추세 (0-3점)',
           vwapMomentum: 'VWAP 모멘텀 (0-3점)',
-          asymmetric: '비대칭 비율 (0-6점) ⬆️',
+          asymmetric: '비대칭 비율 (0-4점)',
+          vpdRaw: 'VPD raw (0-3점)',
+          volume5DayChange: '5일 거래량 변동율 (0-2점) 🆕',
           drawdownPenalty: '되돌림 페널티 (-2~0점)'
         },
 
@@ -1100,10 +1102,9 @@ class StockScreener {
             : '단일 API 등장'
         },
 
-        // 5. 최종 점수
         finalScore: parseFloat(totalScore.toFixed(2)),
-        maxScore: 90,
-        formula: 'Base(0-15) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6) = Radar(0-90) [v3.20 리밸런싱]'
+        maxScore: 92,
+        formula: 'Base(0-17) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6) = Radar(0-92) [v3.21]'
       };
 
       // 랭킹 뱃지 가져오기
@@ -1157,18 +1158,19 @@ class StockScreener {
    * 기본 점수 계산 (Base Score) v3.10.0 - Radar Scoring
    * 급등 '예정' 종목 발굴에 최적화
    *
-   * v3.20: 기여도 기반 리밸런싱 (품질 체크, 0-15점)
+   * v3.21: 5일 거래량 변동율 점수 추가 (품질 체크, 0-17점)
    * - 거래량 비율: 0-3점
    * - OBV 추세: 0-3점
-   * - VWAP 모멘텀: 0-3점
-   * - 비대칭 비율: 0-6점 (4→6 확대, 차별화 능력 우수)
-   * - 유동성 필터: 제거 (풀 종목 전부 2점, 차별화 0)
+   * - VWAP 모멘텀: 0-3점 (이진→단계별 거리 기반)
+   * - 비대칭 비율: 0-4점 (매수세만 가점, 매도세 0점)
+   * - VPD raw: 0-3점 (핵심 철학 지표 직접 반영)
+   * - 5일 거래량 변동율: 0-2점 🆕 (단기 거래량 추세)
    * - 되돌림 페널티: -2~0점
    */
-  calculateTotalScore(volumeAnalysis, advancedAnalysis, trendScore = null, chartData = null, currentPrice = null) {
+  calculateTotalScore(volumeAnalysis, advancedAnalysis, trendScore = null, chartData = null, currentPrice = null, volumePriceDivergence = null, trendAnalysis = null) {
     let baseScore = 0;
 
-    // 1. 거래량 비율 (0-3점) ⬇️ 5→3 축소
+    // 1. 거래량 비율 (0-3점)
     if (volumeAnalysis.current.volumeMA20) {
       const volumeRatio = volumeAnalysis.current.volume / volumeAnalysis.current.volumeMA20;
       if (volumeRatio >= 5) baseScore += 3;       // 5배 이상 초대량
@@ -1176,23 +1178,46 @@ class StockScreener {
       else if (volumeRatio >= 2) baseScore += 1;  // 2배 이상 급증
     }
 
-    // 2. OBV 추세 (0-3점) ⬇️ 5→3 축소
+    // 2. OBV 추세 (0-3점)
     const obvTrend = volumeAnalysis.signals.obvTrend;
     if (obvTrend && obvTrend.includes('상승')) baseScore += 3;
     else if (obvTrend && obvTrend.includes('횡보')) baseScore += 1;
 
-    // 3. VWAP 모멘텀 (0-3점) ⬇️ 5→3 축소
-    if (volumeAnalysis.signals.priceVsVWAP === '상승세') baseScore += 3;
-
-    // 4. 비대칭 비율 (0-6점) v3.20: 4→6 확대 (차별화 능력 우수)
-    const asymmetric = advancedAnalysis?.indicators?.asymmetric;
-    if (asymmetric && asymmetric.score) {
-      baseScore += Math.min(asymmetric.score / 10 * 0.857, 6); // 최대 6점
+    // 3. VWAP 모멘텀 (0-3점) v3.20: 이진→단계별 (VWAP 대비 거리 기반)
+    const vwapPrice = volumeAnalysis.indicators.vwap;
+    if (vwapPrice && currentPrice) {
+      const vwapDistance = ((currentPrice - vwapPrice) / vwapPrice) * 100;
+      if (vwapDistance >= 5) baseScore += 3;        // VWAP 5%+ 위: 강한 상승세
+      else if (vwapDistance >= 2) baseScore += 2;   // VWAP 2-5% 위: 상승세
+      else if (vwapDistance > 0) baseScore += 1;    // VWAP 0-2% 위: 약한 상승세
+      // VWAP 이하: 0점
     }
 
-    // 5. 유동성 필터: v3.20에서 제거 (풀 종목 전부 2점, 차별화 0)
+    // 4. 비대칭 비율 (0-4점) v3.20: 매수세만 가점 (매도세 버그 수정)
+    const asymmetric = advancedAnalysis?.indicators?.asymmetric;
+    if (asymmetric && asymmetric.score > 0) {
+      baseScore += Math.min(asymmetric.score / 10 * 0.571, 4); // 최대 4점
+    }
 
-    // 6. 고점 대비 되돌림 페널티 (-2~0점)
+    // 5. VPD raw (0-3점) v3.20: 핵심 철학 지표 직접 반영
+    // "거래량 폭발 + 가격 미반영" 현재 상태를 점수화
+    if (volumePriceDivergence && volumePriceDivergence.divergence > 0) {
+      const div = volumePriceDivergence.divergence;
+      if (div >= 3.0) baseScore += 3;        // 강한 다이버전스: 조용한 매집
+      else if (div >= 1.5) baseScore += 2;   // 중간 다이버전스
+      else if (div >= 0.5) baseScore += 1;   // 약한 다이버전스
+    }
+
+    // 6. 5일 거래량 변동율 (0-2점) v3.21: 단기 거래량 추세 점수화
+    // 기존 표시 전용 → 점수 반영 (analyzeVolumeAcceleration과 다른 단기 5일 지표)
+    if (trendAnalysis && trendAnalysis.summary) {
+      const avgVolumeChange = parseFloat(trendAnalysis.summary.avgDailyVolumeChange) || 0;
+      if (avgVolumeChange >= 30) baseScore += 2;       // 일평균 30%+ 증가: 강한 매집
+      else if (avgVolumeChange >= 15) baseScore += 1;  // 일평균 15%+ 증가: 매집 조짐
+      // 15% 미만 또는 음수: 0점
+    }
+
+    // 7. 고점 대비 되돌림 페널티 (-2~0점)
     if (chartData && currentPrice) {
       const recentHigh = Math.max(...chartData.slice(0, 30).map(d => d.high));
       const drawdownPercent = ((recentHigh - currentPrice) / recentHigh) * 100;
@@ -1201,22 +1226,17 @@ class StockScreener {
       else if (drawdownPercent >= 15) baseScore -= 1; // 15% 이상 되돌림: -1점
     }
 
-    // 7. 복합 신호 처리 ⭐ v3.12.2: 페널티 → 완전 차단으로 변경
-    // 백테스트 결과: 복합신호 18개, 승률 11.11%, 평균 -9.54%
-    // screenAllStocks/screenByCategory에서 사전 필터링되므로 여기서는 처리 불필요
-    // (이전 v3.12.1: -15점 페널티 → v3.12.2: 완전 차단)
-
-    return Math.min(Math.max(baseScore, 0), 15); // 최대 15점
+    return Math.min(Math.max(baseScore, 0), 17); // 최대 17점 (v3.21: 15→17)
   }
 
   /**
-   * 추천 등급 산출 v3.20 - Radar Scoring + 7-Tier Grade System
+   * 추천 등급 산출 v3.21 - Radar Scoring + 7-Tier Grade System
    *
-   * Radar Scoring: 0-90점 (Base 15 + Momentum 45 + Trend 40 + MultiSignal 6) [v3.20 리밸런싱]
+   * Radar Scoring: 0-92점 (Base 17 + Momentum 45 + Trend 40 + MultiSignal 6) [v3.21]
    *
    * 7-Tier Grade System (Priority Order):
    * - 과열 (priority 0): RSI > 80 AND 이격도 > 115
-   * - S+: 90점 (이론적 만점)
+   * - S+: 90점+ (이론적 최고)
    * - S: 75-89 points
    * - A: 60-74 points
    * - B: 45-59 points

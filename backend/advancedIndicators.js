@@ -281,7 +281,8 @@ function calculateAsymmetricVolume(chartData) {
     downDays,
     ratio: ratio.toFixed(2),
     signal: ratio > 1.5 ? '📈 강한 매수세' : ratio < 0.7 ? '📉 강한 매도세' : '⚖️ 균형',
-    score: Math.abs(ratio - 1) * 50 // 1에서 멀수록 높은 점수
+    // v3.20: 매수세(ratio>1)만 가점, 매도세(ratio<1)는 0점 (기존: |ratio-1|로 매도세에도 가점 버그)
+    score: ratio >= 1 ? (ratio - 1) * 50 : 0
   };
 }
 

@@ -344,8 +344,12 @@ function calculateVolumePriceDivergence(chartData, currentPrice) {
   const divergence = volumeRatio - priceRatio;
 
   // VPT Slope 계산 (하락 추세 필터링)
-  const vpt = calculateVPT(chartData);
-  const vptSlope = calculateVPTSlope(vpt);
+  // v3.20: VPT는 오름차순(과거→최신) 누적이 필요. chartData는 내림차순이므로 변환
+  const vpt = calculateVPT([...chartData].reverse());
+  // 오름차순 VPT의 마지막 5일로 slope 계산
+  const vptSlope = vpt.length >= 5
+    ? (vpt[vpt.length - 1].vpt - vpt[vpt.length - 5].vpt) / 5
+    : 0;
 
   // 점수 계산 로직
   let score = 0;
