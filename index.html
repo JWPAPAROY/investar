@@ -82,8 +82,7 @@
       // 🆕 v3.12.4: 카테고리별 데이터 캐싱
       const [cachedData, setCachedData] = useState({
         all: null,
-        whale: null,
-        accumulation: null
+        whale: null
       });
 
       // 성과 검증 데이터 상태 (캐싱용)
@@ -648,12 +647,6 @@
           name: '🐋 고래 감지',
           icon: '🐋',
           desc: '거래량 1.5~2.5배(시총별) + 가격 3% 이상 = 세력 매수 신호'
-        },
-        {
-          id: 'accumulation',
-          name: '🤫 조용한 매집',
-          icon: '🤫',
-          desc: '가격 변동 10% 이내 + 거래량 증가 = 조용한 매집 신호'
         }
       ];
 
@@ -1044,8 +1037,7 @@
     function EmptyState({ category }) {
       const categoryNames = {
         'all': '종합집계',
-        'whale': '고래 감지',
-        'accumulation': '조용한 매집'
+        'whale': '고래 감지'
       };
 
       return (
@@ -1320,30 +1312,7 @@
                       )
                     });
 
-                    // 2. 조용한 매집
-                    const accumData = stock.advancedAnalysis.indicators.accumulation;
-                    allIndicators.push({
-                      title: '🤫 조용한 매집',
-                      detected: accumData.detected,
-                      signal: accumData.signal,
-                      tooltip: (
-                        <div className="space-y-1">
-                          <div className={`font-bold ${accumData.detected ? 'text-green-300' : 'text-gray-400'}`}>
-                            🤫 조용한 매집 {accumData.detected ? '' : '(미감지)'}
-                          </div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div>• 가격 변동폭: {accumData.priceRange}%</div>
-                          <div>• 거래량 증가율: <span className={accumData.detected ? "text-green-300" : "text-gray-400"}>+{accumData.volumeGrowth}%</span></div>
-                          <div>• 평균가: {accumData.avgPrice ? accumData.avgPrice.toLocaleString() : 'N/A'}원</div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div className="text-yellow-300">
-                            → {accumData.detected ? '가격 횡보 중 거래량 증가 = 세력 매집' : '조건: 가격 10% 이내 + 거래량 증가'}
-                          </div>
-                        </div>
-                      )
-                    });
-
-                    // 3. 탈출 속도
+                    // 2. 탈출 속도 (v3.22: 조용한 매집 제거 — 수익률 음의 상관)
                     const escapeData = stock.advancedAnalysis.indicators.escape;
                     allIndicators.push({
                       title: '🚀 탈출 속도',
@@ -1833,26 +1802,17 @@
       };
 
       // 카테고리 설명
+      // v3.22: 매집 카테고리 제거 (수익률 음의 상관)
       const categoryDescriptions = {
         whale: {
           icon: '🐋',
           label: '고래 감지',
-          description: '거래량 2.5배 이상 + 가격 3% 이상 상승. 기관/외국인 등 세력 매수 신호로, 단기 급등 가능성이 높습니다.'
-        },
-        accumulation: {
-          icon: '🤫',
-          label: '조용한 매집',
-          description: '가격 변동 10% 이내 + 거래량 증가. 세력이 조용히 물량을 모으는 중으로, 1-2주 후 급등 가능성이 있습니다 (선행 지표).'
-        },
-        both: {
-          icon: '🔥',
-          label: '고래 + 매집',
-          description: '고래 감지와 조용한 매집이 동시에 발생한 종목. 세력의 강한 매수 의지가 확인되어 가장 높은 급등 가능성을 보입니다.'
+          description: '거래량 2.5배 이상 + 가격 3% 이상 상승. 기관/외국인 등 세력 매수 신호로, 단기 급등 가능성이 높습니다. (승률 81.3%, 평균 +15.73%)'
         },
         normal: {
           icon: '📊',
-          label: '거래량-가격 다이버전스',
-          description: '거래량은 증가하지만 가격은 크게 오르지 않은 종목. 거래량이 가격보다 선행하는 경향을 활용한 전략으로, 향후 가격 상승 가능성이 있습니다. 고래나 매집만큼 강한 신호는 아니지만, Volume-Price Divergence 기준으로 선정되었습니다.'
+          label: '일반 종목',
+          description: '고래 감지 없이 VPD(거래량-가격 다이버전스) 기반으로 선정된 종목. 거래량이 가격보다 선행하는 경향을 활용합니다.'
         }
       };
 

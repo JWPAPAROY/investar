@@ -156,7 +156,7 @@ module.exports = async (req, res) => {
 
                 // 종목명이 없거나 종목코드인 경우, 실시간 데이터에서 업데이트
                 if (realtimeData.stockName &&
-                    (!rec.stock_name || rec.stock_name === rec.stock_code || rec.stock_name.startsWith('['))) {
+                  (!rec.stock_name || rec.stock_name === rec.stock_code || rec.stock_name.startsWith('['))) {
                   rec.stock_name = realtimeData.stockName;
                   console.log(`✅ 종목명 업데이트 [${rec.stock_code}]: ${realtimeData.stockName}`);
 
@@ -345,21 +345,15 @@ module.exports = async (req, res) => {
       ? (winningStocks.length / stocksWithPerformance.length * 100)
       : 0;
 
-    // 카테고리별 성과 계산
+    // 카테고리별 성과 계산 v3.23: 매집 제거, 고래|일반 만 유지
     const categoryStats = {
       whale: { label: '🐋 고래 감지', stocks: [], count: 0, winRate: 0, avgReturn: 0, maxReturn: 0 },
-      accumulation: { label: '🤫 조용한 매집', stocks: [], count: 0, winRate: 0, avgReturn: 0, maxReturn: 0 },
-      both: { label: '🔥 고래 + 매집', stocks: [], count: 0, winRate: 0, avgReturn: 0, maxReturn: 0 },
       normal: { label: '📊 일반', stocks: [], count: 0, winRate: 0, avgReturn: 0, maxReturn: 0 }
     };
 
     stocksWithPerformance.forEach(stock => {
-      if (stock.whale_detected && stock.accumulation_detected) {
-        categoryStats.both.stocks.push(stock);
-      } else if (stock.whale_detected) {
+      if (stock.whale_detected) {
         categoryStats.whale.stocks.push(stock);
-      } else if (stock.accumulation_detected) {
-        categoryStats.accumulation.stocks.push(stock);
       } else {
         categoryStats.normal.stocks.push(stock);
       }

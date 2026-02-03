@@ -361,42 +361,30 @@ class StockScreener {
     if (!chartData || chartData.length < 25) {
       return {
         totalScore: 0,
-        volumeAcceleration: { score: 0, detected: false },
-        volatilityContraction: { score: 0, detected: false },
-        institutionalAccumulation: { score: 0, detected: false },
-        vpdStrengthening: { score: 0, detected: false }
+        volumeAcceleration: { score: 0, detected: false, trend: 'insufficient_data' },
+        volatilityContraction: { score: 0, detected: false, trend: 'removed_v3.23' },
+        institutionalAccumulation: { score: 0, detected: false, trend: 'removed_v3.23' },
+        vpdStrengthening: { score: 0, detected: false, trend: 'removed_v3.23' }
       };
     }
 
-    // 1. 거래량 점진 증가 (0-20점) ⬆️ 15→20 증가
-    const volumeAcceleration = this.analyzeVolumeAcceleration(chartData);
-    // Scale from 15 to 20 points
-    const scaledVolumeScore = (volumeAcceleration.score / 15) * 20;
-    volumeAcceleration.score = parseFloat(scaledVolumeScore.toFixed(2));
+    // ========================================
+    // v3.23: 거래량 가속도 복원 (0-15점)
+    // VPD 강화 추세 제거 (VPD는 Base Score에만 반영)
+    // 거래량 가속도: +20.12% 효과성 (백테스트 검증)
+    // ========================================
 
-    // 2. 변동성 수축 (0-5점) v3.20: 10→5 축소 (상승장에서 구조적 한계)
-    const volatilityContraction = this.analyzeVolatilityContraction(chartData);
-    volatilityContraction.score = Math.min(volatilityContraction.score, 5); // 최대 5점 캡
-
-    // 3. 기관/외국인 장기 매집 (0-8점) v3.20: 5→8 확대
-    const institutionalAccumulation = this.analyzeInstitutionalAccumulation(investorData);
-    const scaledInstAcc = (institutionalAccumulation.score / 5) * 8;
-    institutionalAccumulation.score = parseFloat(scaledInstAcc.toFixed(2));
-
-    // 4. VPD 강화 추세 (0-7점) v3.20: 5→7 확대
-    const vpdStrengthening = this.analyzeVPDStrengthening(chartData);
-    const scaledVPDStr = (vpdStrengthening.score / 5) * 7;
-    vpdStrengthening.score = parseFloat(scaledVPDStr.toFixed(2));
-
-    const totalScore = volumeAcceleration.score + volatilityContraction.score +
-      institutionalAccumulation.score + vpdStrengthening.score;
+    // 거래량 가속도 (0-15점) - 기존 함수 재활용
+    const volumeAccel = this.analyzeVolumeAcceleration(chartData);
+    const scaledAccel = Math.min(volumeAccel.score, 15);
 
     return {
-      totalScore: parseFloat(totalScore.toFixed(2)),
-      volumeAcceleration,
-      volatilityContraction,
-      institutionalAccumulation,
-      vpdStrengthening
+      totalScore: parseFloat(scaledAccel.toFixed(2)),
+      volumeAcceleration: { score: scaledAccel, ...volumeAccel },
+      // 제거된 컴포넌트 (하위 호환)
+      volatilityContraction: { score: 0, detected: false, trend: 'removed_v3.23' },
+      institutionalAccumulation: { score: 0, detected: false, trend: 'removed_v3.23' },
+      vpdStrengthening: { score: 0, detected: false, trend: 'removed_v3.23' }
     };
   }
 
@@ -867,33 +855,45 @@ class StockScreener {
       };
     }
 
-    // 각 변화율 점수 계산
-    const volumeAcceleration = this.calcVolumeAccelerationScore(d5State, d0State);
-    const vpdImprovement = this.calcVPDImprovementScore(d5State, d0State);
+    // ========================================
+    // v3.23: 진짜 모멘텀 지표로 재설계
+    // Momentum(0-30) = 거래량 가속도(0-15) + 연속상승(0-10) + 기관진입(0-5)
+    // VPD Improvement 완전 제거 (VPD는 Base Score에만 반영)
+    // ========================================
+
+    // 1. 거래량 가속도 (0-15점) - 기존 함수 재활용
+    const volumeAccel = this.analyzeVolumeAcceleration(chartData);
+    const scaledVolAccel = Math.min(volumeAccel.score, 15);
+
+    // 2. 연속 상승일 보너스 (0-10점)
+    let consecutiveRise = 0;
+    if (chartData && chartData.length >= 5) {
+      for (let i = 0; i < Math.min(5, chartData.length - 1); i++) {
+        if (chartData[i].close > chartData[i + 1].close) {
+          consecutiveRise++;
+        } else {
+          break;
+        }
+      }
+    }
+    const riseBonus = consecutiveRise >= 4 ? 10 : consecutiveRise >= 3 ? 7 : consecutiveRise >= 2 ? 4 : 0;
+
+    // 3. 기관 진입 가속 (0-5점) - 기존 로직 유지
     const institutionalEntry = this.calcInstitutionalEntryScore(d5State, d0State);
-
-    // v3.20: 기여도 기반 리밸런싱 (45점 유지)
-    // volumeAcceleration: 15 → 15 points (스케일링 제거)
-    // vpdImprovement: 10 → 20 points (핵심 철학 지표, 2배 확대)
-    // institutionalEntry: 5 → 10 points (신규 진입 신호, 2배 확대)
-    // patternStrengthening: 제거 (Volume Acceleration과 중복)
-    const scaledVPD = (vpdImprovement.score / 10) * 20;
-    const scaledInstitutional = (institutionalEntry.score / 5) * 10;
-
-    vpdImprovement.score = parseFloat(scaledVPD.toFixed(2));
-    institutionalEntry.score = parseFloat(scaledInstitutional.toFixed(2));
+    const scaledInstitutional = Math.min(institutionalEntry.score, 5);
 
     const totalScore = Math.max(0,
-      volumeAcceleration.score +
-      vpdImprovement.score +
-      institutionalEntry.score
+      scaledVolAccel +
+      riseBonus +
+      scaledInstitutional
     );
 
     return {
       totalScore: parseFloat(totalScore.toFixed(2)),
-      volumeAcceleration,
-      vpdImprovement,
-      institutionalEntry,
+      volumeAcceleration: { score: scaledVolAccel, ...volumeAccel },
+      consecutiveRise: { days: consecutiveRise, bonus: riseBonus },
+      institutionalEntry: { score: scaledInstitutional, ...institutionalEntry },
+      vpdImprovement: { score: 0, trend: 'removed_v3.23' }, // 하위 호환
       d5State,
       d0State
     };
@@ -961,11 +961,11 @@ class StockScreener {
       const trendAnalysis = this.calculateTrendAnalysis(chartData, currentData);
 
       // ========================================
-      // 점수 계산: v3.21 Single-Track Radar Scoring
-      // Base(0-17) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6) = 0-92점
+      // 점수 계산: v3.23 Radar Scoring (데이터 기반 재설계)
+      // Base(0-25) + Momentum(0-30) + Trend(0-15) + Whale(0-30) = 0-100점
       // ========================================
 
-      const baseScore = this.calculateTotalScore(volumeAnalysis, advancedAnalysis, null, chartData, currentData.currentPrice, volumePriceDivergence, trendAnalysis);
+      const baseScore = this.calculateTotalScore(volumeAnalysis, advancedAnalysis, null, chartData, currentData.currentPrice, volumePriceDivergence, trendAnalysis, currentData.marketCap);
 
       let momentumScore = this.calculate5DayMomentum(chartData, investorData);
       const d0DailyPenalty = this.calculateDailyRisePenalty(chartData);
@@ -974,32 +974,27 @@ class StockScreener {
 
       const trendScore = this.calculateTrendScore(chartData, investorData);
 
-      // Multi-Signal Bonus (여러 API에서 동시 등장 = 더 강한 신호)
-      const rankBadgesForScore = kisApi.getCachedRankBadges(stockCode);
-      let multiSignalBonus = 0;
-      let multiSignalCount = 0;
-      if (rankBadgesForScore) {
-        multiSignalCount = Object.values(rankBadgesForScore).filter(Boolean).length;
-        if (multiSignalCount >= 4) multiSignalBonus = 6;
-        else if (multiSignalCount >= 3) multiSignalBonus = 4;
-        else if (multiSignalCount >= 2) multiSignalBonus = 2;
-      }
+      // ========================================
+      // v3.23: 고래 보너스 유지, VPD는 Base Score에만 반영
+      // 총점(0-100) = Base(0-25) + Whale(0-30) + Momentum(0-30) + Trend(0-15)
+      // ========================================
+      const isWhale = advancedAnalysis?.indicators?.whale?.length > 0;
+      const whaleBonus = isWhale ? 30 : 0;
 
       // 점수 합산
-      const rawScore = baseScore + momentumScore.totalScore + trendScore.totalScore + multiSignalBonus;
-      let totalScore = Math.min(rawScore, 92); // Cap at 92 (v3.21)
+      const rawScore = baseScore + whaleBonus + momentumScore.totalScore + trendScore.totalScore;
+      let totalScore = Math.min(rawScore, 100); // v3.22: Cap 100
 
       const radarScore = {
         baseScore: parseFloat(baseScore.toFixed(2)),
+        whaleBonus: whaleBonus,
         momentumScore: momentumScore,
         trendScore: trendScore,
-        multiSignalBonus: multiSignalBonus,
-        multiSignalCount: multiSignalCount,
         total: parseFloat(totalScore.toFixed(2))
       };
 
-      if (multiSignalBonus > 0) {
-        console.log(`📊 Multi-Signal Bonus: ${multiSignalCount}개 API 등장 → +${multiSignalBonus}점`);
+      if (whaleBonus > 0) {
+        console.log(`🐋 Whale Bonus: +${whaleBonus}점`);
       }
 
       // 과열 감지
@@ -1016,95 +1011,68 @@ class StockScreener {
       );
 
       // 최종 점수 확정 (NaN 방지)
-      totalScore = isNaN(totalScore) ? 0 : parseFloat(Math.min(Math.max(totalScore, 0), 90).toFixed(2));
+      totalScore = isNaN(totalScore) ? 0 : parseFloat(Math.min(Math.max(totalScore, 0), 100).toFixed(2));
 
       // ========================================
       // 가점/감점 상세 내역 (스코어 카드) v3.10.0
       // ========================================
       const scoreBreakdown = {
-        scoringTrack: 'Radar Scoring',
+        scoringTrack: 'Data-Driven Scoring v3.22',
 
         structure: {
-          base: '0-17점 (품질 체크) v3.21',
-          momentum: '0-45점 (D-5일 변화율)',
-          trend: '0-40점 (30일 장기 추세)'
+          base: '0-15점 (거래량+VPD+시총+되돌림)',
+          whale: '0-30점 (고래 감지 보너스)',
+          momentum: '0-40점 (VPD 개선도+기관 진입)',
+          trend: '0-15점 (VPD 강화 추세)'
         },
 
-        // 1. 기본 점수 (0-17점) v3.21
+        // 1. 기본 점수 (0-15점) v3.22
         baseScore: parseFloat(baseScore.toFixed(2)),
         baseComponents: {
-          volumeRatio: '거래량 비율 (0-3점)',
-          obvTrend: 'OBV 추세 (0-3점)',
-          vwapMomentum: 'VWAP 모멘텀 (0-3점)',
-          asymmetric: '비대칭 비율 (0-4점)',
-          vpdRaw: 'VPD raw (0-3점)',
-          volume5DayChange: '5일 거래량 변동율 (0-2점) 🆕',
-          drawdownPenalty: '되돌림 페널티 (-2~0점)'
+          volumeRatio: '거래량 비율 (0-5점, 1-2x 최고)',
+          vpdRaw: 'VPD raw (0-5점)',
+          marketCapBonus: '시총 보정 (-5~+5점)',
+          drawdownPenalty: '되돌림 페널티 (-3~0점)'
         },
 
-        // 2. 변화율 점수 (0-45점) v3.20 리밸런싱
+        // 2. 고래 감지 보너스 (0-30점) 🆕 v3.22
+        whaleBonus: {
+          name: '고래 감지 (0-30점)',
+          score: whaleBonus,
+          detected: isWhale,
+          details: isWhale ? '고래 감지 → +30점 (승률 81.3%, 평균 +15.73%)' : '고래 미감지'
+        },
+
+        // 3. 변화율 점수 (0-40점) v3.22
         momentumScore: parseFloat(momentumScore.totalScore.toFixed(2)),
         momentumComponents: {
-          volumeAcceleration: {
-            name: '거래량 가속도 (0-15점)',
-            score: momentumScore.volumeAcceleration.score,
-            trend: momentumScore.volumeAcceleration.trend,
-            details: `D-5: ${momentumScore.volumeAcceleration.d5Volume?.toLocaleString()}주 → D-0: ${momentumScore.volumeAcceleration.d0Volume?.toLocaleString()}주 (${momentumScore.volumeAcceleration.ratio}배)`
-          },
           vpdImprovement: {
-            name: 'VPD 개선도 (0-20점) ⬆️ 핵심',
+            name: 'VPD 개선도 (0-35점) ⭐ 핵심',
             score: momentumScore.vpdImprovement.score,
             trend: momentumScore.vpdImprovement.trend,
             details: `D-5 VPD: ${momentumScore.vpdImprovement.d5VPD} → D-0 VPD: ${momentumScore.vpdImprovement.d0VPD} (개선도: ${momentumScore.vpdImprovement.improvement})`
           },
           institutionalEntry: {
-            name: '기관 진입 가속 (0-10점) ⬆️',
+            name: '기관 진입 가속 (0-5점)',
             score: momentumScore.institutionalEntry.score,
             trend: momentumScore.institutionalEntry.trend,
             details: `D-5: ${momentumScore.institutionalEntry.d5Days}일 → D-0: ${momentumScore.institutionalEntry.d0Days}일`
           }
         },
 
-        // 3. 추세 점수 (0-40점) v3.20 리밸런싱
+        // 4. 추세 점수 (0-15점) v3.22
         trendScore: parseFloat(trendScore.totalScore.toFixed(2)),
         trendComponents: {
-          volumeAcceleration: {
-            name: '거래량 점진 증가 (0-20점)',
-            score: trendScore.volumeAcceleration.score,
-            trend: trendScore.volumeAcceleration.trend
-          },
-          volatilityContraction: {
-            name: '변동성 수축 (0-5점) ⬇️',
-            score: trendScore.volatilityContraction?.score || 0,
-            trend: trendScore.volatilityContraction?.trend || 'unknown',
-            details: trendScore.volatilityContraction?.details || null
-          },
-          institutionalAccumulation: {
-            name: '기관/외국인 장기 매집 (0-8점) ⬆️',
-            score: trendScore.institutionalAccumulation.score,
-            days: trendScore.institutionalAccumulation.days,
-            strength: trendScore.institutionalAccumulation.strength
-          },
           vpdStrengthening: {
-            name: 'VPD 강화 추세 (0-7점) ⬆️',
+            name: 'VPD 강화 추세 (0-15점) ⭐',
             score: trendScore.vpdStrengthening.score,
             trend: trendScore.vpdStrengthening.trend
           }
         },
 
-        // 4. Multi-Signal Bonus (🆕 v3.14)
-        multiSignalBonus: {
-          name: '중복 등장 가중치 (0-6점) 🆕',
-          score: multiSignalBonus,
-          apiCount: multiSignalCount,
-          details: multiSignalCount >= 2
-            ? `${multiSignalCount}개 API 동시 등장 → +${multiSignalBonus}점`
-            : '단일 API 등장'
-        },
-
         finalScore: parseFloat(totalScore.toFixed(2)),
-        maxScore: 92,
-        formula: 'Base(0-17) + Momentum(0-45) + Trend(0-40) + MultiSignal(0-6) = Radar(0-92) [v3.21]'
+        maxScore: 100,
+        formula: 'Base(0-15) + Whale(0-30) + Momentum(0-40) + Trend(0-15) = Total(0-100) [v3.22]'
       };
 
       // 랭킹 뱃지 가져오기
@@ -1167,66 +1135,73 @@ class StockScreener {
    * - 5일 거래량 변동율: 0-2점 🆕 (단기 거래량 추세)
    * - 되돌림 페널티: -2~0점
    */
-  calculateTotalScore(volumeAnalysis, advancedAnalysis, trendScore = null, chartData = null, currentPrice = null, volumePriceDivergence = null, trendAnalysis = null) {
+  calculateTotalScore(volumeAnalysis, advancedAnalysis, trendScore = null, chartData = null, currentPrice = null, volumePriceDivergence = null, trendAnalysis = null, marketCap = null) {
     let baseScore = 0;
 
-    // 1. 거래량 비율 (0-3점)
+    // ========================================
+    // v3.23: 데이터 기반 Base Score 강화
+    // Base(0-25) = 거래량(8) + VPD(7) + 시총(-5~+7) + 되돌림(-3~0) + 연속상승(0-5)
+    // VPD는 Base Score에만 반영 (Momentum/Trend에서 제거)
+    // ========================================
+
+    // 1. 거래량 비율 (0-8점) v3.23: 5→8 확대
+    // 데이터: 1-2x 승률 78.9%/+21.77%, 5x+ 승률 55.9%/+3.21%
     if (volumeAnalysis.current.volumeMA20) {
       const volumeRatio = volumeAnalysis.current.volume / volumeAnalysis.current.volumeMA20;
-      if (volumeRatio >= 5) baseScore += 3;       // 5배 이상 초대량
-      else if (volumeRatio >= 3) baseScore += 2;  // 3배 이상 대량
-      else if (volumeRatio >= 2) baseScore += 1;  // 2배 이상 급증
+      if (volumeRatio >= 1.0 && volumeRatio < 2.0) baseScore += 8;       // 황금구간
+      else if (volumeRatio >= 2.0 && volumeRatio < 3.0) baseScore += 5;  // 적정 증가
+      else if (volumeRatio >= 3.0 && volumeRatio < 5.0) baseScore += 2;  // 과다 시작
+      // 5x+ 또는 1x 미만: 0점
     }
 
-    // 2. OBV 추세 (0-3점)
-    const obvTrend = volumeAnalysis.signals.obvTrend;
-    if (obvTrend && obvTrend.includes('상승')) baseScore += 3;
-    else if (obvTrend && obvTrend.includes('횡보')) baseScore += 1;
-
-    // 3. VWAP 모멘텀 (0-3점) v3.20: 이진→단계별 (VWAP 대비 거리 기반)
-    const vwapPrice = volumeAnalysis.indicators.vwap;
-    if (vwapPrice && currentPrice) {
-      const vwapDistance = ((currentPrice - vwapPrice) / vwapPrice) * 100;
-      if (vwapDistance >= 5) baseScore += 3;        // VWAP 5%+ 위: 강한 상승세
-      else if (vwapDistance >= 2) baseScore += 2;   // VWAP 2-5% 위: 상승세
-      else if (vwapDistance > 0) baseScore += 1;    // VWAP 0-2% 위: 약한 상승세
-      // VWAP 이하: 0점
-    }
-
-    // 4. 비대칭 비율 (0-4점) v3.20: 매수세만 가점 (매도세 버그 수정)
-    const asymmetric = advancedAnalysis?.indicators?.asymmetric;
-    if (asymmetric && asymmetric.score > 0) {
-      baseScore += Math.min(asymmetric.score / 10 * 0.571, 4); // 최대 4점
-    }
-
-    // 5. VPD raw (0-3점) v3.20: 핵심 철학 지표 직접 반영
+    // 2. VPD raw (0-7점) v3.23: 5→7 확대 (유일한 VPD 반영 위치)
     // "거래량 폭발 + 가격 미반영" 현재 상태를 점수화
     if (volumePriceDivergence && volumePriceDivergence.divergence > 0) {
       const div = volumePriceDivergence.divergence;
-      if (div >= 3.0) baseScore += 3;        // 강한 다이버전스: 조용한 매집
-      else if (div >= 1.5) baseScore += 2;   // 중간 다이버전스
-      else if (div >= 0.5) baseScore += 1;   // 약한 다이버전스
+      if (div >= 3.0) baseScore += 7;
+      else if (div >= 2.0) baseScore += 5;
+      else if (div >= 1.0) baseScore += 4;
+      else if (div >= 0.5) baseScore += 2;
+      else if (div > 0) baseScore += 1;
     }
 
-    // 6. 5일 거래량 변동율 (0-2점) v3.21: 단기 거래량 추세 점수화
-    // 기존 표시 전용 → 점수 반영 (analyzeVolumeAcceleration과 다른 단기 5일 지표)
-    if (trendAnalysis && trendAnalysis.summary) {
-      const avgVolumeChange = parseFloat(trendAnalysis.summary.avgDailyVolumeChange) || 0;
-      if (avgVolumeChange >= 30) baseScore += 2;       // 일평균 30%+ 증가: 강한 매집
-      else if (avgVolumeChange >= 15) baseScore += 1;  // 일평균 15%+ 증가: 매집 조짐
-      // 15% 미만 또는 음수: 0점
+    // 3. 시총 보정 (-5 ~ +7점) v3.23: 대형주 보너스 확대
+    // 데이터: 소형주(<1000억) 승률 11.1%/-2.88%, 대형주(5000억+) 70%/+11.44%
+    if (marketCap) {
+      const mcBillion = marketCap / 100000000; // 억 단위
+      if (mcBillion < 1000) baseScore -= 5;          // 소형주 강한 페널티
+      else if (mcBillion < 3000) baseScore -= 2;     // 중소형주 페널티
+      else if (mcBillion >= 10000) baseScore += 7;   // 대형주 강한 보너스
+      else if (mcBillion >= 5000) baseScore += 5;    // 중대형주 보너스
+      else if (mcBillion >= 3000) baseScore += 2;    // 중형주 약한 보너스
     }
 
-    // 7. 고점 대비 되돌림 페널티 (-2~0점)
+    // 4. 고점 대비 되돌림 페널티 (-3~0점)
     if (chartData && currentPrice) {
       const recentHigh = Math.max(...chartData.slice(0, 30).map(d => d.high));
       const drawdownPercent = ((recentHigh - currentPrice) / recentHigh) * 100;
 
-      if (drawdownPercent >= 20) baseScore -= 2;      // 20% 이상 되돌림: -2점
-      else if (drawdownPercent >= 15) baseScore -= 1; // 15% 이상 되돌림: -1점
+      if (drawdownPercent >= 20) baseScore -= 3;      // 20% 이상 되돌림
+      else if (drawdownPercent >= 15) baseScore -= 2; // 15% 이상 되돌림
+      else if (drawdownPercent >= 10) baseScore -= 1; // 10% 이상 되돌림
     }
 
-    return Math.min(Math.max(baseScore, 0), 17); // 최대 17점 (v3.21: 15→17)
+    // 5. 연속 상승일 보너스 (0-5점) 🆕 v3.23
+    if (chartData && chartData.length >= 5) {
+      let consecutiveRise = 0;
+      for (let i = 0; i < Math.min(5, chartData.length - 1); i++) {
+        if (chartData[i].close > chartData[i + 1].close) {
+          consecutiveRise++;
+        } else {
+          break;
+        }
+      }
+      if (consecutiveRise >= 4) baseScore += 5;
+      else if (consecutiveRise >= 3) baseScore += 3;
+      else if (consecutiveRise >= 2) baseScore += 1;
+    }
+
+    return Math.min(Math.max(baseScore, 0), 25); // v3.23: 최대 25점
   }
 
   /**
@@ -1441,18 +1416,6 @@ class StockScreener {
         const analysis = await this.analyzeStock(stockCode);
         analyzed++;
 
-        // 🆕 v3.12.2: 복합 신호 완전 차단
-        // 백테스트 결과: 복합신호 18개, 승률 11.11%, 평균 -9.54% → 완전 제외
-        if (analysis) {
-          const isWhale = analysis.advancedAnalysis?.indicators?.whale?.length > 0;
-          const isAccumulation = analysis.advancedAnalysis?.indicators?.accumulation?.detected;
-
-          if (isWhale && isAccumulation) {
-            console.log(`❌ [${analysis.stockName}] 복합 신호 감지 (고래+조용한매집) - 종목 제외`);
-            continue; // 복합 신호 종목은 완전 차단
-          }
-        }
-
         // 🆕 v3.13: 지속적 폭락 필터
         // 목적: 유일에너테크 같은 폭락 중 종목 추천 방지
         if (analysis && analysis.crashCheck && analysis.crashCheck.isCrashing) {
@@ -1520,10 +1483,9 @@ class StockScreener {
     let analyzed = 0;
     let found = 0;
 
-    // 카테고리별 필터 함수 (핵심 2개 지표만 유지)
+    // 카테고리별 필터 함수 (v3.22: 매집 제거, 고래만 유지)
     const categoryFilters = {
-      'whale': (analysis) => analysis.advancedAnalysis.indicators.whale.length > 0,
-      'accumulation': (analysis) => analysis.advancedAnalysis.indicators.accumulation.detected
+      'whale': (analysis) => analysis.advancedAnalysis.indicators.whale.length > 0
     };
 
     const filterFn = categoryFilters[category] || (() => true);
@@ -1536,17 +1498,6 @@ class StockScreener {
       try {
         const analysis = await this.analyzeStock(stockCode);
         analyzed++;
-
-        // 🆕 v3.12.2: 복합 신호 완전 차단
-        if (analysis) {
-          const isWhale = analysis.advancedAnalysis?.indicators?.whale?.length > 0;
-          const isAccumulation = analysis.advancedAnalysis?.indicators?.accumulation?.detected;
-
-          if (isWhale && isAccumulation) {
-            console.log(`❌ [${analysis.stockName}] 복합 신호 감지 - 제외`);
-            continue; // 복합 신호 종목은 완전 차단
-          }
-        }
 
         if (analysis && filterFn(analysis)) {
           results.push(analysis);
