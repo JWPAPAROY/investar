@@ -2116,11 +2116,11 @@
                 </div>
               </div>
               <div className="mt-3 p-3 bg-blue-100 rounded text-xs text-blue-900">
-                <strong>💡 Radar Scoring (v3.19):</strong><br/>
-                • <strong>Base(0-15):</strong> 거래량 비율, OBV, VWAP, 비대칭, 유동성<br/>
-                • <strong>Momentum(0-45):</strong> 거래량 가속, VPD 개선, 선행 강화, 기관 진입, 당일급등 페널티<br/>
-                • <strong>Trend(0-40):</strong> 점진 증가, 변동성 수축, 기관 매집, VPD 강화<br/>
-                • <strong>MultiSignal(0-6):</strong> 복수 API 동시 등장 보너스
+                <strong>💡 Radar Scoring (v3.23):</strong><br/>
+                • <strong>Base(0-25):</strong> 거래량 비율, VPD raw, 시총 보정, 되돌림 페널티, 연속상승 보너스<br/>
+                • <strong>Whale(0-30):</strong> 고래 감지 신호 보너스<br/>
+                • <strong>Momentum(0-30):</strong> 거래량 가속도, 연속상승, 기관 진입 (당일급등 페널티)<br/>
+                • <strong>Trend(0-15):</strong> 거래량 점진 증가 추세
               </div>
             </div>
 
@@ -2347,11 +2347,10 @@
                 <tbody>
                   {Object.entries(trackerData.statistics?.byCategory || {}).map(([key, cstats]) => {
                     // 카테고리별 종목 필터링
+                    // v3.23: 고래 | 일반 만 유지 (매집 제거)
                     const categoryStocks = trackerData.stocks.filter(stock => {
-                      if (key === 'whale') return stock.whale_detected && !stock.accumulation_detected;
-                      if (key === 'accumulation') return stock.accumulation_detected && !stock.whale_detected;
-                      if (key === 'both') return stock.whale_detected && stock.accumulation_detected;
-                      if (key === 'normal') return !stock.whale_detected && !stock.accumulation_detected;
+                      if (key === 'whale') return stock.whale_detected;
+                      if (key === 'normal') return !stock.whale_detected;
                       return false;
                     }).sort((a, b) => {
                       // ⭐ 점수 내림차순 정렬 (높은 점수가 위)
