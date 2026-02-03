@@ -43,6 +43,26 @@ module.exports = async (req, res) => {
 
     console.log(`\n📊 [${today}] 추천 종목 가격 업데이트 시작...\n`);
 
+    // 30일+ 경과 추천 자동 만료
+    const expiryCutoff = new Date();
+    expiryCutoff.setDate(expiryCutoff.getDate() - 30);
+    const expiryCutoffStr = expiryCutoff.toISOString().slice(0, 10);
+
+    const { data: expired, error: expireError } = await supabase
+      .from('screening_recommendations')
+      .update({
+        is_active: false,
+        closed_at: new Date().toISOString(),
+        close_reason: 'expired'
+      })
+      .eq('is_active', true)
+      .lt('recommendation_date', expiryCutoffStr)
+      .select('id');
+
+    if (!expireError && expired && expired.length > 0) {
+      console.log(`🕐 ${expired.length}개 추천 자동 만료 (30일+ 경과)`);
+    }
+
     // 활성 추천 종목 조회
     const { data: activeRecs, error: fetchError } = await supabase
       .from('screening_recommendations')
