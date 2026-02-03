@@ -46,7 +46,7 @@ module.exports = async (req, res) => {
     // 활성 추천 종목 조회
     const { data: activeRecs, error: fetchError } = await supabase
       .from('screening_recommendations')
-      .select('*')
+      .select('id, stock_code, stock_name, recommended_price, recommendation_date')
       .eq('is_active', true);
 
     if (fetchError) {
@@ -63,48 +63,54 @@ module.exports = async (req, res) => {
       });
     }
 
-    console.log(`활성 추천: ${activeRecs.length}개`);
+    // KST 기준 장 운영 시간 체크
+    const now = new Date();
+    const kstHour = (now.getUTCHours() + 9) % 24;
+    const kstDay = now.getUTCDay();
+    const isMarketHours = kstHour >= 9 && kstHour < 16 && kstDay >= 1 && kstDay <= 5;
+
+    console.log(`활성 추천: ${activeRecs.length}개 (장${isMarketHours ? ' 운영중' : ' 마감'})`);
 
     // 각 종목 가격 조회 (병렬 처리 최적화)
     const dailyPrices = [];
     let successCount = 0;
 
-    // 배치 크기 (5개씩 병렬 처리)
-    const BATCH_SIZE = 5;
+    const BATCH_SIZE = 10;
 
     // 단일 종목 가격 조회 함수
     async function fetchStockPrice(rec) {
       try {
-        // 현재가 조회 (실시간 시세)
-        let closingPrice = rec.recommended_price; // 기본값
+        let closingPrice = rec.recommended_price;
         let changeRate = 0;
         let volume = 0;
 
-        const currentData = await kisApi.getCurrentPrice(rec.stock_code);
-
-        if (currentData?.currentPrice) {
-          // 실시간 시세 조회 성공 (장 시간)
-          closingPrice = currentData.currentPrice;
-          changeRate = currentData.changeRate || 0;
-          volume = currentData.volume || 0;
-        } else {
-          // 폐장 시간 등으로 실시간 시세 조회 실패 → 최근 종가 조회
-          console.log(`⏰ 실시간 시세 없음 [${rec.stock_code}] - 최근 종가 조회 중...`);
-          try {
-            // 2일치 데이터를 받아서 확실하게 종가 확보
+        if (isMarketHours) {
+          // 장중: getCurrentPrice 시도 → 실패 시 getDailyChart 폴백
+          const currentData = await kisApi.getCurrentPrice(rec.stock_code);
+          if (currentData?.currentPrice) {
+            closingPrice = currentData.currentPrice;
+            changeRate = currentData.changeRate || 0;
+            volume = currentData.volume || 0;
+          } else {
             const chartData = await kisApi.getDailyChart(rec.stock_code, 2);
             if (chartData && chartData.length > 0) {
-              // chartData는 내림차순 (최신 데이터가 첫 번째)
               closingPrice = chartData[0].close || rec.recommended_price;
               volume = chartData[0].volume || 0;
-              // changeRate 계산 (전일 대비)
               if (chartData.length > 1 && chartData[1].close > 0) {
-                const prevClose = chartData[1].close;
-                changeRate = ((closingPrice - prevClose) / prevClose * 100);
+                changeRate = ((closingPrice - chartData[1].close) / chartData[1].close * 100);
               }
-              console.log(`✅ 종가 조회 성공 [${rec.stock_code}]: ${closingPrice}원 (${chartData[0].date})`);
-            } else {
-              console.warn(`⚠️ 차트 데이터 없음 [${rec.stock_code}]`);
+            }
+          }
+        } else {
+          // 장 마감: getDailyChart만 1회 호출 (getCurrentPrice 스킵)
+          try {
+            const chartData = await kisApi.getDailyChart(rec.stock_code, 2);
+            if (chartData && chartData.length > 0) {
+              closingPrice = chartData[0].close || rec.recommended_price;
+              volume = chartData[0].volume || 0;
+              if (chartData.length > 1 && chartData[1].close > 0) {
+                changeRate = ((closingPrice - chartData[1].close) / chartData[1].close * 100);
+              }
             }
           } catch (chartError) {
             console.warn(`❌ 종가 조회 실패 [${rec.stock_code}]:`, chartError.message);
@@ -150,9 +156,8 @@ module.exports = async (req, res) => {
       dailyPrices.push(...validResults);
       successCount += validResults.length;
 
-      // Rate limit 방지 (배치 간 200ms 대기)
       if (i + BATCH_SIZE < activeRecs.length) {
-        await new Promise(resolve => setTimeout(resolve, 200));
+        await new Promise(resolve => setTimeout(resolve, 50));
       }
     }
 
