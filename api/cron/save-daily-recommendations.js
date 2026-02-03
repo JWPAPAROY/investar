@@ -54,30 +54,37 @@ async function sendTelegramMessage(message) {
 /**
  * TOP 3 선별 (screening.js selectTop3와 동일한 전략)
  *
- * 1순위: 고래 + 황금구간(50-79점) - 승률 76.9%
- * 2순위: 70점+ 점수순 (고래 무관) - 승률 50.0%
- * Fallback: 조건 미충족 시 빈 배열
+ * 1순위: 고래 + 황금구간(50-79점)
+ * 2순위: 고래 + 70점+
+ * 3순위: 고래 + 40점+
  */
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.16: 과열 종목 제외 (과열=경고, 추천 대상 아님)
-  const eligible = stocks.filter(s => s.recommendation_grade !== '과열');
+  const isEligible = (s) => s.whale_detected && s.recommendation_grade !== '과열';
 
   const top3 = [];
 
   // 1순위: 고래 + 황금구간(50-79점)
-  const whaleGolden = eligible
-    .filter(s => s.whale_detected && s.total_score >= 50 && s.total_score < 80)
+  const priority1 = stocks
+    .filter(s => isEligible(s) && s.total_score >= 50 && s.total_score < 80)
     .sort((a, b) => b.total_score - a.total_score);
-  top3.push(...whaleGolden.slice(0, 3));
+  top3.push(...priority1.slice(0, 3));
 
-  // 2순위: 70점+ (고래 무관, 중복 제외)
+  // 2순위: 고래 + 70점+
   if (top3.length < 3) {
-    const highScore = eligible
-      .filter(s => s.total_score >= 70 && !top3.some(t => t.stock_code === s.stock_code))
+    const priority2 = stocks
+      .filter(s => isEligible(s) && s.total_score >= 70 && !top3.some(t => t.stock_code === s.stock_code))
       .sort((a, b) => b.total_score - a.total_score);
-    top3.push(...highScore.slice(0, 3 - top3.length));
+    top3.push(...priority2.slice(0, 3 - top3.length));
+  }
+
+  // 3순위: 고래 + 40점+
+  if (top3.length < 3) {
+    const priority3 = stocks
+      .filter(s => isEligible(s) && s.total_score >= 40 && !top3.some(t => t.stock_code === s.stock_code))
+      .sort((a, b) => b.total_score - a.total_score);
+    top3.push(...priority3.slice(0, 3 - top3.length));
   }
 
   return top3;
