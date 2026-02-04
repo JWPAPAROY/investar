@@ -1017,22 +1017,23 @@ class StockScreener {
       // 가점/감점 상세 내역 (스코어 카드) v3.10.0
       // ========================================
       const scoreBreakdown = {
-        scoringTrack: 'Data-Driven Scoring v3.22',
+        scoringTrack: 'Data-Driven Scoring v3.23',
 
         structure: {
-          base: '0-15점 (거래량+VPD+시총+되돌림)',
+          base: '0-25점 (거래량+VPD+시총+되돌림+연속상승)',
           whale: '0-30점 (고래 감지 보너스)',
-          momentum: '0-40점 (VPD 개선도+기관 진입)',
-          trend: '0-15점 (VPD 강화 추세)'
+          momentum: '0-30점 (거래량 가속도+연속상승+기관 진입)',
+          trend: '0-15점 (거래량 점진 증가 추세)'
         },
 
-        // 1. 기본 점수 (0-15점) v3.22
+        // 1. 기본 점수 (0-25점) v3.23
         baseScore: parseFloat(baseScore.toFixed(2)),
         baseComponents: {
-          volumeRatio: '거래량 비율 (0-5점, 1-2x 최고)',
-          vpdRaw: 'VPD raw (0-5점)',
-          marketCapBonus: '시총 보정 (-5~+5점)',
-          drawdownPenalty: '되돌림 페널티 (-3~0점)'
+          volumeRatio: '거래량 비율 (0-8점, 1-2x 최고)',
+          vpdRaw: 'VPD raw (0-7점)',
+          marketCapBonus: '시총 보정 (-5~+7점)',
+          drawdownPenalty: '되돌림 페널티 (-3~0점)',
+          consecutiveRiseBonus: '연속상승 보너스 (0-5점)'
         },
 
         // 2. 고래 감지 보너스 (0-30점) 🆕 v3.22
@@ -1043,36 +1044,42 @@ class StockScreener {
           details: isWhale ? '고래 감지 → +30점 (승률 81.3%, 평균 +15.73%)' : '고래 미감지'
         },
 
-        // 3. 변화율 점수 (0-40점) v3.22
+        // 3. 모멘텀 점수 (0-30점) v3.23
         momentumScore: parseFloat(momentumScore.totalScore.toFixed(2)),
         momentumComponents: {
-          vpdImprovement: {
-            name: 'VPD 개선도 (0-35점) ⭐ 핵심',
-            score: momentumScore.vpdImprovement.score,
-            trend: momentumScore.vpdImprovement.trend,
-            details: `D-5 VPD: ${momentumScore.vpdImprovement.d5VPD} → D-0 VPD: ${momentumScore.vpdImprovement.d0VPD} (개선도: ${momentumScore.vpdImprovement.improvement})`
+          volumeAcceleration: {
+            name: '거래량 가속도 (0-15점)',
+            score: momentumScore.volumeAcceleration?.score || 0,
+            trend: momentumScore.volumeAcceleration?.trend || 'N/A',
+            details: `거래량 추세: ${momentumScore.volumeAcceleration?.trend || 'N/A'}`
+          },
+          consecutiveRise: {
+            name: '연속 상승일 보너스 (0-10점)',
+            score: momentumScore.consecutiveRise?.bonus || 0,
+            trend: momentumScore.consecutiveRise?.days >= 3 ? 'strong' : momentumScore.consecutiveRise?.days >= 2 ? 'moderate' : 'weak',
+            details: `최근 ${momentumScore.consecutiveRise?.days || 0}일 연속 상승`
           },
           institutionalEntry: {
             name: '기관 진입 가속 (0-5점)',
-            score: momentumScore.institutionalEntry.score,
-            trend: momentumScore.institutionalEntry.trend,
-            details: `D-5: ${momentumScore.institutionalEntry.d5Days}일 → D-0: ${momentumScore.institutionalEntry.d0Days}일`
+            score: momentumScore.institutionalEntry?.score || 0,
+            trend: momentumScore.institutionalEntry?.trend || 'N/A',
+            details: `D-5: ${momentumScore.institutionalEntry?.d5Days || 0}일 → D-0: ${momentumScore.institutionalEntry?.d0Days || 0}일`
           }
         },
 
-        // 4. 추세 점수 (0-15점) v3.22
+        // 4. 추세 점수 (0-15점) v3.23
         trendScore: parseFloat(trendScore.totalScore.toFixed(2)),
         trendComponents: {
-          vpdStrengthening: {
-            name: 'VPD 강화 추세 (0-15점) ⭐',
-            score: trendScore.vpdStrengthening.score,
-            trend: trendScore.vpdStrengthening.trend
+          volumeAcceleration: {
+            name: '거래량 점진 증가 추세 (0-15점)',
+            score: trendScore.volumeAcceleration?.score || 0,
+            trend: trendScore.volumeAcceleration?.trend || 'N/A'
           }
         },
 
         finalScore: parseFloat(totalScore.toFixed(2)),
         maxScore: 100,
-        formula: 'Base(0-15) + Whale(0-30) + Momentum(0-40) + Trend(0-15) = Total(0-100) [v3.22]'
+        formula: 'Base(0-25) + Whale(0-30) + Momentum(0-30) + Trend(0-15) = Total(0-100) [v3.23]'
       };
 
       // 랭킹 뱃지 가져오기
