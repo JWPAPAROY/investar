@@ -978,7 +978,9 @@ class StockScreener {
       // v3.23: 고래 보너스 유지, VPD는 Base Score에만 반영
       // 총점(0-100) = Base(0-25) + Whale(0-30) + Momentum(0-30) + Trend(0-15)
       // ========================================
-      const isWhale = advancedAnalysis?.indicators?.whale?.length > 0;
+      // v3.24: 매수고래만 가점 (매도고래는 수익률 -2.56% → 가점 부적절)
+      const buyWhales = (advancedAnalysis?.indicators?.whale || []).filter(w => w.type?.includes('매수'));
+      const isWhale = buyWhales.length > 0;
       const whaleBonus = isWhale ? 30 : 0;
 
       // 점수 합산
@@ -1010,6 +1012,18 @@ class StockScreener {
         volumeAnalysis.indicators.mfi
       );
 
+      // v3.24: 윗꼬리 과다 감점 (-10점, 승률 66.7%, 수익 +0.83%)
+      if (advancedAnalysis?.indicators?.escape?.signal?.includes('윗꼬리 과다')) {
+        totalScore -= 10;
+        console.log(`  ⚠️ 윗꼬리 과다 감점: -10점`);
+      }
+
+      // v3.24: 탈출 속도 보너스 (+5점, 승률 100%, 수익 +23.58%)
+      if (advancedAnalysis?.indicators?.escape?.detected) {
+        totalScore += 5;
+        console.log(`  🚀 탈출 속도 보너스: +5점`);
+      }
+
       // 최종 점수 확정 (NaN 방지)
       totalScore = isNaN(totalScore) ? 0 : parseFloat(Math.min(Math.max(totalScore, 0), 100).toFixed(2));
 
@@ -1017,7 +1031,7 @@ class StockScreener {
       // 가점/감점 상세 내역 (스코어 카드) v3.10.0
       // ========================================
       const scoreBreakdown = {
-        scoringTrack: 'Data-Driven Scoring v3.23',
+        scoringTrack: 'Data-Driven Scoring v3.24',
 
         structure: {
           base: '0-25점 (거래량+VPD+시총+되돌림+연속상승)',
@@ -1077,9 +1091,15 @@ class StockScreener {
           }
         },
 
+        // v3.24: 신호 기반 가감점
+        signalAdjustments: {
+          escapeVelocityBonus: advancedAnalysis?.indicators?.escape?.detected ? 5 : 0,
+          upperShadowPenalty: advancedAnalysis?.indicators?.escape?.signal?.includes('윗꼬리 과다') ? -10 : 0
+        },
+
         finalScore: parseFloat(totalScore.toFixed(2)),
         maxScore: 100,
-        formula: 'Base(0-25) + Whale(0-30) + Momentum(0-30) + Trend(0-15) = Total(0-100) [v3.23]'
+        formula: 'Base(0-25) + Whale(0-30) + Momentum(0-30) + Trend(0-15) + SignalAdj = Total(0-100) [v3.24]'
       };
 
       // 랭킹 뱃지 가져오기
@@ -1574,9 +1594,10 @@ class StockScreener {
     // 기본 필터: 과열 제외 (복합신호는 이미 screenAllStocks에서 제외됨)
     const isEligible = (stock) => {
       const isOverheated = stock.recommendation?.grade === '과열';
-      const isWhale = stock.advancedAnalysis?.indicators?.whale?.length > 0;
+      // v3.24: 매수고래만 TOP 3 후보 (매도고래 제외)
+      const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
 
-      return isWhale && !isOverheated;
+      return hasBuyWhale && !isOverheated;
     };
 
     const eligibleCount = allStocks.filter(isEligible).length;

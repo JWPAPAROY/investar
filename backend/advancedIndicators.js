@@ -280,7 +280,7 @@ function calculateAsymmetricVolume(chartData) {
     upDays,
     downDays,
     ratio: ratio.toFixed(2),
-    signal: ratio > 1.5 ? '📈 강한 매수세' : ratio < 0.7 ? '📉 강한 매도세' : '⚖️ 균형',
+    signal: ratio > 1.5 ? '📈 강한 매수세' : ratio < 0.7 ? '📉 강한 매도세' : '없음',
     // v3.20: 매수세(ratio>1)만 가점, 매도세(ratio<1)는 0점 (기존: |ratio-1|로 매도세에도 가점 버그)
     score: ratio >= 1 ? (ratio - 1) * 50 : 0
   };
@@ -593,20 +593,14 @@ function checkOverheating(chartData, currentPrice, volumeRatio, mfi) {
  * 종합 분석 및 점수화 (Phase 4 통합)
  */
 function analyzeAdvanced(chartData, marketCap = 0) {
-  // 기존 지표
+  // v3.24: 효과적인 지표만 계산 (고래, 탈출 속도, 비대칭)
   const whale = detectWhale(chartData, marketCap);
-  const accumulation = detectSilentAccumulation(chartData);
   const escape = detectEscapeVelocity(chartData);
-  const drain = detectLiquidityDrain(chartData);
   const asymmetric = calculateAsymmetricVolume(chartData);
 
-  // Phase 4 신규 지표
-  const gradualAccumulation = detectGradualAccumulation(chartData);
-  const smartMoney = detectSmartMoney(chartData);
-  const bottomFormation = detectBottomFormation(chartData);
-  const breakoutPrep = detectBreakoutPreparation(chartData);
-
-  // 종합 점수 계산 (0-100)
+  // v3.24: 효과적인 지표만 점수 반영 (고래, 탈출 속도, 비대칭)
+  // 제거: accumulation, drain, gradualAccumulation, smartMoney, bottomFormation, breakoutPrep
+  // (대부분 0점 반환 — 불필요한 연산 + 코드 복잡도만 유발)
   let totalScore = 0;
 
   // 고래 감지 점수 (최대 25점)
@@ -615,39 +609,13 @@ function analyzeAdvanced(chartData, marketCap = 0) {
     totalScore += Math.min(maxIntensity, 25);
   }
 
-  // 조용한 매집 점수 (최대 25점)
-  if (accumulation.detected) {
-    totalScore += Math.min(accumulation.score / 2, 25);
-  }
-
   // 탈출 속도 점수 (최대 30점)
   if (escape.detected) {
     totalScore += Math.min(escape.score, 30);
   }
 
-  // 유동성 고갈 점수 (최대 10점)
-  if (drain.detected) {
-    totalScore += Math.min(drain.score / 5, 10);
-  }
-
   // 비대칭 거래량 점수 (최대 10점)
   totalScore += Math.min(asymmetric.score / 5, 10);
-
-  // Phase 4A: 선행 지표 보너스 (최대 30점)
-  if (gradualAccumulation.detected) {
-    totalScore += Math.min(gradualAccumulation.score / 3, 15);
-  }
-  if (smartMoney.detected) {
-    totalScore += Math.min(smartMoney.score / 5, 10);
-  }
-  if (bottomFormation.detected) {
-    totalScore += Math.min(bottomFormation.score / 3, 15);
-  }
-
-  // Phase 4B: 타이밍 지표 (최대 20점)
-  if (breakoutPrep.detected) {
-    totalScore += Math.min(breakoutPrep.score / 5, 20);
-  }
 
   // 매수/매도 추천 (과열 체크 전)
   let recommendation = '관망';
