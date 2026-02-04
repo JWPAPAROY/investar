@@ -53,10 +53,11 @@ async function sendTelegramMessage(message) {
 
 /**
  * TOP 3 선별 (screening.js selectTop3와 동일한 전략)
+ * v3.24: 매수고래만 대상 (매도고래 제외)
  *
- * 1순위: 고래 + 황금구간(50-79점)
- * 2순위: 고래 + 70점+
- * 3순위: 고래 + 40점+
+ * 1순위: 매수고래 + 황금구간(50-79점)
+ * 2순위: 매수고래 + 70점+
+ * 3순위: 매수고래 + 40점+
  */
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
@@ -390,7 +391,8 @@ module.exports = async (req, res) => {
       volume: stock.volume || 0,
       market_cap: stock.marketCap || 0,
 
-      whale_detected: stock.advancedAnalysis?.indicators?.whale?.length > 0 || false,
+      // v3.24: 매수고래만 저장 (screening.js selectTop3와 일관성 유지)
+      whale_detected: (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수')) || false,
       accumulation_detected: stock.advancedAnalysis?.indicators?.accumulation?.detected || false,
       mfi: stock.volumeAnalysis?.indicators?.mfi || 50,
       volume_ratio: stock.volumeAnalysis?.current?.volumeMA20
