@@ -202,8 +202,8 @@ function detectEscapeVelocity(chartData) {
     upperShadow: upperShadow.toFixed(1),
     highDecline: highDecline.toFixed(1),
     signal: detected ? '🚀 탈출 속도 달성' :
-            !acceptableDecline ? `⚠️ 윗꼬리 과다 (고가대비 -${highDecline.toFixed(1)}%)` :
-            !strongClosing ? '⚠️ 약한 마감' : '없음',
+      !acceptableDecline ? `⚠️ 윗꼬리 과다 (고가대비 -${highDecline.toFixed(1)}%)` :
+        !strongClosing ? '⚠️ 약한 마감' : '없음',
     momentum: momentum.toFixed(2),
     score: detected ? momentum : 0,
     warning: !acceptableDecline || !strongClosing ? '장중 급등 후 되돌림 - 추가 하락 위험' : null
@@ -364,8 +364,8 @@ function detectGradualAccumulation(chartData) {
     interpretation: detected
       ? `세력이 가격 자극 없이 물량 모으는 중 (${volumeCheck.days}일 연속 거래량 증가), 1~2주 후 급등 가능성`
       : volumeCheck.consecutive
-      ? '거래량 연속 증가 중이나 가격 변동폭 큼'
-      : '패턴 미발견',
+        ? '거래량 연속 증가 중이나 가격 변동폭 큼'
+        : '패턴 미발견',
     readyIn: detected ? '7~14일' : null
   };
 }
@@ -574,17 +574,17 @@ function checkOverheating(chartData, currentPrice, volumeRatio, mfi) {
     message: warning
       ? '⚠️ 과열 종목 - 단기 조정 위험 높음'
       : pullbackWarning && highDecline >= 10
-      ? `⚠️ 장중 되돌림 (고가대비 -${highDecline.toFixed(1)}%)`
-      : heatScore > 50
-      ? '⚠️ 과열 징후 - 신중 매수'
-      : '✅ 정상 범위',
+        ? `⚠️ 장중 되돌림 (고가대비 -${highDecline.toFixed(1)}%)`
+        : heatScore > 50
+          ? '⚠️ 과열 징후 - 신중 매수'
+          : '✅ 정상 범위',
     recommendation: warning
       ? '매수 대기 (10~20% 조정 후 재진입 권장)'
       : pullbackWarning && highDecline >= 10
-      ? `1일 급등 후 되돌림 - 익일 추가 하락 가능성 (고가 ${latest.high.toLocaleString()}원 돌파 대기)`
-      : heatScore > 50
-      ? '소량 분할 매수 권장'
-      : '정상 매수 가능',
+        ? `1일 급등 후 되돌림 - 익일 추가 하락 가능성 (고가 ${latest.high.toLocaleString()}원 돌파 대기)`
+        : heatScore > 50
+          ? '소량 분할 매수 권장'
+          : '정상 매수 가능',
     scorePenalty: warning ? -50 : pullbackWarning && highDecline >= 10 ? -40 : heatScore > 50 ? -25 : 0
   };
 }
@@ -656,7 +656,7 @@ function analyzeAdvanced(chartData, marketCap = 0) {
   else if (totalScore >= 30) recommendation = '⚪ 주목';
   else recommendation = '⚫ 관망';
 
-  // 신호 수집 (중복 제거)
+  // v3.24: 효과적인 신호만 수집 (고래, 탈출 속도, 비대칭 거래량)
   const signals = [];
 
   // 고래 감지: 여러 건이 있어도 하나로 통합
@@ -671,45 +671,44 @@ function analyzeAdvanced(chartData, marketCap = 0) {
     }
   }
 
-  // 다른 신호들 추가 (없음 제외)
-  [accumulation.signal, escape.signal, drain.signal, asymmetric.signal,
-   gradualAccumulation.signal, smartMoney.signal, bottomFormation.signal, breakoutPrep.signal]
-    .filter(s => s && s !== '없음')
-    .forEach(s => signals.push(s));
-
-  // 종목 티어 분류
-  let tier = 'normal'; // normal, watch, buy, wait
-  let readyIn = null;
-
-  if (gradualAccumulation.detected || bottomFormation.detected) {
-    tier = 'watch'; // 관심 종목 (선행 지표)
-    readyIn = gradualAccumulation.readyIn || bottomFormation.readyIn;
+  // 탈출 속도 신호 (승률 기여도 +49%)
+  if (escape.signal && escape.signal !== '없음') {
+    signals.push(escape.signal);
   }
 
-  if (breakoutPrep.detected || (escape.detected && totalScore >= 60)) {
+  // 비대칭 거래량 신호 (승률 기여도 +16%)
+  if (asymmetric.signal && asymmetric.signal !== '없음') {
+    signals.push(asymmetric.signal);
+  }
+
+  // 종목 티어 분류 (v3.24 간소화)
+  let tier = 'normal'; // normal, watch, buy
+  if (escape.detected && totalScore >= 60) {
     tier = 'buy'; // 매수 신호 (트리거 발동)
+  } else if (whale.length > 0) {
+    tier = 'watch'; // 관심 종목
   }
 
   return {
     indicators: {
-      // 기존 지표
+      // v3.24: 효과적인 지표만 유지
       whale,
-      accumulation,
       escape,
-      drain,
       asymmetric,
-      // Phase 4 신규 지표
-      gradualAccumulation,
-      smartMoney,
-      bottomFormation,
-      breakoutPrep
+      // 제거된 지표들 (하위 호환성 위해 더미 반환)
+      accumulation: { detected: false, signal: '없음' },
+      drain: { detected: false, signal: '없음' },
+      gradualAccumulation: { detected: false, signal: '없음' },
+      smartMoney: { detected: false, signal: '없음' },
+      bottomFormation: { detected: false, signal: '없음' },
+      breakoutPrep: { detected: false, signal: '없음' }
     },
     totalScore: Math.round(totalScore),
     recommendation,
     signals,
     tier,
-    readyIn,
-    triggerPrice: breakoutPrep.triggerPrice
+    readyIn: null,
+    triggerPrice: null
   };
 }
 
@@ -759,16 +758,16 @@ function checkInstitutionalFlow(investorData) {
     institutionDays: institutionConsecutive,
     foreignDays: foreignConsecutive,
     signal: bothBuying ? '🔥 기관+외국인 동반 매수' :
-            institutionBuying ? '🏢 기관 연속 매수' :
-            foreignBuying ? '🌍 외국인 연속 매수' : '없음',
+      institutionBuying ? '🏢 기관 연속 매수' :
+        foreignBuying ? '🌍 외국인 연속 매수' : '없음',
     score: bothBuying ? 15 : (institutionBuying || foreignBuying) ? 10 : 0,
     interpretation: bothBuying
       ? `기관 ${institutionConsecutive}일 + 외국인 ${foreignConsecutive}일 연속 매수 - 강한 신호`
       : institutionBuying
-      ? `기관 ${institutionConsecutive}일 연속 순매수 중`
-      : foreignBuying
-      ? `외국인 ${foreignConsecutive}일 연속 순매수 중`
-      : '스마트 머니 유입 미확인'
+        ? `기관 ${institutionConsecutive}일 연속 순매수 중`
+        : foreignBuying
+          ? `외국인 ${foreignConsecutive}일 연속 순매수 중`
+          : '스마트 머니 유입 미확인'
   };
 }
 
@@ -798,7 +797,7 @@ function detectBreakoutConfirmation(chartData, currentPrice, currentVolume) {
     breakoutPercent: ((currentPrice - resistance20d) / resistance20d * 100).toFixed(2),
     volumeRatio: (currentVolume / avgVolume).toFixed(2),
     signal: confirmed ? '✅ 돌파 확인 (거래량 동반)' :
-            breakout ? '⚠️ 돌파했으나 거래량 부족' : '돌파 전',
+      breakout ? '⚠️ 돌파했으나 거래량 부족' : '돌파 전',
     score: confirmed ? 15 : 0,
     interpretation: confirmed
       ? `20일 저항선 ${Math.round(resistance20d)}원 돌파 성공 - 추가 상승 기대`
@@ -835,13 +834,13 @@ function detectAnomaly(chartData) {
     currentVolume: latest.volume,
     stdDev: Math.round(stdDev),
     signal: isSurge ? '🚨 이상 급등 (통계적)' :
-            isDrop ? '📉 이상 급락' : '정상 범위',
+      isDrop ? '📉 이상 급락' : '정상 범위',
     score: isAnomaly ? Math.min(Math.abs(zScore) * 3, 10) : 0,
     interpretation: isSurge
       ? `평균 대비 ${zScore.toFixed(1)} 표준편차 급등 - 비정상적 거래량`
       : isDrop
-      ? `평균 대비 ${Math.abs(zScore).toFixed(1)} 표준편차 급락 - 거래 감소`
-      : '정상 거래량 범위'
+        ? `평균 대비 ${Math.abs(zScore).toFixed(1)} 표준편차 급락 - 거래 감소`
+        : '정상 거래량 범위'
   };
 }
 
@@ -878,16 +877,16 @@ function calculateRiskAdjustedScore(chartData) {
     avgReturn: (avgReturn * 100).toFixed(2),
     volatility: (stdDev * 100).toFixed(2),
     signal: isExcellent ? '🌟 위험 대비 수익 우수' :
-            isGood ? '✅ 위험 대비 수익 양호' :
-            sharpeRatio < 0 ? '⚠️ 위험 대비 손실' : '보통',
+      isGood ? '✅ 위험 대비 수익 양호' :
+        sharpeRatio < 0 ? '⚠️ 위험 대비 손실' : '보통',
     score: isGood ? Math.min(sharpeRatio * 5, 10) : 0,
     interpretation: isExcellent
       ? '낮은 변동성으로 안정적 상승 - 저위험 고수익'
       : isGood
-      ? '수익/위험 비율 양호 - 추천'
-      : sharpeRatio < 0
-      ? '변동성 높고 수익 마이너스 - 위험'
-      : '보통 수준'
+        ? '수익/위험 비율 양호 - 추천'
+        : sharpeRatio < 0
+          ? '변동성 높고 수익 마이너스 - 위험'
+          : '보통 수준'
   };
 }
 
@@ -955,14 +954,14 @@ function calculateConfluenceScore(analysisResult, additionalIndicators = {}) {
     signals: signals.map(s => s.name),
     confluenceScore,
     signal: confluenceCount >= 5 ? '🔥🔥🔥 초강력 합류점 (5개+)' :
-            confluenceCount >= 3 ? '🔥🔥 강력 합류점 (3~4개)' :
-            confluenceCount >= 2 ? '🔥 중간 합류점 (2개)' :
-            confluenceCount === 1 ? '⚠️ 단일 신호' : '없음',
+      confluenceCount >= 3 ? '🔥🔥 강력 합류점 (3~4개)' :
+        confluenceCount >= 2 ? '🔥 중간 합류점 (2개)' :
+          confluenceCount === 1 ? '⚠️ 단일 신호' : '없음',
     interpretation: confluenceCount >= 3
       ? `${confluenceCount}개 지표가 동시 신호 - 신뢰도 매우 높음`
       : confluenceCount >= 2
-      ? `${confluenceCount}개 지표가 신호 - 신뢰도 중간`
-      : '단일 신호 또는 신호 없음 - 신중 필요'
+        ? `${confluenceCount}개 지표가 신호 - 신뢰도 중간`
+        : '단일 신호 또는 신호 없음 - 신중 필요'
   };
 }
 
@@ -1028,13 +1027,13 @@ function calculateSignalFreshness(chartData, analysisResult, additionalIndicator
     freshCount: freshSignals.length,
     freshnessScore: Math.min(freshnessScore, 15), // 최대 15점
     signal: isVeryFresh ? '🟢 매우 신선한 신호 (3개+)' :
-            isFresh ? '🟡 신선한 신호 (2개)' :
-            freshSignals.length === 1 ? '⚪ 단일 신선 신호' : '⚫ 오래된 신호',
+      isFresh ? '🟡 신선한 신호 (2개)' :
+        freshSignals.length === 1 ? '⚪ 단일 신선 신호' : '⚫ 오래된 신호',
     interpretation: isVeryFresh
       ? `${freshSignals.length}개 신호가 최근 1~2일 내 발생 - 즉시 대응 필요`
       : isFresh
-      ? `${freshSignals.length}개 신호가 신선함 - 빠른 대응 권장`
-      : '신호가 오래되었거나 없음 - 관망'
+        ? `${freshSignals.length}개 신호가 신선함 - 빠른 대응 권장`
+        : '신호가 오래되었거나 없음 - 관망'
   };
 }
 
@@ -1069,8 +1068,8 @@ function detectCupAndHandle(chartData) {
 
   // Cup 조건: 중간이 가장 낮고, 양쪽이 비슷한 높이
   const cupFormed = middleAvg < firstAvg * 0.9 &&
-                    lastAvg > middleAvg * 1.05 &&
-                    Math.abs(lastAvg - firstAvg) / firstAvg < 0.1;
+    lastAvg > middleAvg * 1.05 &&
+    Math.abs(lastAvg - firstAvg) / firstAvg < 0.1;
 
   if (!cupFormed) {
     return { detected: false, signal: "Cup 미형성" };
@@ -1122,12 +1121,12 @@ function detectTriangle(chartData) {
   for (let i = 1; i < recent20.length - 1; i++) {
     // 고점: 양쪽보다 높음
     if (recent20[i].high > recent20[i - 1].high &&
-        recent20[i].high > recent20[i + 1].high) {
+      recent20[i].high > recent20[i + 1].high) {
       highs.push({ index: i, value: recent20[i].high });
     }
     // 저점: 양쪽보다 낮음
     if (recent20[i].low < recent20[i - 1].low &&
-        recent20[i].low < recent20[i + 1].low) {
+      recent20[i].low < recent20[i + 1].low) {
       lows.push({ index: i, value: recent20[i].low });
     }
   }
@@ -1232,13 +1231,13 @@ function checkLiquidity(chartData) {
     avgTradingValue: Math.round(avgTradingValue / 100000000), // 억원 단위
     minRequired: Math.round(minTradingValue / 100000000), // 억원 단위
     signal: veryLow ? '⚠️ 초저유동성' :
-            !sufficient ? '⚠️ 유동성 부족' : '✅ 유동성 충분',
+      !sufficient ? '⚠️ 유동성 부족' : '✅ 유동성 충분',
     scorePenalty: veryLow ? -40 : !sufficient ? -20 : 0,
     interpretation: veryLow
       ? `일평균 거래대금 ${Math.round(avgTradingValue / 100000000)}억원 - 매매 어려움`
       : !sufficient
-      ? `일평균 거래대금 ${Math.round(avgTradingValue / 100000000)}억원 - 기준(10억) 미달`
-      : `일평균 거래대금 ${Math.round(avgTradingValue / 100000000)}억원 - 충분`
+        ? `일평균 거래대금 ${Math.round(avgTradingValue / 100000000)}억원 - 기준(10억) 미달`
+        : `일평균 거래대금 ${Math.round(avgTradingValue / 100000000)}억원 - 충분`
   };
 }
 
@@ -1271,8 +1270,8 @@ function checkPreviousSurge(chartData) {
     interpretation: alreadySurged
       ? `최근 30일간 ${totalChange.toFixed(1)}% 상승 - 고점 매수 위험`
       : recentSurge
-      ? `최근 10일간 ${recent10Change.toFixed(1)}% 상승 - 모멘텀 있음`
-      : '정상 가격 범위'
+        ? `최근 10일간 ${recent10Change.toFixed(1)}% 상승 - 모멘텀 있음`
+        : '정상 가격 범위'
   };
 }
 

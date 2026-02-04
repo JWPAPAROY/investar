@@ -1210,30 +1210,8 @@
                       )
                     });
 
-                    // 4. 유동성 고갈
-                    const drainData = stock.advancedAnalysis.indicators.drain;
-                    allIndicators.push({
-                      title: '💧 유동성 고갈',
-                      detected: drainData.detected,
-                      signal: drainData.signal,
-                      tooltip: (
-                        <div className="space-y-1">
-                          <div className={`font-bold ${drainData.detected ? 'text-yellow-300' : 'text-gray-400'}`}>
-                            💧 유동성 고갈 {drainData.detected ? '(폭발 대기)' : '(미감지)'}
-                          </div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div>• 거래량 변화: {drainData.volumeDecline}%</div>
-                          <div>• 변동성 변화: {drainData.volatilityDecline}%</div>
-                          <div>• 일평균 거래대금: {stock.liquidity?.avgTradingValue || 'N/A'}억원</div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div className="text-yellow-300">
-                            → {drainData.detected ? '거래량/변동성 고갈 = 큰 움직임 직전' : '조건: 거래량 -30%+ && 변동성 -20%+'}
-                          </div>
-                        </div>
-                      )
-                    });
 
-                    // 5. 비대칭 거래량
+                    // 3. 비대칭 거래량 (v3.24 유지 - 승률 기여도 +16%)
                     const asymmetric = stock.advancedAnalysis.indicators.asymmetric;
                     allIndicators.push({
                       title: '📊 비대칭 거래량',
@@ -1255,147 +1233,10 @@
                       )
                     });
 
-                    // 6. 조용한 누적
-                    const gradualData = stock.advancedAnalysis.indicators.gradualAccumulation;
-                    allIndicators.push({
-                      title: '🐌 조용한 누적',
-                      detected: gradualData.detected,
-                      signal: gradualData.signal,
-                      tooltip: (
-                        <div className="space-y-1">
-                          <div className={`font-bold ${gradualData.detected ? 'text-purple-300' : 'text-gray-400'}`}>
-                            🐌 조용한 누적 {gradualData.detected ? '' : '(미감지)'}
-                          </div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div>• 거래량 증가율: <span className={gradualData.detected ? "text-green-300" : "text-gray-400"}>+{gradualData.growthRate}%</span></div>
-                          <div>• 가격 변동: {gradualData.priceChange}%</div>
-                          <div>• 연속 거래량 증가: {gradualData.consecutiveDays}일</div>
-                          {gradualData.readyIn && <div>• 급등 예상: {gradualData.readyIn}</div>}
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div className="text-yellow-300">→ {gradualData.interpretation}</div>
-                        </div>
-                      )
-                    });
+                    // v3.24: 효과성 분석 기반 지표 정리
+                    // 유지: 고래 감지(+52%), 탈출 속도(+49%), 비대칭 거래량(+16%)
+                    // 제거: 유동성 고갈, 조용한 누적, 스마트머니(-24.6%), 저점 형성, 돌파 준비, Cup&Handle, Triangle
 
-                    // 7. 스마트머니
-                    const smartMoneyData = stock.advancedAnalysis.indicators.smartMoney;
-                    allIndicators.push({
-                      title: '🧠 스마트머니',
-                      detected: smartMoneyData.detected,
-                      signal: smartMoneyData.signal,
-                      tooltip: (
-                        <div className="space-y-1">
-                          <div className={`font-bold ${smartMoneyData.detected ? 'text-blue-300' : 'text-gray-400'}`}>
-                            🧠 스마트머니 유입 {smartMoneyData.detected ? '' : '(미감지)'}
-                          </div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div className="text-xs text-gray-300">📊 분석 기준: 최근 10일</div>
-                          <div className="text-xs text-gray-300">• 거래량 상위 30% (3일) = 대형 거래일</div>
-                          <div className="text-xs text-gray-300">• 거래량 하위 70% (7일) = 소형 거래일</div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div>• 대형 거래일 평균: <span className={smartMoneyData.bigVolumeReturn >= 0 ? "text-green-300" : "text-red-300"}>{smartMoneyData.bigVolumeReturn}%</span></div>
-                          <div>• 소형 거래일 평균: <span className={smartMoneyData.smallVolumeReturn >= 0 ? "text-green-300" : "text-red-300"}>{smartMoneyData.smallVolumeReturn}%</span></div>
-                          <div>• 비율: <span className="text-blue-300">{smartMoneyData.ratio}배</span></div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div className="text-yellow-300">→ {smartMoneyData.interpretation}</div>
-                        </div>
-                      )
-                    });
-
-                    // 8. 저점 형성
-                    const bottomData = stock.advancedAnalysis.indicators.bottomFormation;
-                    allIndicators.push({
-                      title: '🌱 저점 형성',
-                      detected: bottomData.detected,
-                      signal: bottomData.signal,
-                      tooltip: (
-                        <div className="space-y-1">
-                          <div className={`font-bold ${bottomData.detected ? 'text-teal-300' : 'text-gray-400'}`}>
-                            🌱 저점 형성 {bottomData.detected ? '' : '(미감지)'}
-                          </div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div>• 고점: {bottomData.highPrice ? bottomData.highPrice.toLocaleString() : 'N/A'}원</div>
-                          <div>• 현재가: {bottomData.currentPrice ? bottomData.currentPrice.toLocaleString() : 'N/A'}원</div>
-                          <div>• 하락폭: <span className="text-red-300">{bottomData.decline}%</span></div>
-                          <div>• 거래량 비율: {bottomData.volumeRatio}배</div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div className="text-yellow-300">→ {bottomData.interpretation}</div>
-                        </div>
-                      )
-                    });
-
-                    // 9. 돌파 준비
-                    const breakoutPrepData = stock.advancedAnalysis.indicators.breakoutPrep;
-                    allIndicators.push({
-                      title: '🚪 돌파 준비',
-                      detected: breakoutPrepData.detected,
-                      signal: breakoutPrepData.signal,
-                      tooltip: (
-                        <div className="space-y-1">
-                          <div className={`font-bold ${breakoutPrepData.detected ? 'text-pink-300' : 'text-gray-400'}`}>
-                            🚪 저항선 돌파 준비 {breakoutPrepData.detected ? '' : '(미감지)'}
-                          </div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div>• 저항선: {breakoutPrepData.resistance ? breakoutPrepData.resistance.toLocaleString() : 'N/A'}원</div>
-                          <div>• 현재가: {breakoutPrepData.currentPrice ? breakoutPrepData.currentPrice.toLocaleString() : 'N/A'}원</div>
-                          <div>• 격차: <span className="text-yellow-300">{breakoutPrepData.gap}%</span></div>
-                          <div>• 터치 횟수: {breakoutPrepData.touchCount}회</div>
-                          <div className="border-t border-gray-700 my-1"></div>
-                          <div className="text-yellow-300">→ {breakoutPrepData.interpretation}</div>
-                          {breakoutPrepData.triggerPrice && (
-                            <div className="text-orange-300">→ 매수 트리거: {breakoutPrepData.triggerPrice.toLocaleString()}원</div>
-                          )}
-                        </div>
-                      )
-                    });
-
-                    // 10. Cup&Handle (조건부)
-                    if (stock.cupAndHandle) {
-                      allIndicators.push({
-                        title: '🏆 Cup&Handle',
-                        detected: stock.cupAndHandle.detected,
-                        signal: stock.cupAndHandle.signal,
-                        tooltip: (
-                          <div className="space-y-1">
-                            <div className={`font-bold ${stock.cupAndHandle.detected ? 'text-yellow-300' : 'text-gray-400'}`}>
-                              🏆 Cup&Handle 패턴 {stock.cupAndHandle.detected ? '' : '(미감지)'}
-                            </div>
-                            <div className="border-t border-gray-700 my-1"></div>
-                            <div>• 조건: U자형 바닥 + 손잡이 형성</div>
-                            {stock.cupAndHandle.detected && (
-                              <>
-                                <div>• 점수: {stock.cupAndHandle.score}</div>
-                                <div className="text-yellow-300">→ {stock.cupAndHandle.interpretation}</div>
-                              </>
-                            )}
-                          </div>
-                        )
-                      });
-                    }
-
-                    // 12. Triangle (조건부)
-                    if (stock.triangle) {
-                      allIndicators.push({
-                        title: '📐 Triangle',
-                        detected: stock.triangle.detected,
-                        signal: stock.triangle.signal,
-                        tooltip: (
-                          <div className="space-y-1">
-                            <div className={`font-bold ${stock.triangle.detected ? 'text-blue-300' : 'text-gray-400'}`}>
-                              📐 Triangle 패턴 {stock.triangle.detected ? '' : '(미감지)'}
-                            </div>
-                            <div className="border-t border-gray-700 my-1"></div>
-                            <div>• 조건: 삼각 수렴 패턴</div>
-                            {stock.triangle.detected && (
-                              <>
-                                <div>• 수렴도: {stock.triangle.convergence}%</div>
-                                <div className="text-yellow-300">→ {stock.triangle.interpretation}</div>
-                              </>
-                            )}
-                          </div>
-                        )
-                      });
-                    }
 
                     // 렌더링
                     return allIndicators.map((indicator, idx) => (
