@@ -978,10 +978,19 @@ class StockScreener {
       // v3.23: 고래 보너스 유지, VPD는 Base Score에만 반영
       // 총점(0-100) = Base(0-25) + Whale(0-30) + Momentum(0-30) + Trend(0-15)
       // ========================================
-      // v3.24: 매수고래만 가점 (매도고래는 수익률 -2.56% → 가점 부적절)
+      // v3.25: 매수고래 확인 보너스 (확인 조건 충족 시 +30, 미확인 시 +15)
       const buyWhales = (advancedAnalysis?.indicators?.whale || []).filter(w => w.type?.includes('매수'));
       const isWhale = buyWhales.length > 0;
-      const whaleBonus = isWhale ? 30 : 0;
+      let whaleBonus = 0;
+      let whaleConfirmed = false;
+      if (isWhale) {
+        // 확인 조건: 탈출 속도, 강한 매수세, 거래량 가속 중 하나 이상
+        const hasEscape = advancedAnalysis?.indicators?.escape?.detected;
+        const hasStrongBuying = advancedAnalysis?.indicators?.asymmetric?.signal?.includes('강한 매수세');
+        const hasAcceleration = momentumScore.volumeAcceleration?.trend?.includes('acceleration');
+        whaleConfirmed = hasEscape || hasStrongBuying || hasAcceleration;
+        whaleBonus = whaleConfirmed ? 30 : 15;
+      }
 
       // 점수 합산
       const rawScore = baseScore + whaleBonus + momentumScore.totalScore + trendScore.totalScore;
@@ -996,7 +1005,7 @@ class StockScreener {
       };
 
       if (whaleBonus > 0) {
-        console.log(`🐋 Whale Bonus: +${whaleBonus}점`);
+        console.log(`🐋 Whale Bonus: +${whaleBonus}점 (${whaleConfirmed ? '확인됨' : '미확인'})`);
       }
 
       // 과열 감지
@@ -1024,6 +1033,22 @@ class StockScreener {
         console.log(`  🚀 탈출 속도 보너스: +5점`);
       }
 
+      // v3.26: 매도고래 최근 3일 내 감점 (-10점)
+      const sellWhales = (advancedAnalysis?.indicators?.whale || [])
+        .filter(w => w.type?.includes('매도'));
+      let sellWhalePenalty = 0;
+      if (sellWhales.length > 0) {
+        const recentSellWhales = sellWhales.filter(w => {
+          const whaleIdx = chartData.findIndex(d => d.date === w.date);
+          return whaleIdx >= 0 && whaleIdx <= 3;
+        });
+        if (recentSellWhales.length > 0) {
+          sellWhalePenalty = -10;
+          totalScore += sellWhalePenalty;
+          console.log(`  🐳 매도고래 감점: -10점 (${recentSellWhales.length}건, 최근 3일)`);
+        }
+      }
+
       // 최종 점수 확정 (NaN 방지)
       totalScore = isNaN(totalScore) ? 0 : parseFloat(Math.min(Math.max(totalScore, 0), 100).toFixed(2));
 
@@ -1031,7 +1056,7 @@ class StockScreener {
       // 가점/감점 상세 내역 (스코어 카드) v3.10.0
       // ========================================
       const scoreBreakdown = {
-        scoringTrack: 'Data-Driven Scoring v3.24',
+        scoringTrack: 'Data-Driven Scoring v3.26',
 
         structure: {
           base: '0-25점 (거래량+VPD+시총+되돌림+연속상승)',
@@ -1050,12 +1075,13 @@ class StockScreener {
           consecutiveRiseBonus: '연속상승 보너스 (0-5점)'
         },
 
-        // 2. 고래 감지 보너스 (0-30점) 🆕 v3.22
+        // 2. 고래 감지 보너스 (0/15/30점) v3.25
         whaleBonus: {
-          name: '고래 감지 (0-30점)',
+          name: '고래 감지 (0/15/30점)',
           score: whaleBonus,
           detected: isWhale,
-          details: isWhale ? '고래 감지 → +30점 (승률 81.3%, 평균 +15.73%)' : '고래 미감지'
+          confirmed: whaleConfirmed,
+          details: !isWhale ? '고래 미감지' : whaleConfirmed ? '확인된 고래 → +30점' : '미확인 고래 → +15점'
         },
 
         // 3. 모멘텀 점수 (0-30점) v3.23
@@ -1091,15 +1117,16 @@ class StockScreener {
           }
         },
 
-        // v3.24: 신호 기반 가감점
+        // v3.26: 신호 기반 가감점 (매도고래 감점 추가)
         signalAdjustments: {
           escapeVelocityBonus: advancedAnalysis?.indicators?.escape?.detected ? 5 : 0,
-          upperShadowPenalty: advancedAnalysis?.indicators?.escape?.signal?.includes('윗꼬리 과다') ? -10 : 0
+          upperShadowPenalty: advancedAnalysis?.indicators?.escape?.signal?.includes('윗꼬리 과다') ? -10 : 0,
+          sellWhalePenalty: sellWhalePenalty
         },
 
         finalScore: parseFloat(totalScore.toFixed(2)),
         maxScore: 100,
-        formula: 'Base(0-25) + Whale(0-30) + Momentum(0-30) + Trend(0-15) + SignalAdj = Total(0-100) [v3.24]'
+        formula: 'Base(0-25) + Whale(0/15/30) + Momentum(0-30) + Trend(0-15) + SignalAdj = Total(0-100) [v3.26]'
       };
 
       // 랭킹 뱃지 가져오기
@@ -1607,7 +1634,7 @@ class StockScreener {
     // 🆕 v3.14: 2순위 전략 업데이트 (60점→70점, 대박구간)
     const addStrategyMeta = (stock, priority) => {
       const strategies = {
-        1: { name: '황금구간(50-79점)', winRate: 76.9, avgReturn: 27.02 },
+        1: { name: '황금구간(50-89점)', winRate: 76.9, avgReturn: 27.02 },
         2: { name: '대박구간(70점+)', winRate: 50.0, avgReturn: 66.23 },
         3: { name: '고래 단독', winRate: 64.7, avgReturn: 20.31 }
       };
@@ -1634,10 +1661,10 @@ class StockScreener {
       };
     };
 
-    // 1순위: 고래 + 황금구간(50-79점)
-    console.log(`\n  📍 1순위 선정 (고래 + 황금구간 50-79점)...`);
+    // 1순위: 고래 + 황금구간(50-89점) — v3.25: 상한 79→89 (S등급 +13.33% 실적 반영)
+    console.log(`\n  📍 1순위 선정 (고래 + 황금구간 50-89점)...`);
     const priority1 = allStocks
-      .filter(s => isEligible(s) && s.totalScore >= 50 && s.totalScore < 80)
+      .filter(s => isEligible(s) && s.totalScore >= 50 && s.totalScore < 90)
       .sort((a, b) => b.totalScore - a.totalScore)
       .map(s => addStrategyMeta(s, 1));
 

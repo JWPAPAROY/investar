@@ -1150,37 +1150,96 @@
                   <span className="text-gray-500 ml-2">회색 반투명</span>: 미감지 신호 (호버 시 선명)
                 </p>
 
+                {/* v3.26: 시그널 감지 기준 표 */}
+                <details className="mb-4">
+                  <summary className="cursor-pointer text-sm font-semibold text-indigo-700 hover:text-indigo-900 select-none">
+                    📋 시그널 감지 기준 보기
+                  </summary>
+                  <div className="mt-2 bg-indigo-50 border border-indigo-200 rounded-lg p-3 text-xs">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-indigo-300">
+                          <th className="text-left py-1 px-2 font-bold text-indigo-900">시그널</th>
+                          <th className="text-left py-1 px-2 font-bold text-indigo-900">감지 조건</th>
+                          <th className="text-center py-1 px-2 font-bold text-indigo-900">점수</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="border-b border-indigo-100">
+                          <td className="py-1.5 px-2 font-semibold">🐋 매수고래</td>
+                          <td className="py-1.5 px-2">거래량 ≥ 평균 2.5배 + 가격 3%+ 상승 (양봉)</td>
+                          <td className="py-1.5 px-2 text-center text-green-700 font-semibold">확인 +30 / 미확인 +15</td>
+                        </tr>
+                        <tr className="border-b border-indigo-100">
+                          <td className="py-1.5 px-2 font-semibold">🐳 매도고래</td>
+                          <td className="py-1.5 px-2">거래량 ≥ 평균 2.5배 + 가격 3%+ 하락 (음봉)</td>
+                          <td className="py-1.5 px-2 text-center text-red-600 font-semibold">최근 3일 내 -10</td>
+                        </tr>
+                        <tr className="border-b border-indigo-100">
+                          <td className="py-1.5 px-2 font-semibold">🚀 탈출 속도</td>
+                          <td className="py-1.5 px-2">저항선 돌파 + 거래량 2배+ + Closing Strength 70%+</td>
+                          <td className="py-1.5 px-2 text-center text-green-700 font-semibold">+5</td>
+                        </tr>
+                        <tr className="border-b border-indigo-100">
+                          <td className="py-1.5 px-2 font-semibold">⚠️ 윗꼬리 과다</td>
+                          <td className="py-1.5 px-2">고가 대비 낙폭 10%+ (되돌림 위험)</td>
+                          <td className="py-1.5 px-2 text-center text-red-600 font-semibold">-10</td>
+                        </tr>
+                        <tr>
+                          <td className="py-1.5 px-2 font-semibold">📊 비대칭 거래량</td>
+                          <td className="py-1.5 px-2">상승일 거래량 / 하락일 거래량 ≥ 1.5배</td>
+                          <td className="py-1.5 px-2 text-center text-gray-500">참고 지표</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <div className="mt-2 pt-2 border-t border-indigo-200 text-gray-600">
+                      <span className="font-semibold">🐋 고래 확인 조건</span>: 탈출 속도 달성 / 강한 매수세 / 거래량 가속 중 1개+ 충족 → <span className="text-green-700 font-semibold">확인 (+30)</span>, 미충족 → <span className="text-yellow-700 font-semibold">미확인 (+15)</span>
+                    </div>
+                  </div>
+                </details>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {(() => {
                     // 모든 지표 정의 (감지 여부와 무관하게 항상 표시)
                     const allIndicators = [];
 
+                    // v3.26: 날짜 포맷 헬퍼
+                    const formatWhaleDate = (dateStr) => dateStr ? `${dateStr.slice(4,6)}/${dateStr.slice(6,8)}` : '';
+
                     // 1. 고래 감지
                     const whaleData = stock.advancedAnalysis.indicators.whale;
                     const whaleDetected = whaleData.length > 0;
-                    const latestWhale = whaleDetected ? whaleData[whaleData.length - 1] : null;
+                    const latestWhale = whaleDetected ? whaleData[0] : null;
+                    const buyWhalesList = whaleData.filter(w => w.type?.includes('매수'));
+                    const sellWhalesList = whaleData.filter(w => w.type?.includes('매도'));
                     allIndicators.push({
                       title: '🐋 고래 감지',
                       detected: whaleDetected,
-                      signal: whaleDetected ? `${whaleData.length}건 감지` : '없음',
-                      tooltip: latestWhale ? (
+                      signal: whaleDetected
+                        ? `${whaleData.length}건 감지 (최근: ${formatWhaleDate(latestWhale.date)})`
+                        : '없음',
+                      tooltip: whaleDetected ? (
                         <div className="space-y-1">
                           <div className="font-bold text-blue-300">🐋 대량 거래 감지 (Whale Detection)</div>
                           <div className="border-t border-gray-700 my-1"></div>
-                          <div>• 날짜: {latestWhale.date}</div>
-                          <div>• 거래량 비율: <span className="text-blue-300">{latestWhale.volumeRatio}배</span></div>
-                          <div>• 가격 변동: {latestWhale.priceChange}%</div>
-                          <div>• 윗꼬리: {latestWhale.upperShadow}%</div>
-                          {latestWhale.warning && <div className="text-red-300">⚠️ {latestWhale.warning}</div>}
+                          {whaleData.map((w, wi) => (
+                            <div key={wi} className={w.type?.includes('매도') ? 'text-red-300' : 'text-green-300'}>
+                              • {formatWhaleDate(w.date)} {w.type} — 거래량 {w.volumeRatio}배, 가격 {w.priceChange}%
+                              {w.warning ? ` ${w.warning}` : ''}
+                            </div>
+                          ))}
                           <div className="border-t border-gray-700 my-1"></div>
-                          <div className="text-yellow-300">→ 해석: 기관/외국인 등 세력 매수 신호</div>
+                          <div className="text-yellow-300">
+                            → 매수 {buyWhalesList.length}건 / 매도 {sellWhalesList.length}건
+                            {sellWhalesList.length > 0 ? ' (매도고래 주의)' : ''}
+                          </div>
                         </div>
                       ) : (
                         <div className="space-y-1">
                           <div className="font-bold text-gray-400">🐋 고래 감지 (미감지)</div>
                           <div className="border-t border-gray-700 my-1"></div>
-                          <div>• 조건: 거래량 2.5배 이상 + 가격 3% 이상 상승</div>
-                          <div>• 의미: 기관/외국인 등 세력 매수 감지</div>
+                          <div>• 조건: 거래량 2.5배 이상 + 가격 3% 이상 변동</div>
+                          <div>• 의미: 기관/외국인 등 세력 매매 감지</div>
                           <div className="text-gray-400">→ 현재 조건 미충족</div>
                         </div>
                       )
@@ -1191,7 +1250,7 @@
                     allIndicators.push({
                       title: '🚀 탈출 속도',
                       detected: escapeData.detected,
-                      signal: escapeData.signal,
+                      signal: escapeData.detected ? `${escapeData.signal} (D-0 기준)` : escapeData.signal,
                       tooltip: (
                         <div className="space-y-1">
                           <div className={`font-bold ${escapeData.detected ? 'text-orange-300' : 'text-gray-400'}`}>
@@ -1216,7 +1275,7 @@
                     allIndicators.push({
                       title: '📊 비대칭 거래량',
                       detected: asymmetric.ratio >= 1.5,
-                      signal: asymmetric.signal,
+                      signal: asymmetric.ratio >= 1.5 ? `${asymmetric.signal} (최근 20일)` : asymmetric.signal,
                       tooltip: (
                         <div className="space-y-1">
                           <div className={`font-bold ${asymmetric.ratio >= 1.5 ? 'text-green-300' : 'text-gray-400'}`}>

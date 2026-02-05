@@ -66,9 +66,9 @@ function selectAlertTop3(stocks) {
 
   const top3 = [];
 
-  // 1순위: 고래 + 황금구간(50-79점)
+  // 1순위: 고래 + 황금구간(50-89점) — v3.25: 상한 확대 (S등급 실적 반영)
   const priority1 = stocks
-    .filter(s => isEligible(s) && s.total_score >= 50 && s.total_score < 80)
+    .filter(s => isEligible(s) && s.total_score >= 50 && s.total_score < 90)
     .sort((a, b) => b.total_score - a.total_score);
   top3.push(...priority1.slice(0, 3));
 
@@ -107,6 +107,104 @@ function selectWhaleStocks(stocks, top3) {
       !top3Codes.includes(s.stock_code)
     )
     .sort((a, b) => b.total_score - a.total_score);
+}
+
+/**
+ * v3.25: save 모드용 TOP 3 선별 (스크리닝 결과 객체 사용)
+ * 고래 상세 정보를 포함한 실시간 데이터 기반
+ */
+function selectSaveTop3(stocks) {
+  if (!stocks || stocks.length === 0) return [];
+
+  const isEligible = (s) => {
+    const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+    const isOverheated = s.recommendation?.grade === '과열';
+    return hasBuyWhale && !isOverheated;
+  };
+
+  const top3 = [];
+
+  // 1순위: 고래 + 황금구간(50-89점)
+  const p1 = stocks.filter(s => isEligible(s) && s.totalScore >= 50 && s.totalScore < 90)
+    .sort((a, b) => b.totalScore - a.totalScore);
+  top3.push(...p1.slice(0, 3));
+
+  if (top3.length < 3) {
+    const p2 = stocks.filter(s => isEligible(s) && s.totalScore >= 70 && !top3.some(t => t.stockCode === s.stockCode))
+      .sort((a, b) => b.totalScore - a.totalScore);
+    top3.push(...p2.slice(0, 3 - top3.length));
+  }
+  if (top3.length < 3) {
+    const p3 = stocks.filter(s => isEligible(s) && s.totalScore >= 40 && !top3.some(t => t.stockCode === s.stockCode))
+      .sort((a, b) => b.totalScore - a.totalScore);
+    top3.push(...p3.slice(0, 3 - top3.length));
+  }
+
+  return top3;
+}
+
+/**
+ * v3.25: save 모드용 알림 메시지 (고래 상세 정보 포함)
+ */
+function formatSaveAlertMessage(top3, allStocks, date) {
+  let msg = `🏆 <b>오늘의 TOP 3 추천 종목</b>\n📅 ${date} 기준 (v3.25)\n\n`;
+
+  top3.forEach((stock, i) => {
+    const medal = ['🥇', '🥈', '🥉'][i];
+    const price = stock.currentPrice || 0;
+    const sl = Math.floor(price * 0.95);
+    const grade = stock.recommendation?.grade || '?';
+
+    msg += `${medal} <b>${stock.stockName}</b> (${stock.stockCode})\n`;
+    msg += `   📊 ${stock.totalScore}점 | ${grade}등급\n`;
+    msg += `   💰 ${price.toLocaleString()}원 | 🛡️ 손절: ${sl.toLocaleString()}원\n`;
+
+    // 고래 상세 정보
+    const whales = (stock.advancedAnalysis?.indicators?.whale || []).filter(w => w.type?.includes('매수'));
+    whales.forEach(w => {
+      const volRatio = typeof w.volumeRatio === 'number' ? `거래량 ${w.volumeRatio.toFixed(1)}배` : '';
+      const priceChg = typeof w.priceChange === 'number' ? `가격 ${w.priceChange > 0 ? '+' : ''}${w.priceChange.toFixed(1)}%` : '';
+      const intensity = typeof w.intensity === 'number' ? `강도 ${w.intensity}` : (w.intensity ? `강도 ${w.intensity}` : '');
+      const details = [volRatio, priceChg, intensity].filter(Boolean).join(' | ');
+      msg += `   🐋 ${w.type || '매수고래'}${details ? ': ' + details : ''}\n`;
+    });
+
+    // 확인 상태
+    const confirmed = stock.scoreBreakdown?.whaleBonus?.confirmed;
+    if (confirmed !== undefined) {
+      msg += `   ${confirmed ? '✅ 확인된 고래' : '⚠️ 미확인 고래'}\n`;
+    }
+
+    // 탈출 속도 / 강한 매수세
+    const escape = stock.advancedAnalysis?.indicators?.escape;
+    if (escape?.detected) msg += `   🚀 탈출 속도 달성\n`;
+    const asym = stock.advancedAnalysis?.indicators?.asymmetric;
+    if (asym?.signal?.includes('강한 매수세')) msg += `   📈 강한 매수세${typeof asym.ratio === 'number' ? ' (비대칭 ' + asym.ratio.toFixed(1) + ')' : ''}\n`;
+
+    msg += '\n';
+  });
+
+  // 기타 고래 종목
+  const top3Codes = top3.map(s => s.stockCode);
+  const otherWhales = allStocks.filter(s => {
+    const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+    return hasBuyWhale && !top3Codes.includes(s.stockCode);
+  }).sort((a, b) => b.totalScore - a.totalScore);
+
+  if (otherWhales.length > 0) {
+    msg += `🐋 <b>기타 고래 감지</b>\n`;
+    otherWhales.forEach(s => {
+      const grade = s.recommendation?.grade || '?';
+      const overheat = grade === '과열' ? ' ⚠️' : '';
+      msg += `  • ${s.stockName} (${s.totalScore}점, ${grade}${overheat})\n`;
+    });
+    msg += '\n';
+  }
+
+  msg += `💡 <i>v3.25 확인된 고래 +30 | 미확인 +15</i>\n`;
+  msg += `🔗 https://investar-xi.vercel.app`;
+
+  return msg;
 }
 
 /**
@@ -222,7 +320,7 @@ module.exports = async (req, res) => {
     if (mode === 'alert') {
       console.log('🔔 아침 알림 모드 시작...');
 
-      const yesterday = getYesterdayDateKST();
+      const yesterday = req.query.date || getYesterdayDateKST();
       console.log(`📅 조회 날짜: ${yesterday}`);
 
       // Step 1: 어제 저장된 종목 조회
@@ -456,11 +554,29 @@ module.exports = async (req, res) => {
     };
     console.log(`   등급: 과열(${gradeStats.과열}) S+(${gradeStats['S+']}) S(${gradeStats.S}) A(${gradeStats.A}) B(${gradeStats.B})\n`);
 
+    // v3.25: save 시점에 텔레그램 알림 (고래 상세 정보 포함)
+    let tgSent = false;
+    try {
+      const saveTop3 = selectSaveTop3(stocks);
+      console.log(`📱 TOP 3 후보: ${saveTop3.length}개 - ${saveTop3.map(s => s.stockName + '(' + s.totalScore + ')').join(', ')}`);
+      if (saveTop3.length > 0) {
+        const saveMsg = formatSaveAlertMessage(saveTop3, stocks, today);
+        tgSent = await sendTelegramMessage(saveMsg);
+        console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
+      } else {
+        console.log('📱 텔레그램: TOP 3 후보 없음 - 알림 건너뜀');
+      }
+    } catch (tgErr) {
+      console.warn('⚠️ 텔레그램 알림 실패:', tgErr.message, tgErr.stack);
+      tgSent = 'error: ' + tgErr.message;
+    }
+
     return res.status(200).json({
       success: true,
       saved: data.length,
       date: today,
       grades: gradeStats,
+      telegramSent: tgSent,
       recommendations: data.map(r => ({
         stockCode: r.stock_code,
         stockName: r.stock_name,
