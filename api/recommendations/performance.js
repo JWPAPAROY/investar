@@ -273,6 +273,76 @@ module.exports = async (req, res) => {
           });
         }
 
+        // 🆕 연속 급등 원인 분석
+        let riseAnalysis = null;
+        if (consecutiveRiseDays >= 2 && returnPct > 0 && dailyPrices.length >= 2) {
+          const reasons = [];
+          const details = {};
+
+          // 1. 고래 감지 여부
+          if (rec.whale_detected) {
+            reasons.push('🐋 고래 감지 후 상승');
+            details.whaleDetected = true;
+          }
+
+          // 2. 거래량 추이 분석 (최근 연속 상승일 동안)
+          const recentPrices = dailyPrices.slice(-Math.min(consecutiveRiseDays + 1, dailyPrices.length));
+          if (recentPrices.length >= 2) {
+            const volumes = recentPrices.map(p => p.volume || 0).filter(v => v > 0);
+            if (volumes.length >= 2) {
+              const firstHalf = volumes.slice(0, Math.floor(volumes.length / 2));
+              const secondHalf = volumes.slice(Math.floor(volumes.length / 2));
+              const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
+              const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+
+              if (avgSecond > avgFirst * 1.2) {
+                reasons.push('📈 거래량 증가 동반');
+                details.volumeTrend = 'increasing';
+              } else if (avgSecond < avgFirst * 0.8) {
+                reasons.push('📉 거래량 감소 중 상승');
+                details.volumeTrend = 'decreasing';
+              } else {
+                details.volumeTrend = 'stable';
+              }
+            }
+          }
+
+          // 3. 상승 패턴 분석
+          const returns = recentPrices.map(p => parseFloat(p.return) || 0);
+          const avgDailyReturn = returns.length > 0
+            ? returns.reduce((a, b) => a + b, 0) / returns.length
+            : 0;
+
+          if (avgDailyReturn >= 3) {
+            reasons.push('🚀 급등형 상승');
+            details.risePattern = 'explosive';
+          } else if (avgDailyReturn >= 1) {
+            reasons.push('📊 점진적 상승');
+            details.risePattern = 'gradual';
+          } else {
+            reasons.push('🐢 완만한 상승');
+            details.risePattern = 'slow';
+          }
+
+          // 4. MFI 기반 자금 유입 분석
+          if (rec.mfi) {
+            if (rec.mfi >= 70) {
+              reasons.push('💰 강한 자금 유입');
+              details.mfiSignal = 'strong_inflow';
+            } else if (rec.mfi >= 50) {
+              details.mfiSignal = 'moderate_inflow';
+            }
+          }
+
+          riseAnalysis = {
+            reasons: reasons,
+            summary: reasons.slice(0, 2).join(' + ') || '상승 중',
+            details: details,
+            consecutiveDays: consecutiveRiseDays,
+            totalReturn: parseFloat(returnPct.toFixed(2))
+          };
+        }
+
         stocksWithPerformance.push({
           ...rec,
           current_price: currentPrice,
@@ -282,7 +352,8 @@ module.exports = async (req, res) => {
           is_winning: returnPct > 0,
           is_rising: consecutiveRiseDays >= 2 && returnPct > 0, // 2일 이상 연속 상승 + 수익 중
           daily_prices: dailyPrices, // 날짜별 가격 데이터 추가
-          sell_signals: sellSignals.length > 0 ? sellSignals : null // 매도 신호 추가
+          sell_signals: sellSignals.length > 0 ? sellSignals : null, // 매도 신호 추가
+          rise_analysis: riseAnalysis // 🆕 연속 급등 분석
         });
 
         // Supabase만 조회하므로 Rate limit 대기 불필요 (KIS API 호출 제거됨)
