@@ -153,9 +153,9 @@ function formatSaveAlertMessage(nextTop3, morningResults, date) {
   const dateShort = date.slice(5).replace('-', '/');
   let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n\n`;
 
-  // ── 1. 오전 추천 당일 성과 ──
+  // ── 1. 어제 추천 당일 성과 ──
   if (morningResults && morningResults.length > 0) {
-    msg += `📊 <b>오전 추천 당일 성과</b>\n`;
+    msg += `📊 <b>어제 추천 당일 성과</b>\n`;
     let winCount = 0;
     let totalReturn = 0;
 
@@ -593,7 +593,7 @@ module.exports = async (req, res) => {
       const saveTop3 = selectSaveTop3(stocks);
       console.log(`📱 TOP 3 후보: ${saveTop3.length}개 - ${saveTop3.map(s => s.stockName + '(' + s.totalScore + ')').join(', ')}`);
 
-      // 2. 오전 추천 성과 분석 (어제 Alert 대상)
+      // 2. 어제 추천 종목의 당일 성과 분석 (실시간 현재가 조회)
       let morningResults = [];
       try {
         const yesterday = getYesterdayDateKST();
@@ -604,25 +604,43 @@ module.exports = async (req, res) => {
           .eq('is_active', true);
 
         if (yestStocks && yestStocks.length > 0) {
-          const yestTop3 = selectAlertTop3(yestStocks);
-          morningResults = yestTop3.map(s => {
-            // 오늘 스크리닝 결과(stocks)에서 현재가 찾기
+          const yestTop3 = selectAlertTop3(yestStocks).slice(0, 3);
+
+          for (const s of yestTop3) {
+            // 1차: 오늘 스크리닝 결과에서 찾기
+            let currentPrice = null;
             const todayStock = stocks.find(t => t.stockCode === s.stock_code);
-            // 없으면 추천가 유지 (변동 0%) - API 추가 조회는 타임아웃 위험으로 생략
-            const currentPrice = todayStock ? todayStock.currentPrice : s.recommended_price;
+            if (todayStock) {
+              currentPrice = todayStock.currentPrice;
+            } else {
+              // 2차: KIS API로 실시간 현재가 조회
+              try {
+                const priceData = await kisApi.getCurrentPrice(s.stock_code);
+                if (priceData && priceData.currentPrice) {
+                  currentPrice = priceData.currentPrice;
+                }
+              } catch (apiErr) {
+                console.warn(`⚠️ 현재가 조회 실패 (${s.stock_name}): ${apiErr.message}`);
+              }
+              await new Promise(r => setTimeout(r, 100)); // Rate limit
+            }
+
+            // 조회 실패 시 추천가 유지
+            if (!currentPrice) currentPrice = s.recommended_price;
+
             const returnRate = ((currentPrice - s.recommended_price) / s.recommended_price) * 100;
-            return {
+            morningResults.push({
               stockName: s.stock_name,
               stockCode: s.stock_code,
               recommendPrice: s.recommended_price,
               currentPrice: currentPrice,
               returnRate: returnRate
-            };
-          });
-          console.log(`📊 오전 추천 성과 분석: ${morningResults.length}개 완료`);
+            });
+          }
+          console.log(`📊 어제 추천 성과 분석: ${morningResults.length}개 완료 (실시간 현재가)`);
         }
       } catch (mErr) {
-        console.warn('⚠️ 오전 성과 분석 실패:', mErr.message);
+        console.warn('⚠️ 어제 추천 성과 분석 실패:', mErr.message);
       }
 
       // 3. 메시지 전송
