@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.28 (가격 업데이트 자동 재시도)
-- **최종 업데이트**: 2026-02-05
+- **버전**: 3.29 (성공 패턴 분석 v2)
+- **최종 업데이트**: 2026-02-06
 
 ---
 
@@ -1005,6 +1005,41 @@ async function testGoldenZones() {
 
 ## 📝 변경 이력
 
+### v3.29 (2026-02-06) - 성공 패턴 분석 시스템 v2
+
+**목적**: +10% 수익 달성 종목들의 추천 시점 지표 특징 추출 → 스크리닝 임계값 최적화
+
+#### 1️⃣ 패턴 수집 자동화
+- 매일 16:20 KST cron으로 +10% 달성 종목 자동 수집
+- `success_patterns` 테이블에 모든 지표 데이터 저장
+- 추천일 → 달성일까지 소요일, 최고 수익률 기록
+
+#### 2️⃣ 지표별 통계 분석 뷰
+- `volume_indicator_analysis`: 거래량 비율, 비대칭, 가속도, 고래 통계
+- `price_indicator_analysis`: RSI, MFI, 이격도, VWAP, 탈출속도 통계
+- `institutional_indicator_analysis`: 기관/외국인 매수일 통계
+- `success_pattern_insights`: 종합 인사이트 (샘플수, 평균수익률, 신호비율)
+
+#### 3️⃣ 추천 저장 확장
+- `screening_recommendations` 테이블에 20개+ 지표 컬럼 추가
+- 추천 시점의 모든 지표 값 저장 (RSI, 이격도, VWAP 괴리율, 탈출속도 등)
+
+#### 4️⃣ API 엔드포인트
+```
+GET /api/patterns          - 패턴 분석 결과 조회
+GET /api/patterns?collect=true - 수동 패턴 수집 실행
+```
+
+#### 5️⃣ 문서 정리
+- 구버전 SQL 삭제: `supabase-success-patterns.sql` (v1)
+- 미사용 문서 삭제: `KRX_API_SETUP.md`, `KRX_API_STATUS.md`, `TOP3_RECOMMENDATION_DESIGN.md`
+- `SUPABASE_SETUP.md` 업데이트
+
+**수정 파일**: `api/patterns/index.js`, `api/cron/save-daily-recommendations.js`, `index.html`, `vercel.json`
+**새 파일**: `supabase-expand-recommendations.sql`, `supabase-success-patterns.sql`
+
+---
+
 ### v3.28 (2026-02-05) - 가격 업데이트 자동 재시도
 
 #### 1️⃣ 자동 재시도 로직
@@ -1972,11 +2007,11 @@ Base(0-25) + Momentum(0-40) + Trend(0-35) = Total(0-100)
 
 ---
 
-**Last Updated**: 2026-02-05
-**Version**: 3.28 (가격 업데이트 자동 재시도)
+**Last Updated**: 2026-02-06
+**Version**: 3.29 (성공 패턴 분석 v2)
 **Author**: Claude Code with @knwwhr
 
-**v3.28: 가격 업데이트 자동 재시도 (최대 3회, 45초 타임아웃)**
+**v3.29: 성공 패턴 분석 v2 (+10% 달성 종목 지표 특징 추출)**
 **🔧 등급: ⚠️과열(RSI>80 AND 이격도>115) > S+(90+) > S(75-89) > A(60-74) > B(45-59) > C(30-44) > D(<30)**
 **📊 공식: Base(0-25) + Whale(0/15/30) + Momentum(0-30) + Trend(0-15) + SignalAdj = Total(0-100)**
 **📊 SignalAdj: 탈출속도(+5) + 윗꼬리과다(-10) + 매도고래3일내(-10)**

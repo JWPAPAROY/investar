@@ -28,14 +28,22 @@
 
 1. Supabase 대시보드에서 **SQL Editor** 메뉴 선택
 2. **New Query** 클릭
-3. `supabase-recommendations-schema.sql` 파일 내용 복사 후 붙여넣기
+3. 다음 SQL 파일들을 순서대로 실행:
+   - `supabase-recommendations-schema.sql` - 기본 테이블
+   - `supabase-expand-recommendations.sql` - 지표 컬럼 확장
+   - `supabase-success-patterns.sql` - 성공 패턴 분석 테이블
 4. **Run** 버튼 클릭하여 스키마 생성
 
 생성되는 테이블:
-- `screening_recommendations`: 추천 종목 이력
+- `screening_recommendations`: 추천 종목 이력 (모든 지표 포함)
 - `recommendation_daily_prices`: 일별 가격 추적
+- `success_patterns`: +10% 수익 달성 종목의 지표 데이터
 - `recommendation_statistics` (뷰): 종목별 성과 통계
 - `overall_performance` (뷰): 전체 성과 요약
+- `volume_indicator_analysis` (뷰): 거래량 지표 통계
+- `price_indicator_analysis` (뷰): 시세 지표 통계
+- `institutional_indicator_analysis` (뷰): 수급 지표 통계
+- `success_pattern_insights` (뷰): 성공 패턴 종합 인사이트
 
 ### 3. API 키 확인
 
@@ -266,6 +274,57 @@ WHERE is_active = false
 - Supabase 인덱스 확인
 - KIS API Rate Limit 확인
 
+## 📊 성공 패턴 분석 시스템 (v2)
+
+### 개요
+
++10% 수익률 달성 종목들의 추천 시점 지표를 분석하여 "성공하는 종목"의 공통 특징을 추출합니다.
+
+### 작동 방식
+
+1. **데이터 수집** (매일 16:10 KST)
+   - 추천 종목 저장 시 모든 지표 값 함께 저장
+   - 거래량/시세/수급 지표 20개+
+
+2. **패턴 수집** (매일 16:20 KST)
+   - 과거 추천 중 +10% 달성 종목 자동 추출
+   - `success_patterns` 테이블에 저장
+
+3. **통계 분석**
+   - 뷰를 통해 지표별 평균/중앙값/분포 자동 계산
+   - 현재 임계값과 실제 성공 패턴 비교
+
+### API 엔드포인트
+
+**GET** `/api/patterns` - 패턴 분석 결과 조회
+
+**GET** `/api/patterns?collect=true` - 수동 패턴 수집 실행
+
+### 분석 뷰
+
+```sql
+-- 거래량 지표 통계
+SELECT * FROM volume_indicator_analysis;
+
+-- 시세 지표 통계
+SELECT * FROM price_indicator_analysis;
+
+-- 수급 지표 통계
+SELECT * FROM institutional_indicator_analysis;
+
+-- 종합 인사이트
+SELECT * FROM success_pattern_insights;
+```
+
+### 저장되는 지표
+
+**거래량 기준**: volume_ratio, asymmetric_ratio, obv_trend, volume_acceleration, whale 정보
+**시세 기준**: rsi, mfi, disparity, vwap_divergence, escape_velocity, upper_shadow_ratio
+**수급 기준**: institution_buy_days, foreign_buy_days
+**복합 지표**: vpd_score, accumulation_detected
+
+---
+
 ## 📈 향후 개선 사항
 
 ### Phase 2
@@ -295,6 +354,6 @@ WHERE is_active = false
 
 ---
 
-**Last Updated**: 2025-11-03
-**Version**: 3.2 (Supabase Performance Tracking)
+**Last Updated**: 2026-02-06
+**Version**: 3.29 (Success Pattern Analysis v2)
 **Author**: Claude Code with @knwwhr
