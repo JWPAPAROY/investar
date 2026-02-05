@@ -1,6 +1,6 @@
 {
   "name": "investar",
-  "version": "2.0.0",
+  "version": "3.27.0",
   "description": "AI-powered stock screening system with pattern mining",
   "main": "server.js",
   "scripts": {

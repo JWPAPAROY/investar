@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.26 (매도고래 감점 + 시그널 기준표 + 시그널 날짜 UI + 풀 확장 50 + 텔레그램 간소화)
+- **버전**: 3.27 (텔레그램 메시지 포맷 개선: 최근 주가 및 성과 분석 추가)
 - **최종 업데이트**: 2026-02-05
 
 ---

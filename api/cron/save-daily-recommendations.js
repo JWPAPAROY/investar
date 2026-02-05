@@ -13,6 +13,7 @@
 
 const screener = require('../../backend/screening');
 const supabase = require('../../backend/supabaseClient');
+const kisApi = require('../../backend/kisApi');
 
 /**
  * 텔레그램 메시지 전송
@@ -146,97 +147,154 @@ function selectSaveTop3(stocks) {
 /**
  * v3.25: save 모드용 알림 메시지 (고래 상세 정보 포함)
  */
-function formatSaveAlertMessage(top3, allStocks, date) {
-  let msg = `🏆 <b>오늘의 TOP 3 추천 종목</b>\n📅 ${date}\n\n`;
+/**
+ * v3.27: SAVE 메시지 (오후 16:10)
+ * 🌆 오늘의 결산 (오전 추천 성과 + 내일 TOP 3)
+ */
+function formatSaveAlertMessage(nextTop3, morningResults, date) {
+  // 날짜 포맷: 2026-02-05 → 02/05
+  const dateShort = date.slice(5).replace('-', '/');
+  let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n\n`;
 
-  top3.forEach((stock, i) => {
-    const medal = ['🥇', '🥈', '🥉'][i];
-    const price = stock.currentPrice || 0;
-    const sl5 = Math.floor(price * 0.95);
-    const sl7 = Math.floor(price * 0.93);
-    const grade = stock.recommendation?.grade || '?';
+  // ── 1. 오전 추천 당일 성과 ──
+  if (morningResults && morningResults.length > 0) {
+    msg += `📊 <b>오전 추천 당일 성과</b>\n`;
+    let winCount = 0;
+    let totalReturn = 0;
 
-    msg += `${medal} <b>${stock.stockName}</b> (${stock.stockCode})\n`;
-    msg += `   📊 ${stock.totalScore}점 | ${grade}등급\n`;
-    msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
-    msg += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
+    morningResults.forEach((stock, i) => {
+      const medal = ['🥇', '🥈', '🥉'][i];
+      const startPrice = stock.recommendPrice;
+      const endPrice = stock.currentPrice;
+      const r = stock.returnRate;
+      const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
+      const emoji = r >= 0 ? '✅' : '❌';
+      if (r >= 0) winCount++;
+      totalReturn += r;
 
-    // 최근 3일 주가
-    const chart = stock.trendAnalysis?.dailyData || [];
-    if (chart.length >= 2) {
-      msg += `   📈 최근 주가:`;
-      chart.slice(0, 3).forEach(d => {
-        const chg = d.priceChange != null ? (d.priceChange >= 0 ? `+${d.priceChange.toFixed(1)}%` : `${d.priceChange.toFixed(1)}%`) : '';
-        const dateStr = d.date ? `${d.date.slice(4,6)}/${d.date.slice(6,8)}` : '';
-        msg += ` ${dateStr} ${d.close ? d.close.toLocaleString() : '?'}원${chg ? '(' + chg + ')' : ''}`;
-      });
-      msg += '\n';
-    }
+      msg += `  ${medal} ${stock.stockName}: ${startPrice.toLocaleString()} → ${endPrice.toLocaleString()}원 (${returnStr}) ${emoji}\n`;
+    });
 
-    msg += '\n';
-  });
+    const avgReturn = totalReturn / morningResults.length;
+    const winRate = (winCount / morningResults.length * 100).toFixed(0);
+    msg += `\n  📈 평균: ${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(2)}% | 승률: ${winRate}%\n\n`;
+    msg += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+  }
 
-  msg += `🔗 https://investar-xi.vercel.app`;
+  // ── 2. 내일을 위한 TOP 3 ──
+  if (!nextTop3 || nextTop3.length === 0) {
+    msg += `🏆 <b>내일을 위한 TOP 3</b>\n`;
+    msg += `조건을 충족하는 종목이 없습니다.\n`;
+  } else {
+    msg += `🏆 <b>내일을 위한 TOP 3</b>\n\n`;
+
+    nextTop3.forEach((stock, i) => {
+      const medal = ['🥇', '🥈', '🥉'][i];
+      const grade = stock.recommendation?.grade || '?';
+      // 과열 종목 강조
+      const gradeDisplay = grade === '과열' ? '과열 ⚠️' : `${grade}등급`;
+
+      msg += `${medal} <b>${stock.stockName}</b> (${stock.totalScore}점, ${gradeDisplay})\n`;
+
+      // 최근 주가 (Save 모드)
+      const chart = stock.trendAnalysis?.dailyData || [];
+      if (chart.length >= 2) {
+        msg += `   📈 최근 주가:`;
+        chart.slice(0, 3).forEach(d => {
+          const chg = d.priceChange != null ? (d.priceChange >= 0 ? `+${d.priceChange.toFixed(1)}%` : `${d.priceChange.toFixed(1)}%`) : '';
+          const dateStr = d.date ? `(${d.date.slice(4, 6)}/${d.date.slice(6, 8)})` : '';
+          msg += ` ${dateStr} ${d.close ? d.close.toLocaleString() : '?'}원${chg ? '(' + chg + ')' : ''}`;
+        });
+        msg += '\n';
+      }
+      msg += `\n`;
+    });
+  }
 
   return msg;
 }
 
 /**
- * 알림 메시지 생성 (TOP 3 + 고래 감지 + 최근 3일 결과)
- * @param {Array} top3 - 오늘의 TOP 3
- * @param {Array} whaleStocks - 고래 감지 종목 (TOP 3 제외)
- * @param {string} date - 기준일
- * @param {Array} prevDayResults - [{ date, stocks: [...] }, ...]
+ * v3.27: ALERT 메시지 (아침 08:30)
+ * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
 function formatAlertMessage(top3, whaleStocks, date, prevDayResults) {
-  let message = '';
+  // 날짜 포맷: 2026-02-05 → 02/05
+  const dateShort = date.slice(5).replace('-', '/');
+  let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
 
   // ── 오늘의 TOP 3 ──
   if (!top3 || top3.length === 0) {
-    message += `📊 <b>Investar 알림</b> (${date})\n\n`;
     message += `조건을 충족하는 종목이 없습니다.\n`;
-    message += `다음 거래일을 기다려주세요.\n\n`;
+    message += `다음 거래일을 기다려주세요.\n`;
   } else {
-    message += `🏆 <b>오늘의 TOP 3 추천 종목</b>\n`;
-    message += `📅 ${date}\n\n`;
+    message += `🏆 <b>오늘의 TOP 3</b>\n\n`;
 
     top3.forEach((stock, i) => {
       const medal = ['🥇', '🥈', '🥉'][i];
-      const sl5 = Math.floor(stock.recommended_price * 0.95);
-      const sl7 = Math.floor(stock.recommended_price * 0.93);
+      const price = stock.recommended_price || 0;
+      const sl5 = Math.floor(price * 0.95);
+      const sl7 = Math.floor(price * 0.93);
+      const grade = stock.recommendation_grade || '?';
 
       message += `${medal} <b>${stock.stock_name}</b> (${stock.stock_code})\n`;
-      message += `   📊 ${stock.total_score.toFixed(1)}점 | ${stock.recommendation_grade}등급\n`;
-      message += `   💰 현재가: ${stock.recommended_price.toLocaleString()}원\n`;
+      message += `   📊 ${stock.total_score.toFixed(0)}점 | ${grade}등급\n`;
+      message += `   💰 현재가: ${price.toLocaleString()}원\n`;
       message += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
+
+      // 최근 주가 (Alert 모드에서 추가된 부분)
+      if (stock.dailyData && stock.dailyData.length >= 2) {
+        message += `   📈 최근 주가:`;
+        stock.dailyData.slice(0, 3).forEach(d => {
+          const chg = d.priceChange != null ? (d.priceChange >= 0 ? `+${d.priceChange.toFixed(1)}%` : `${d.priceChange.toFixed(1)}%`) : '';
+          const dateStr = d.date ? `(${d.date.slice(4, 6)}/${d.date.slice(6, 8)})` : '';
+          message += ` ${dateStr} ${d.close ? d.close.toLocaleString() : '?'}원${chg ? '(' + chg + ')' : ''}`;
+        });
+        message += '\n';
+      }
       message += `\n`;
     });
   }
 
-  // ── 최근 3일 추천 결과 ──
+  // ── 과거 추천 성과 ──
   if (prevDayResults && prevDayResults.length > 0) {
     message += `━━━━━━━━━━━━━━━━━━━━\n`;
-    message += `📈 <b>지난 추천 결과</b>\n\n`;
+    message += `📈 <b>과거 추천 성과</b>\n\n`;
 
-    prevDayResults.forEach(day => {
-      message += `📅 ${day.date} 추천\n`;
-      day.stocks.forEach((stock, i) => {
+    prevDayResults.forEach((day, dayIndex) => {
+      // 날짜 포맷
+      const dayShort = day.date.slice(5).replace('-', '/');
+      const daysAgo = dayIndex === 0 ? '어제' : `${dayIndex + 1}일 전`;
+      message += `📅 ${daysAgo}(${dayShort}) 추천\n`;
+
+      // TOP 3만 표시 (최대 3개)
+      const displayStocks = day.stocks.slice(0, 3);
+      let winCount = 0;
+      let totalReturn = 0;
+
+      displayStocks.forEach((stock, i) => {
         const r = stock.latestReturn;
         const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
         const emoji = r >= 0 ? '✅' : '❌';
-        const priceStr = stock.latestPrice ? stock.latestPrice.toLocaleString() : '?';
-        const dateTag = stock.priceDate !== day.date ? ` (${stock.priceDate})` : '';
+        if (r >= 0) winCount++;
+        totalReturn += r;
 
-        message += `  ${i + 1}. ${stock.stock_name} → ${priceStr}원${dateTag} ${returnStr} ${emoji}\n`;
+        message += `  ${i + 1}. ${stock.stock_name} → ${returnStr} ${emoji}\n`;
       });
+
+      // 평균 수익률, 승률
+      if (displayStocks.length > 0) {
+        const avgReturn = totalReturn / displayStocks.length;
+        const winRate = (winCount / displayStocks.length * 100).toFixed(0);
+        message += `  📊 평균: ${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(1)}% | 승률: ${winRate}%\n`;
+      }
       message += `\n`;
     });
   }
 
-  message += `🔗 https://investar-xi.vercel.app`;
-
   return message;
 }
+
 
 /**
  * 어제 날짜 구하기 (KST 기준)
@@ -291,6 +349,36 @@ module.exports = async (req, res) => {
       const top3 = selectAlertTop3(stocks || []);
       const whaleStocks = selectWhaleStocks(stocks || [], top3);
       console.log(`✅ TOP 3 선정: ${top3.length}개, 고래 감지: ${whaleStocks.length}개`);
+
+      // v3.27: TOP 3 종목의 최근 주가 데이터 조회 (Alert 메시지용)
+      for (const stock of top3) {
+        try {
+          const chartData = await kisApi.getDailyChart(stock.stock_code, 5); // 최근 5일치
+          if (chartData && chartData.length > 0) {
+            // 차트 데이터 가공 (전일비 계산 등)
+            const processed = [];
+            for (let i = 0; i < chartData.length; i++) {
+              const today = chartData[i];
+              const prev = chartData[i + 1];
+              let priceChange = 0;
+              if (prev) {
+                priceChange = ((today.close - prev.close) / prev.close) * 100;
+              }
+              processed.push({
+                date: today.date,
+                close: today.close,
+                priceChange: parseFloat(priceChange.toFixed(1))
+              });
+            }
+            stock.dailyData = processed;
+          }
+        } catch (apiErr) {
+          console.warn(`⚠️ 차트 조회 실패 (${stock.stock_name}):`, apiErr.message);
+        }
+        // API Rate Limit 고려 (약간의 지연)
+        await new Promise(r => setTimeout(r, 200));
+      }
+
       top3.forEach((s, i) => {
         console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
       });
@@ -508,14 +596,49 @@ module.exports = async (req, res) => {
     // v3.25: save 시점에 텔레그램 알림 (고래 상세 정보 포함)
     let tgSent = false;
     try {
+      // 1. 내일 TOP 3 선정
       const saveTop3 = selectSaveTop3(stocks);
       console.log(`📱 TOP 3 후보: ${saveTop3.length}개 - ${saveTop3.map(s => s.stockName + '(' + s.totalScore + ')').join(', ')}`);
-      if (saveTop3.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, stocks, today);
+
+      // 2. 오전 추천 성과 분석 (어제 Alert 대상)
+      let morningResults = [];
+      try {
+        const yesterday = getYesterdayDateKST();
+        const { data: yestStocks } = await supabase
+          .from('screening_recommendations')
+          .select('*')
+          .eq('recommendation_date', yesterday)
+          .eq('is_active', true);
+
+        if (yestStocks && yestStocks.length > 0) {
+          const yestTop3 = selectAlertTop3(yestStocks);
+          morningResults = yestTop3.map(s => {
+            // 오늘 스크리닝 결과(stocks)에서 현재가 찾기
+            const todayStock = stocks.find(t => t.stockCode === s.stock_code);
+            // 없으면 추천가 유지 (변동 0%) - API 추가 조회는 타임아웃 위험으로 생략
+            const currentPrice = todayStock ? todayStock.currentPrice : s.recommended_price;
+            const returnRate = ((currentPrice - s.recommended_price) / s.recommended_price) * 100;
+            return {
+              stockName: s.stock_name,
+              stockCode: s.stock_code,
+              recommendPrice: s.recommended_price,
+              currentPrice: currentPrice,
+              returnRate: returnRate
+            };
+          });
+          console.log(`📊 오전 추천 성과 분석: ${morningResults.length}개 완료`);
+        }
+      } catch (mErr) {
+        console.warn('⚠️ 오전 성과 분석 실패:', mErr.message);
+      }
+
+      // 3. 메시지 전송
+      if (saveTop3.length > 0 || morningResults.length > 0) {
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today);
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {
-        console.log('📱 텔레그램: TOP 3 후보 없음 - 알림 건너뜀');
+        console.log('📱 텔레그램: 전송할 내용 없음');
       }
     } catch (tgErr) {
       console.warn('⚠️ 텔레그램 알림 실패:', tgErr.message, tgErr.stack);
