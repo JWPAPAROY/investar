@@ -1324,14 +1324,8 @@ class StockScreener {
       tooltip = '선행 지표 미감지';
     }
 
-    // Phase 4 티어 수정 (기존 로직 유지)
-    if (tier === 'watch') {
-      text = '👁️ 관심종목 (선행지표)';
-      color = '#9966ff'; // 보라색
-    } else if (tier === 'buy' && score >= 60) {
-      text = '🚀 매수신호 (트리거 발동)';
-      color = '#ff6600'; // 주황색
-    }
+    // v3.26: tier 기반 텍스트 오버라이드 제거
+    // 고래/탈출속도는 시그널 UI에서 이미 충분히 표시되므로 등급 텍스트 유지
 
     // 기존 과열 경고 (v3.9 호환성 유지)
     if (overheating.warning) {

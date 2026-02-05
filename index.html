@@ -467,6 +467,9 @@
                         </>
                       )}
                     </div>
+                    <p className="text-xs text-gray-500 text-center mt-2">
+                      종목 풀: 등락률·거래량급증·거래량·거래대금 상위 30개 × KOSPI+KOSDAQ (240개) → ETF/ETN 제거 → 중복 제거 → 분석 대상 (매 조회 시 시장 상황에 따라 변동)
+                    </p>
                   </div>
                 )}
 
@@ -479,7 +482,7 @@
                         <div>
                           <h3 className="text-2xl font-bold text-orange-800">반드시 매수해야 할 TOP 3</h3>
                           <p className="text-sm text-orange-600 mt-1">
-                            고래 감지 전략 (1순위 50-79점: 승률 76.9%)
+                            매수고래 + 황금구간 50-89점 우선 선별
                           </p>
                         </div>
                       </div>
@@ -722,12 +725,12 @@
         ? (stock.volume / stock.volumeAnalysis.current.volumeMA20).toFixed(1)
         : null;
 
-      // 뱃지 데이터
+      // 뱃지 데이터 (v3.26: 툴팁 추가)
       const badges = [];
       if (stock.rankBadges) {
-        if (stock.rankBadges.volumeSurge) badges.push({ text: '거래량급증', color: 'bg-red-500' });
-        if (stock.rankBadges.tradingValue) badges.push({ text: '거래대금', color: 'bg-orange-500' });
-        if (stock.rankBadges.volume) badges.push({ text: '거래량', color: 'bg-yellow-500' });
+        if (stock.rankBadges.volumeSurge) badges.push({ text: '거래량급증', color: 'bg-red-500', tooltip: '거래량 증가율 상위 30위 내 (전일 대비 거래량 급증)' });
+        if (stock.rankBadges.tradingValue) badges.push({ text: '거래대금', color: 'bg-orange-500', tooltip: '거래대금 상위 30위 내 (거래량 × 가격 기준 대형 거래)' });
+        if (stock.rankBadges.volume) badges.push({ text: '거래량', color: 'bg-yellow-500', tooltip: '거래량 상위 30위 내 (절대 거래량 기준)' });
       }
 
       // 패턴 뱃지 추가
@@ -760,8 +763,13 @@
                 {badges.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-2">
                     {badges.map((badge, i) => (
-                      <span key={i} className={`${badge.color} text-white text-xs px-2 py-1 rounded-full font-semibold`}>
+                      <span key={i} className={`${badge.color} text-white text-xs px-2 py-1 rounded-full font-semibold relative group/badge cursor-help`}>
                         🏆 {badge.text}
+                        {badge.tooltip && (
+                          <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1 w-48 px-2 py-1 bg-gray-900 text-white text-xs rounded opacity-0 group-hover/badge:opacity-100 transition-opacity pointer-events-none z-50 text-center font-normal">
+                            {badge.tooltip}
+                          </span>
+                        )}
                       </span>
                     ))}
                   </div>
