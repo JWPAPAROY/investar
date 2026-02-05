@@ -100,7 +100,7 @@ module.exports = async (req, res) => {
     // 단일 종목 가격 조회 함수
     async function fetchStockPrice(rec) {
       try {
-        let closingPrice = rec.recommended_price;
+        let closingPrice = null;  // null로 시작 (실패 감지용)
         let changeRate = 0;
         let volume = 0;
 
@@ -113,8 +113,8 @@ module.exports = async (req, res) => {
             volume = currentData.volume || 0;
           } else {
             const chartData = await kisApi.getDailyChart(rec.stock_code, 2);
-            if (chartData && chartData.length > 0) {
-              closingPrice = chartData[0].close || rec.recommended_price;
+            if (chartData && chartData.length > 0 && chartData[0].close) {
+              closingPrice = chartData[0].close;
               volume = chartData[0].volume || 0;
               if (chartData.length > 1 && chartData[1].close > 0) {
                 changeRate = ((closingPrice - chartData[1].close) / chartData[1].close * 100);
@@ -125,8 +125,8 @@ module.exports = async (req, res) => {
           // 장 마감: getDailyChart만 1회 호출 (getCurrentPrice 스킵)
           try {
             const chartData = await kisApi.getDailyChart(rec.stock_code, 2);
-            if (chartData && chartData.length > 0) {
-              closingPrice = chartData[0].close || rec.recommended_price;
+            if (chartData && chartData.length > 0 && chartData[0].close) {
+              closingPrice = chartData[0].close;
               volume = chartData[0].volume || 0;
               if (chartData.length > 1 && chartData[1].close > 0) {
                 changeRate = ((closingPrice - chartData[1].close) / chartData[1].close * 100);
@@ -135,6 +135,12 @@ module.exports = async (req, res) => {
           } catch (chartError) {
             console.warn(`❌ 종가 조회 실패 [${rec.stock_code}]:`, chartError.message);
           }
+        }
+
+        // 가격 조회 실패 시 null 반환 (이전 가격 유지)
+        if (!closingPrice) {
+          console.warn(`⚠️ 가격 미조회 [${rec.stock_code} ${rec.stock_name}]: 이전 가격 유지`);
+          return null;
         }
 
         // 경과일 계산
