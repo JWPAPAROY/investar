@@ -2274,19 +2274,25 @@
             </div>
           )}
 
-          {/* 🆕 패턴 분석 리포트 */}
+          {/* 🆕 성공 패턴 분석 v2 - 지표별 통계 기반 */}
           <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-300 rounded-xl shadow-lg p-6">
             <h3 className="text-2xl font-bold mb-4 text-purple-900 flex items-center gap-2">
-              📊 신호 효과 분석
-              <span className="text-sm font-normal text-purple-700">(성공 패턴 기반)</span>
+              📊 성공 패턴 분석
+              <span className="text-sm font-normal text-purple-700">(+10% 수익 달성 종목 기준)</span>
             </h3>
 
             {patternLoading ? (
               <div className="text-center py-8 text-purple-600">분석 데이터 로딩 중...</div>
             ) : !patternAnalysis || patternAnalysis.totalPatterns === 0 ? (
               <div className="text-center py-8">
-                <p className="text-purple-800 mb-2">아직 수집된 패턴이 없습니다.</p>
-                <p className="text-sm text-purple-600">연속 급등주가 발생하면 자동으로 패턴이 수집됩니다.</p>
+                <p className="text-purple-800 mb-2">아직 수집된 성공 패턴이 없습니다.</p>
+                <p className="text-sm text-purple-600">+10% 수익 달성 종목이 발생하면 자동으로 패턴이 수집됩니다.</p>
+                <button
+                  onClick={() => fetch(`${apiBaseUrl}/patterns`, { method: 'POST' }).then(() => window.location.reload())}
+                  className="mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
+                >
+                  🔄 패턴 수집 실행
+                </button>
               </div>
             ) : (
               <div className="space-y-4">
@@ -2294,95 +2300,125 @@
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
                     <div className="text-2xl font-bold text-purple-700">{patternAnalysis.totalPatterns}</div>
-                    <div className="text-xs text-gray-600">수집된 패턴</div>
+                    <div className="text-xs text-gray-600">성공 패턴</div>
                   </div>
                   <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
                     <div className="text-2xl font-bold text-green-600">
-                      +{patternAnalysis.analysis?.recent30Days?.avgReturn || 0}%
+                      +{patternAnalysis.analysis?.summary?.avgMaxReturn || 0}%
                     </div>
-                    <div className="text-xs text-gray-600">최근 30일 평균</div>
+                    <div className="text-xs text-gray-600">평균 최고 수익률</div>
                   </div>
                   <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
                     <div className="text-2xl font-bold text-blue-600">
-                      {patternAnalysis.analysis?.recent30Days?.count || 0}개
+                      {patternAnalysis.analysis?.summary?.avgDaysToSuccess || 0}일
                     </div>
-                    <div className="text-xs text-gray-600">최근 30일 성공</div>
+                    <div className="text-xs text-gray-600">평균 달성 소요일</div>
                   </div>
                   <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
                     <div className="text-2xl font-bold text-orange-600">
-                      {patternAnalysis.analysis?.recommendations?.length || 0}개
+                      {patternAnalysis.analysis?.insights?.length || 0}개
                     </div>
-                    <div className="text-xs text-gray-600">권장 사항</div>
+                    <div className="text-xs text-gray-600">튜닝 인사이트</div>
                   </div>
                 </div>
 
-                {/* 신호별 효과 */}
-                {patternAnalysis.analysis?.signalEffectiveness && (
-                  <div className="bg-white p-4 rounded-lg border border-purple-200">
-                    <h4 className="font-bold text-purple-800 mb-3">📈 신호별 효과</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
-                      {/* 고래 감지 */}
+                {/* 거래량 기준 지표 */}
+                {patternAnalysis.analysis?.volumeIndicators && (
+                  <details className="bg-white p-4 rounded-lg border border-purple-200" open>
+                    <summary className="font-bold text-purple-800 cursor-pointer mb-3">📈 거래량 기준 지표</summary>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                      {/* 거래량 비율 */}
                       <div className="p-3 bg-purple-50 rounded">
-                        <div className="font-semibold text-purple-900 mb-1">🐋 고래 감지</div>
-                        <div className="flex justify-between text-xs">
-                          <span>감지: {patternAnalysis.analysis.signalEffectiveness.whale?.detected?.count || 0}개</span>
-                          <span className="text-green-700">+{patternAnalysis.analysis.signalEffectiveness.whale?.detected?.avgReturn || 0}%</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span>미감지: {patternAnalysis.analysis.signalEffectiveness.whale?.notDetected?.count || 0}개</span>
-                          <span>+{patternAnalysis.analysis.signalEffectiveness.whale?.notDetected?.avgReturn || 0}%</span>
-                        </div>
-                        {patternAnalysis.analysis.signalEffectiveness.whale?.improvement && (
-                          <div className="mt-1 text-xs font-bold text-green-700">
-                            효과: +{patternAnalysis.analysis.signalEffectiveness.whale.improvement}%
+                        <div className="font-semibold text-purple-900 mb-2">거래량 비율 (20일 평균 대비)</div>
+                        {patternAnalysis.analysis.volumeIndicators.volumeRatio && (
+                          <div className="space-y-1 text-xs">
+                            <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.volumeIndicators.volumeRatio.avg}배</span></div>
+                            <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-purple-700">{patternAnalysis.analysis.volumeIndicators.volumeRatio.median}배</span></div>
+                            <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.volumeIndicators.volumeRatio.min}~{patternAnalysis.analysis.volumeIndicators.volumeRatio.max}배</span></div>
                           </div>
                         )}
                       </div>
-
-                      {/* 탈출 속도 */}
+                      {/* 비대칭 비율 */}
                       <div className="p-3 bg-blue-50 rounded">
-                        <div className="font-semibold text-blue-900 mb-1">🚀 탈출 속도</div>
-                        <div className="flex justify-between text-xs">
-                          <span>달성: {patternAnalysis.analysis.signalEffectiveness.escapeVelocity?.detected?.count || 0}개</span>
-                          <span className="text-green-700">+{patternAnalysis.analysis.signalEffectiveness.escapeVelocity?.detected?.avgReturn || 0}%</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span>미달성: {patternAnalysis.analysis.signalEffectiveness.escapeVelocity?.notDetected?.count || 0}개</span>
-                          <span>+{patternAnalysis.analysis.signalEffectiveness.escapeVelocity?.notDetected?.avgReturn || 0}%</span>
-                        </div>
-                        {patternAnalysis.analysis.signalEffectiveness.escapeVelocity?.improvement && (
-                          <div className="mt-1 text-xs font-bold text-green-700">
-                            효과: +{patternAnalysis.analysis.signalEffectiveness.escapeVelocity.improvement}%
+                        <div className="font-semibold text-blue-900 mb-2">비대칭 비율 (상승/하락일)</div>
+                        {patternAnalysis.analysis.volumeIndicators.asymmetricRatio && (
+                          <div className="space-y-1 text-xs">
+                            <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.avg}</span></div>
+                            <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-blue-700">{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.median}</span></div>
+                            <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.min}~{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.max}</span></div>
                           </div>
                         )}
                       </div>
-
-                      {/* 거래량 추이 */}
-                      <div className="p-3 bg-orange-50 rounded">
-                        <div className="font-semibold text-orange-900 mb-1">📊 거래량 추이</div>
-                        <div className="flex justify-between text-xs">
-                          <span>증가: {patternAnalysis.analysis.signalEffectiveness.volumeTrend?.increasing?.count || 0}개</span>
-                          <span className="text-green-700">+{patternAnalysis.analysis.signalEffectiveness.volumeTrend?.increasing?.avgReturn || 0}%</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span>감소: {patternAnalysis.analysis.signalEffectiveness.volumeTrend?.decreasing?.count || 0}개</span>
-                          <span>+{patternAnalysis.analysis.signalEffectiveness.volumeTrend?.decreasing?.avgReturn || 0}%</span>
-                        </div>
+                      {/* 고래 감지 */}
+                      <div className="p-3 bg-indigo-50 rounded">
+                        <div className="font-semibold text-indigo-900 mb-2">🐋 고래 감지</div>
+                        {patternAnalysis.analysis.volumeIndicators.whaleStats && (
+                          <div className="space-y-1 text-xs">
+                            <div className="flex justify-between"><span>감지율</span><span className="font-bold">{((patternAnalysis.analysis.volumeIndicators.whaleStats.detected / patternAnalysis.totalPatterns) * 100).toFixed(0)}%</span></div>
+                            <div className="flex justify-between"><span>감지 수</span><span>{patternAnalysis.analysis.volumeIndicators.whaleStats.detected}개</span></div>
+                            <div className="flex justify-between"><span>확인 수</span><span>{patternAnalysis.analysis.volumeIndicators.whaleStats.confirmed}개</span></div>
+                          </div>
+                        )}
                       </div>
                     </div>
-                  </div>
+                  </details>
                 )}
 
-                {/* 권장 사항 */}
-                {patternAnalysis.analysis?.recommendations?.length > 0 && (
-                  <div className="bg-yellow-50 border border-yellow-300 p-4 rounded-lg">
-                    <h4 className="font-bold text-yellow-800 mb-2">💡 가중치 조정 권장 사항</h4>
-                    <div className="space-y-2">
-                      {patternAnalysis.analysis.recommendations.map((rec, idx) => (
-                        <div key={idx} className="flex items-center gap-2 text-sm">
-                          <span className="font-semibold text-yellow-900">{rec.signal}</span>
-                          <span className="text-green-700 font-bold">{rec.effect}</span>
-                          <span className="text-gray-600">→ {rec.suggestion}</span>
+                {/* 시세 기준 지표 */}
+                {patternAnalysis.analysis?.priceIndicators && (
+                  <details className="bg-white p-4 rounded-lg border border-purple-200">
+                    <summary className="font-bold text-purple-800 cursor-pointer mb-3">💹 시세 기준 지표</summary>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+                      {/* RSI */}
+                      <div className="p-3 bg-green-50 rounded">
+                        <div className="font-semibold text-green-900 mb-2">RSI (14일)</div>
+                        {patternAnalysis.analysis.priceIndicators.rsi && (
+                          <div className="space-y-1 text-xs">
+                            <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.priceIndicators.rsi.avg}</span></div>
+                            <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-green-700">{patternAnalysis.analysis.priceIndicators.rsi.median}</span></div>
+                            <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.priceIndicators.rsi.min}~{patternAnalysis.analysis.priceIndicators.rsi.max}</span></div>
+                          </div>
+                        )}
+                      </div>
+                      {/* MFI */}
+                      <div className="p-3 bg-teal-50 rounded">
+                        <div className="font-semibold text-teal-900 mb-2">MFI (14일)</div>
+                        {patternAnalysis.analysis.priceIndicators.mfi && (
+                          <div className="space-y-1 text-xs">
+                            <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.priceIndicators.mfi.avg}</span></div>
+                            <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-teal-700">{patternAnalysis.analysis.priceIndicators.mfi.median}</span></div>
+                            <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.priceIndicators.mfi.min}~{patternAnalysis.analysis.priceIndicators.mfi.max}</span></div>
+                          </div>
+                        )}
+                      </div>
+                      {/* 이격도 */}
+                      <div className="p-3 bg-yellow-50 rounded">
+                        <div className="font-semibold text-yellow-900 mb-2">이격도 (20일)</div>
+                        {patternAnalysis.analysis.priceIndicators.disparity && (
+                          <div className="space-y-1 text-xs">
+                            <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.priceIndicators.disparity.avg}%</span></div>
+                            <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-yellow-700">{patternAnalysis.analysis.priceIndicators.disparity.median}%</span></div>
+                            <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.priceIndicators.disparity.min}~{patternAnalysis.analysis.priceIndicators.disparity.max}%</span></div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </details>
+                )}
+
+                {/* 튜닝 인사이트 */}
+                {patternAnalysis.analysis?.insights?.length > 0 && (
+                  <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-400 p-4 rounded-lg">
+                    <h4 className="font-bold text-yellow-800 mb-3">💡 스크리닝 임계값 튜닝 인사이트</h4>
+                    <div className="space-y-3">
+                      {patternAnalysis.analysis.insights.map((insight, idx) => (
+                        <div key={idx} className="bg-white p-3 rounded border border-yellow-200">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-bold text-yellow-900">{insight.indicator}</span>
+                            <span className="text-xs bg-gray-200 px-2 py-0.5 rounded">현재: {insight.current}</span>
+                          </div>
+                          <p className="text-sm text-gray-700 mb-1">{insight.finding}</p>
+                          <p className="text-sm font-semibold text-orange-700">→ {insight.suggestion}</p>
                         </div>
                       ))}
                     </div>
@@ -2393,20 +2429,23 @@
                 {patternAnalysis.recentPatterns?.length > 0 && (
                   <details className="bg-white p-4 rounded-lg border border-purple-200">
                     <summary className="font-bold text-purple-800 cursor-pointer">
-                      📋 최근 성공 패턴 ({patternAnalysis.recentPatterns.length}개)
+                      📋 최근 성공 종목 ({patternAnalysis.recentPatterns.length}개)
                     </summary>
-                    <div className="mt-3 space-y-2 max-h-60 overflow-y-auto">
-                      {patternAnalysis.recentPatterns.slice(0, 10).map((p, idx) => (
-                        <div key={idx} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold">{p.stock_name}</span>
-                            <span className="text-xs text-gray-500">{p.success_date}</span>
+                    <div className="mt-3 space-y-2 max-h-80 overflow-y-auto">
+                      {patternAnalysis.recentPatterns.slice(0, 15).map((p, idx) => (
+                        <div key={idx} className="p-3 bg-gray-50 rounded text-sm border-l-4 border-green-500">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold text-gray-900">{p.stock_name}</span>
+                            <span className="text-green-600 font-bold">+{p.max_return}%</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="text-green-600 font-bold">+{p.total_return}%</span>
-                            <span className="text-xs text-gray-500">{p.consecutive_days}일</span>
-                            {p.whale_detected && <span className="text-xs bg-purple-100 text-purple-700 px-1 rounded">🐋</span>}
-                            {p.volume_trend === 'increasing' && <span className="text-xs bg-green-100 text-green-700 px-1 rounded">📈</span>}
+                          <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                            <span>📅 {p.success_date}</span>
+                            <span>⏱️ {p.days_to_success}일 소요</span>
+                            <span>🎯 {p.recommendation_grade}등급</span>
+                            <span>📊 {p.total_score}점</span>
+                            {p.volume_ratio && <span>📈 거래량 {p.volume_ratio}배</span>}
+                            {p.mfi && <span>💧 MFI {p.mfi}</span>}
+                            {p.whale_detected && <span className="bg-purple-100 text-purple-700 px-1 rounded">🐋 고래</span>}
                           </div>
                         </div>
                       ))}
@@ -2414,8 +2453,8 @@
                   </details>
                 )}
 
-                <div className="text-xs text-purple-600 text-center">
-                  데이터 기간: {patternAnalysis.analysis?.dateRange?.first} ~ {patternAnalysis.analysis?.dateRange?.last}
+                <div className="text-xs text-purple-600 text-center mt-2">
+                  데이터 기간: {patternAnalysis.analysis?.summary?.dateRange?.first} ~ {patternAnalysis.analysis?.summary?.dateRange?.last}
                 </div>
               </div>
             )}

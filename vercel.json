@@ -19,6 +19,10 @@
     {
       "path": "/api/cron/save-daily-recommendations?mode=alert",
       "schedule": "30 23 * * 0-4"
+    },
+    {
+      "path": "/api/patterns",
+      "schedule": "20 7 * * *"
     }
   ]
 }

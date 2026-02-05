@@ -502,31 +502,95 @@ module.exports = async (req, res) => {
     // Step 3: Supabase에 저장
     const today = new Date().toISOString().slice(0, 10);
 
-    const recommendations = filteredStocks.map(stock => ({
-      recommendation_date: today,
-      stock_code: stock.stockCode,
-      stock_name: (stock.stockName && stock.stockName.trim() !== '' && !stock.stockName.startsWith('['))
-        ? stock.stockName
-        : stock.stockCode,  // 종목명이 비어있거나 [코드] 형태면 코드만 저장
-      recommended_price: stock.currentPrice || 0,
-      recommendation_grade: stock.recommendation?.grade || 'D',
-      total_score: stock.totalScore || 0,
+    const recommendations = filteredStocks.map(stock => {
+      // 고래 정보 추출
+      const buyWhales = (stock.advancedAnalysis?.indicators?.whale || []).filter(w => w.type?.includes('매수'));
+      const hasBuyWhale = buyWhales.length > 0;
+      const whaleConfirmed = stock.advancedAnalysis?.indicators?.whaleConfirmed || false;
+      const whaleInfo = buyWhales[0] || {};
 
-      // 추천 근거
-      change_rate: stock.changeRate || 0,
-      volume: stock.volume || 0,
-      market_cap: stock.marketCap || 0,
-
-      // v3.24: 매수고래만 저장 (screening.js selectTop3와 일관성 유지)
-      whale_detected: (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수')) || false,
-      accumulation_detected: stock.advancedAnalysis?.indicators?.accumulation?.detected || false,
-      mfi: stock.volumeAnalysis?.indicators?.mfi || 50,
-      volume_ratio: stock.volumeAnalysis?.current?.volumeMA20
+      // 거래량 비율 계산
+      const volumeRatio = stock.volumeAnalysis?.current?.volumeMA20
         ? (stock.volume / stock.volumeAnalysis.current.volumeMA20)
-        : 0,
+        : 0;
 
-      is_active: true
-    }));
+      // VWAP 괴리율 계산
+      const vwapDivergence = stock.volumeAnalysis?.indicators?.vwap && stock.currentPrice
+        ? ((stock.currentPrice - stock.volumeAnalysis.indicators.vwap) / stock.volumeAnalysis.indicators.vwap * 100)
+        : null;
+
+      // 윗꼬리 비율 (최근 일봉에서 계산)
+      const latestCandle = stock.trendAnalysis?.dailyData?.[0];
+      const upperShadowRatio = latestCandle && latestCandle.high !== latestCandle.low
+        ? ((latestCandle.high - latestCandle.close) / (latestCandle.high - latestCandle.low) * 100)
+        : null;
+
+      return {
+        recommendation_date: today,
+        stock_code: stock.stockCode,
+        stock_name: (stock.stockName && stock.stockName.trim() !== '' && !stock.stockName.startsWith('['))
+          ? stock.stockName
+          : stock.stockCode,
+        recommended_price: stock.currentPrice || 0,
+        recommendation_grade: stock.recommendation?.grade || 'D',
+        total_score: stock.totalScore || 0,
+
+        // 기본 정보
+        change_rate: stock.changeRate || 0,
+        volume: stock.volume || 0,
+        market_cap: stock.marketCap || 0,
+
+        // ========================================
+        // 거래량 기준 지표 (v3.30)
+        // ========================================
+        volume_ratio: parseFloat(volumeRatio.toFixed(2)) || 0,
+        volume_acceleration_score: stock.momentumScore?.volumeAcceleration?.score || 0,
+        volume_acceleration_trend: stock.momentumScore?.volumeAcceleration?.trend || null,
+        asymmetric_ratio: stock.advancedAnalysis?.indicators?.asymmetric?.ratio || null,
+        asymmetric_signal: stock.advancedAnalysis?.indicators?.asymmetric?.signal || null,
+        obv_trend: stock.volumeAnalysis?.signals?.obvTrend || null,
+        volume_5d_change_rate: stock.trendAnalysis?.volumeChange5d || null,
+
+        // 고래 감지 상세
+        whale_detected: hasBuyWhale,
+        whale_confirmed: whaleConfirmed,
+        whale_volume_ratio: hasBuyWhale ? parseFloat(whaleInfo.volumeRatio || 0) : null,
+        whale_price_change: hasBuyWhale ? parseFloat(whaleInfo.priceChange || 0) : null,
+
+        // ========================================
+        // 시세 기준 지표 (v3.30)
+        // ========================================
+        mfi: stock.volumeAnalysis?.indicators?.mfi || null,
+        rsi: stock.overheatingV2?.rsi || null,
+        disparity: stock.overheatingV2?.disparity || null,
+        vwap_divergence: vwapDivergence ? parseFloat(vwapDivergence.toFixed(2)) : null,
+        consecutive_rise_days: stock.momentumScore?.consecutiveRise?.days || 0,
+        escape_velocity: stock.advancedAnalysis?.indicators?.escape?.detected || false,
+        escape_closing_strength: stock.advancedAnalysis?.indicators?.escape?.closingStrength || null,
+        upper_shadow_ratio: upperShadowRatio ? parseFloat(upperShadowRatio.toFixed(2)) : null,
+
+        // ========================================
+        // 수급 기준 지표 (v3.30)
+        // ========================================
+        institution_buy_days: stock.institutionalFlow?.institution?.consecutiveBuyDays || 0,
+        foreign_buy_days: stock.institutionalFlow?.foreign?.consecutiveBuyDays || 0,
+
+        // ========================================
+        // 복합 지표 (v3.30)
+        // ========================================
+        accumulation_detected: stock.advancedAnalysis?.indicators?.accumulation?.detected || false,
+        vpd_score: stock.volumePriceDivergence?.divergenceScore || null,
+        vpd_raw: stock.volumePriceDivergence?.divergence || null,
+
+        // 점수 컴포넌트
+        base_score: stock.radarScore?.baseScore || 0,
+        whale_bonus: stock.radarScore?.whaleBonus || 0,
+        momentum_score: stock.radarScore?.momentumScore?.totalScore || 0,
+        trend_score: stock.radarScore?.trendScore?.totalScore || 0,
+
+        is_active: true
+      };
+    });
 
     const { data, error } = await supabase
       .from('screening_recommendations')

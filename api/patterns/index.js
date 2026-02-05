@@ -1,8 +1,10 @@
 /**
- * 성공 패턴 분석 API
- * GET /api/recommendations/pattern-analysis
+ * 성공 패턴 분석 API v2
  *
- * 연속 급등주의 신호 패턴을 분석하여 스크리닝 로직 개선에 활용
+ * GET /api/patterns - 성공 패턴 통계 및 인사이트 조회
+ * POST /api/patterns - 성공 패턴 수집 (10%+ 수익 종목)
+ *
+ * 목적: 수익률 +10% 달성 종목의 추천 시점 지표 특징 추출
  */
 
 const supabase = require('../../backend/supabaseClient');
@@ -10,15 +12,11 @@ const supabase = require('../../backend/supabaseClient');
 module.exports = async (req, res) => {
   // CORS 헤더
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
-  }
-
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   if (!supabase) {
@@ -26,252 +24,423 @@ module.exports = async (req, res) => {
   }
 
   try {
-    // 1. 전체 패턴 조회
-    const { data: patterns, error: patternError } = await supabase
-      .from('success_patterns')
-      .select('*')
-      .order('success_date', { ascending: false });
+    // GET with ?collect=true 또는 POST → 수집 실행
+    const shouldCollect = req.method === 'POST' || req.query.collect === 'true';
 
-    if (patternError) {
-      // 테이블이 없으면 빈 결과 반환
-      if (patternError.code === '42P01') {
-        return res.status(200).json({
-          success: true,
-          message: 'success_patterns 테이블이 없습니다. SQL 스크립트를 실행해주세요.',
-          totalPatterns: 0,
-          analysis: null
-        });
-      }
-      throw patternError;
+    if (shouldCollect) {
+      // 성공 패턴 수집 (10%+ 달성 종목 탐색)
+      return await collectSuccessPatterns(req, res);
+    } else if (req.method === 'GET') {
+      // 성공 패턴 분석 결과 조회
+      return await getPatternAnalysis(req, res);
+    } else {
+      return res.status(405).json({ error: 'Method not allowed' });
     }
-
-    if (!patterns || patterns.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: '아직 수집된 패턴이 없습니다. 연속 급등주가 발생하면 자동 수집됩니다.',
-        totalPatterns: 0,
-        analysis: null
-      });
-    }
-
-    // 2. 신호별 효과 분석
-    const signalAnalysis = {
-      // 고래 감지
-      whale: {
-        detected: patterns.filter(p => p.whale_detected),
-        notDetected: patterns.filter(p => !p.whale_detected)
-      },
-      // 확인된 고래
-      whaleConfirmed: {
-        confirmed: patterns.filter(p => p.whale_confirmed),
-        notConfirmed: patterns.filter(p => p.whale_detected && !p.whale_confirmed)
-      },
-      // 탈출 속도
-      escapeVelocity: {
-        detected: patterns.filter(p => p.escape_velocity),
-        notDetected: patterns.filter(p => !p.escape_velocity)
-      },
-      // 거래량 추이
-      volumeTrend: {
-        increasing: patterns.filter(p => p.volume_trend === 'increasing'),
-        stable: patterns.filter(p => p.volume_trend === 'stable'),
-        decreasing: patterns.filter(p => p.volume_trend === 'decreasing')
-      },
-      // 상승 패턴
-      risePattern: {
-        explosive: patterns.filter(p => p.rise_pattern === 'explosive'),
-        gradual: patterns.filter(p => p.rise_pattern === 'gradual'),
-        slow: patterns.filter(p => p.rise_pattern === 'slow')
-      }
-    };
-
-    // 통계 계산 함수
-    const calcStats = (arr) => {
-      if (!arr || arr.length === 0) return { count: 0, avgReturn: 0, avgDays: 0 };
-      const avgReturn = arr.reduce((sum, p) => sum + (p.total_return || 0), 0) / arr.length;
-      const avgDays = arr.reduce((sum, p) => sum + (p.consecutive_days || 0), 0) / arr.length;
-      return {
-        count: arr.length,
-        avgReturn: parseFloat(avgReturn.toFixed(2)),
-        avgDays: parseFloat(avgDays.toFixed(1))
-      };
-    };
-
-    // 3. 분석 결과 생성
-    const analysis = {
-      totalPatterns: patterns.length,
-      dateRange: {
-        first: patterns[patterns.length - 1]?.success_date,
-        last: patterns[0]?.success_date
-      },
-
-      // 신호별 효과
-      signalEffectiveness: {
-        whale: {
-          detected: calcStats(signalAnalysis.whale.detected),
-          notDetected: calcStats(signalAnalysis.whale.notDetected),
-          improvement: signalAnalysis.whale.detected.length > 0 && signalAnalysis.whale.notDetected.length > 0
-            ? parseFloat((calcStats(signalAnalysis.whale.detected).avgReturn - calcStats(signalAnalysis.whale.notDetected).avgReturn).toFixed(2))
-            : null
-        },
-        whaleConfirmed: {
-          confirmed: calcStats(signalAnalysis.whaleConfirmed.confirmed),
-          notConfirmed: calcStats(signalAnalysis.whaleConfirmed.notConfirmed),
-          improvement: signalAnalysis.whaleConfirmed.confirmed.length > 0 && signalAnalysis.whaleConfirmed.notConfirmed.length > 0
-            ? parseFloat((calcStats(signalAnalysis.whaleConfirmed.confirmed).avgReturn - calcStats(signalAnalysis.whaleConfirmed.notConfirmed).avgReturn).toFixed(2))
-            : null
-        },
-        escapeVelocity: {
-          detected: calcStats(signalAnalysis.escapeVelocity.detected),
-          notDetected: calcStats(signalAnalysis.escapeVelocity.notDetected),
-          improvement: signalAnalysis.escapeVelocity.detected.length > 0 && signalAnalysis.escapeVelocity.notDetected.length > 0
-            ? parseFloat((calcStats(signalAnalysis.escapeVelocity.detected).avgReturn - calcStats(signalAnalysis.escapeVelocity.notDetected).avgReturn).toFixed(2))
-            : null
-        },
-        volumeTrend: {
-          increasing: calcStats(signalAnalysis.volumeTrend.increasing),
-          stable: calcStats(signalAnalysis.volumeTrend.stable),
-          decreasing: calcStats(signalAnalysis.volumeTrend.decreasing)
-        },
-        risePattern: {
-          explosive: calcStats(signalAnalysis.risePattern.explosive),
-          gradual: calcStats(signalAnalysis.risePattern.gradual),
-          slow: calcStats(signalAnalysis.risePattern.slow)
-        }
-      },
-
-      // 등급별 분석
-      byGrade: {},
-
-      // MFI 구간별 분석
-      byMfi: {
-        high: calcStats(patterns.filter(p => p.mfi >= 70)),    // 70+
-        medium: calcStats(patterns.filter(p => p.mfi >= 50 && p.mfi < 70)), // 50-70
-        low: calcStats(patterns.filter(p => p.mfi < 50))       // <50
-      },
-
-      // 권장 사항
-      recommendations: []
-    };
-
-    // 등급별 통계
-    const grades = ['S+', 'S', 'A', 'B', 'C', '과열'];
-    grades.forEach(grade => {
-      const gradePatterns = patterns.filter(p => p.recommendation_grade === grade);
-      if (gradePatterns.length > 0) {
-        analysis.byGrade[grade] = calcStats(gradePatterns);
-      }
-    });
-
-    // 권장 사항 생성
-    const whale = analysis.signalEffectiveness.whale;
-    if (whale.improvement !== null && whale.improvement > 3) {
-      analysis.recommendations.push({
-        signal: '고래 감지',
-        effect: `+${whale.improvement}%`,
-        suggestion: '고래 감지 가중치 유지 또는 증가 권장'
-      });
-    } else if (whale.improvement !== null && whale.improvement < -3) {
-      analysis.recommendations.push({
-        signal: '고래 감지',
-        effect: `${whale.improvement}%`,
-        suggestion: '고래 감지 가중치 감소 검토'
-      });
-    }
-
-    const escape = analysis.signalEffectiveness.escapeVelocity;
-    if (escape.improvement !== null && escape.improvement > 3) {
-      analysis.recommendations.push({
-        signal: '탈출 속도',
-        effect: `+${escape.improvement}%`,
-        suggestion: '탈출 속도 보너스 유지 또는 증가 권장'
-      });
-    }
-
-    const volTrend = analysis.signalEffectiveness.volumeTrend;
-    if (volTrend.increasing.count > 0 && volTrend.decreasing.count > 0) {
-      const volDiff = volTrend.increasing.avgReturn - volTrend.decreasing.avgReturn;
-      if (volDiff > 5) {
-        analysis.recommendations.push({
-          signal: '거래량 증가 동반',
-          effect: `+${volDiff.toFixed(1)}% vs 거래량 감소`,
-          suggestion: '거래량 증가 동반 시 추가 가점 검토'
-        });
-      }
-    }
-
-    // 최근 30일 패턴만 별도 분석
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const recentPatterns = patterns.filter(p =>
-      new Date(p.success_date) >= thirtyDaysAgo
-    );
-
-    analysis.recent30Days = {
-      count: recentPatterns.length,
-      avgReturn: recentPatterns.length > 0
-        ? parseFloat((recentPatterns.reduce((sum, p) => sum + p.total_return, 0) / recentPatterns.length).toFixed(2))
-        : 0,
-      topSignals: []
-    };
-
-    // 최근 30일 상위 신호 조합
-    if (recentPatterns.length >= 5) {
-      const whaleRecent = recentPatterns.filter(p => p.whale_detected);
-      const escapeRecent = recentPatterns.filter(p => p.escape_velocity);
-      const volUpRecent = recentPatterns.filter(p => p.volume_trend === 'increasing');
-
-      if (whaleRecent.length > 0) {
-        analysis.recent30Days.topSignals.push({
-          signal: '고래 감지',
-          count: whaleRecent.length,
-          avgReturn: parseFloat((whaleRecent.reduce((s, p) => s + p.total_return, 0) / whaleRecent.length).toFixed(2))
-        });
-      }
-      if (escapeRecent.length > 0) {
-        analysis.recent30Days.topSignals.push({
-          signal: '탈출 속도',
-          count: escapeRecent.length,
-          avgReturn: parseFloat((escapeRecent.reduce((s, p) => s + p.total_return, 0) / escapeRecent.length).toFixed(2))
-        });
-      }
-      if (volUpRecent.length > 0) {
-        analysis.recent30Days.topSignals.push({
-          signal: '거래량 증가',
-          count: volUpRecent.length,
-          avgReturn: parseFloat((volUpRecent.reduce((s, p) => s + p.total_return, 0) / volUpRecent.length).toFixed(2))
-        });
-      }
-
-      // 수익률 순 정렬
-      analysis.recent30Days.topSignals.sort((a, b) => b.avgReturn - a.avgReturn);
-    }
-
-    console.log(`📊 패턴 분석 완료: ${patterns.length}개 패턴, ${analysis.recommendations.length}개 권장 사항`);
-
-    return res.status(200).json({
-      success: true,
-      totalPatterns: patterns.length,
-      analysis,
-      // 원본 데이터 (상위 20개만)
-      recentPatterns: patterns.slice(0, 20).map(p => ({
-        stock_name: p.stock_name,
-        success_date: p.success_date,
-        consecutive_days: p.consecutive_days,
-        total_return: p.total_return,
-        recommendation_grade: p.recommendation_grade,
-        whale_detected: p.whale_detected,
-        volume_trend: p.volume_trend,
-        rise_pattern: p.rise_pattern
-      }))
-    });
-
   } catch (error) {
-    console.error('패턴 분석 실패:', error);
+    console.error('패턴 API 오류:', error);
     return res.status(500).json({
       error: 'Internal server error',
       message: error.message
     });
   }
 };
-// v3.29 pattern analysis
+
+/**
+ * 성공 패턴 수집 (10%+ 수익 달성 종목)
+ */
+async function collectSuccessPatterns(req, res) {
+  const SUCCESS_THRESHOLD = 10; // 10% 수익률 기준
+  const today = new Date().toISOString().slice(0, 10);
+
+  console.log(`\n📊 성공 패턴 수집 시작 (기준: +${SUCCESS_THRESHOLD}%)`);
+
+  // 1. 활성 추천 종목 조회 (최근 90일)
+  const { data: recommendations, error: recError } = await supabase
+    .from('screening_recommendations')
+    .select('*')
+    .eq('is_active', true)
+    .gte('recommendation_date', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+    .order('recommendation_date', { ascending: false });
+
+  if (recError) {
+    console.error('추천 조회 실패:', recError);
+    return res.status(500).json({ error: recError.message });
+  }
+
+  console.log(`   활성 추천: ${recommendations.length}개`);
+
+  // 2. 각 추천의 최고 수익률 확인
+  const successPatterns = [];
+
+  for (const rec of recommendations) {
+    // 해당 추천의 일별 가격 조회
+    const { data: prices, error: priceError } = await supabase
+      .from('recommendation_daily_prices')
+      .select('*')
+      .eq('recommendation_id', rec.id)
+      .order('tracking_date', { ascending: true });
+
+    if (priceError || !prices || prices.length === 0) continue;
+
+    // 최고 수익률 계산
+    const maxReturn = Math.max(...prices.map(p => p.cumulative_return || 0));
+    const currentReturn = prices[prices.length - 1]?.cumulative_return || 0;
+
+    // 10% 이상 달성 여부 확인
+    if (maxReturn >= SUCCESS_THRESHOLD) {
+      // 이미 수집된 패턴인지 확인
+      const { data: existing } = await supabase
+        .from('success_patterns')
+        .select('id')
+        .eq('recommendation_id', rec.id)
+        .single();
+
+      if (existing) continue; // 이미 수집됨
+
+      // 10% 최초 달성일 찾기
+      const successPrice = prices.find(p => p.cumulative_return >= SUCCESS_THRESHOLD);
+      const successDate = successPrice?.tracking_date || today;
+      const daysToSuccess = Math.round(
+        (new Date(successDate) - new Date(rec.recommendation_date)) / (24 * 60 * 60 * 1000)
+      );
+
+      // 성공 패턴 데이터 구성
+      const pattern = {
+        recommendation_id: rec.id,
+        stock_code: rec.stock_code,
+        stock_name: rec.stock_name,
+
+        // 성공 기준 정보
+        success_date: successDate,
+        recommendation_date: rec.recommendation_date,
+        days_to_success: daysToSuccess,
+        max_return: parseFloat(maxReturn.toFixed(2)),
+        final_return: parseFloat(currentReturn.toFixed(2)),
+
+        // 추천 등급/점수
+        recommendation_grade: rec.recommendation_grade,
+        total_score: rec.total_score,
+
+        // 거래량 기준 지표
+        volume_ratio: rec.volume_ratio,
+        volume_acceleration_score: rec.volume_acceleration_score,
+        volume_acceleration_trend: rec.volume_acceleration_trend,
+        asymmetric_ratio: rec.asymmetric_ratio,
+        asymmetric_signal: rec.asymmetric_signal,
+        obv_trend: rec.obv_trend,
+        volume_5d_change_rate: rec.volume_5d_change_rate,
+        whale_detected: rec.whale_detected,
+        whale_confirmed: rec.whale_confirmed,
+        whale_volume_ratio: rec.whale_volume_ratio,
+        whale_price_change: rec.whale_price_change,
+
+        // 시세 기준 지표
+        rsi: rec.rsi,
+        mfi: rec.mfi,
+        disparity: rec.disparity,
+        vwap_divergence: rec.vwap_divergence,
+        daily_change_rate: rec.change_rate,
+        consecutive_rise_days: rec.consecutive_rise_days,
+        escape_velocity: rec.escape_velocity,
+        escape_closing_strength: rec.escape_closing_strength,
+        upper_shadow_ratio: rec.upper_shadow_ratio,
+
+        // 수급 기준 지표
+        institution_buy_days: rec.institution_buy_days,
+        foreign_buy_days: rec.foreign_buy_days,
+
+        // 복합 지표
+        accumulation_detected: rec.accumulation_detected,
+        vpd_score: rec.vpd_score,
+        vpd_raw: rec.vpd_raw,
+        market_cap: rec.market_cap
+      };
+
+      successPatterns.push(pattern);
+      console.log(`   ✅ ${rec.stock_name} (+${maxReturn.toFixed(1)}%, ${daysToSuccess}일)`);
+    }
+  }
+
+  // 3. 성공 패턴 저장
+  if (successPatterns.length > 0) {
+    const { error: insertError } = await supabase
+      .from('success_patterns')
+      .insert(successPatterns);
+
+    if (insertError) {
+      console.error('패턴 저장 실패:', insertError);
+      return res.status(500).json({ error: insertError.message });
+    }
+  }
+
+  console.log(`\n📊 수집 완료: ${successPatterns.length}개 새 패턴`);
+
+  return res.status(200).json({
+    success: true,
+    message: `${successPatterns.length}개 성공 패턴 수집 완료`,
+    collected: successPatterns.length,
+    patterns: successPatterns.map(p => ({
+      stock_name: p.stock_name,
+      max_return: p.max_return,
+      days_to_success: p.days_to_success
+    }))
+  });
+}
+
+/**
+ * 성공 패턴 분석 결과 조회
+ */
+async function getPatternAnalysis(req, res) {
+  // 1. 전체 패턴 조회
+  const { data: patterns, error } = await supabase
+    .from('success_patterns')
+    .select('*')
+    .order('success_date', { ascending: false });
+
+  if (error) {
+    console.error('패턴 조회 실패:', error);
+    return res.status(500).json({ error: error.message });
+  }
+
+  if (!patterns || patterns.length === 0) {
+    return res.status(200).json({
+      success: true,
+      message: '아직 수집된 성공 패턴이 없습니다. POST /api/patterns로 수집을 실행하세요.',
+      totalPatterns: 0,
+      analysis: null
+    });
+  }
+
+  // 2. 통계 계산 함수들
+  const calcStats = (values) => {
+    const valid = values.filter(v => v !== null && v !== undefined && !isNaN(v));
+    if (valid.length === 0) return null;
+
+    const sorted = [...valid].sort((a, b) => a - b);
+    const sum = valid.reduce((a, b) => a + b, 0);
+
+    return {
+      count: valid.length,
+      avg: parseFloat((sum / valid.length).toFixed(2)),
+      median: parseFloat(sorted[Math.floor(sorted.length / 2)].toFixed(2)),
+      min: parseFloat(Math.min(...valid).toFixed(2)),
+      max: parseFloat(Math.max(...valid).toFixed(2)),
+      stddev: parseFloat(Math.sqrt(valid.reduce((sq, n) => sq + Math.pow(n - sum / valid.length, 2), 0) / valid.length).toFixed(2))
+    };
+  };
+
+  const calcDistribution = (values, bucketSize) => {
+    const valid = values.filter(v => v !== null && v !== undefined && !isNaN(v));
+    const buckets = {};
+
+    valid.forEach(v => {
+      const bucket = Math.floor(v / bucketSize) * bucketSize;
+      const key = `${bucket}-${bucket + bucketSize}`;
+      buckets[key] = (buckets[key] || 0) + 1;
+    });
+
+    return Object.entries(buckets)
+      .map(([range, count]) => ({ range, count, pct: parseFloat((count / valid.length * 100).toFixed(1)) }))
+      .sort((a, b) => parseFloat(a.range) - parseFloat(b.range));
+  };
+
+  // 3. 분석 결과 생성
+  const analysis = {
+    // 기본 통계
+    summary: {
+      totalPatterns: patterns.length,
+      avgMaxReturn: parseFloat((patterns.reduce((s, p) => s + (p.max_return || 0), 0) / patterns.length).toFixed(2)),
+      avgDaysToSuccess: parseFloat((patterns.reduce((s, p) => s + (p.days_to_success || 0), 0) / patterns.length).toFixed(1)),
+      dateRange: {
+        first: patterns[patterns.length - 1]?.success_date,
+        last: patterns[0]?.success_date
+      }
+    },
+
+    // ========================================
+    // 거래량 기준 지표 분석
+    // ========================================
+    volumeIndicators: {
+      volumeRatio: {
+        ...calcStats(patterns.map(p => p.volume_ratio)),
+        distribution: calcDistribution(patterns.map(p => p.volume_ratio), 0.5),
+        insight: null // 아래에서 생성
+      },
+      asymmetricRatio: {
+        ...calcStats(patterns.map(p => p.asymmetric_ratio)),
+        distribution: calcDistribution(patterns.map(p => p.asymmetric_ratio), 0.3)
+      },
+      volume5dChange: calcStats(patterns.map(p => p.volume_5d_change_rate)),
+      volumeAcceleration: {
+        distribution: {
+          strong_acceleration: patterns.filter(p => p.volume_acceleration_trend === 'strong_acceleration').length,
+          acceleration: patterns.filter(p => p.volume_acceleration_trend === 'acceleration').length,
+          mixed: patterns.filter(p => p.volume_acceleration_trend === 'mixed').length,
+          deceleration: patterns.filter(p => p.volume_acceleration_trend === 'deceleration').length
+        }
+      },
+      whaleStats: {
+        detected: patterns.filter(p => p.whale_detected).length,
+        confirmed: patterns.filter(p => p.whale_confirmed).length,
+        avgVolumeRatio: calcStats(patterns.filter(p => p.whale_detected).map(p => p.whale_volume_ratio))
+      }
+    },
+
+    // ========================================
+    // 시세 기준 지표 분석
+    // ========================================
+    priceIndicators: {
+      rsi: {
+        ...calcStats(patterns.map(p => p.rsi)),
+        distribution: calcDistribution(patterns.map(p => p.rsi), 10)
+      },
+      mfi: {
+        ...calcStats(patterns.map(p => p.mfi)),
+        distribution: calcDistribution(patterns.map(p => p.mfi), 10)
+      },
+      disparity: {
+        ...calcStats(patterns.map(p => p.disparity)),
+        distribution: calcDistribution(patterns.map(p => p.disparity), 5)
+      },
+      vwapDivergence: calcStats(patterns.map(p => p.vwap_divergence)),
+      dailyChange: calcStats(patterns.map(p => p.daily_change_rate)),
+      escapeVelocity: {
+        detected: patterns.filter(p => p.escape_velocity).length,
+        avgClosingStrength: calcStats(patterns.filter(p => p.escape_velocity).map(p => p.escape_closing_strength))
+      },
+      upperShadow: calcStats(patterns.map(p => p.upper_shadow_ratio))
+    },
+
+    // ========================================
+    // 수급 기준 지표 분석
+    // ========================================
+    institutionalIndicators: {
+      institutionBuyDays: {
+        ...calcStats(patterns.map(p => p.institution_buy_days)),
+        distribution: {
+          '0일': patterns.filter(p => !p.institution_buy_days || p.institution_buy_days === 0).length,
+          '1-2일': patterns.filter(p => p.institution_buy_days >= 1 && p.institution_buy_days <= 2).length,
+          '3일+': patterns.filter(p => p.institution_buy_days >= 3).length
+        }
+      },
+      foreignBuyDays: {
+        ...calcStats(patterns.map(p => p.foreign_buy_days)),
+        distribution: {
+          '0일': patterns.filter(p => !p.foreign_buy_days || p.foreign_buy_days === 0).length,
+          '1-2일': patterns.filter(p => p.foreign_buy_days >= 1 && p.foreign_buy_days <= 2).length,
+          '3일+': patterns.filter(p => p.foreign_buy_days >= 3).length
+        }
+      }
+    },
+
+    // ========================================
+    // 등급/점수 분석
+    // ========================================
+    gradeAnalysis: {
+      distribution: {
+        'S+': patterns.filter(p => p.recommendation_grade === 'S+').length,
+        'S': patterns.filter(p => p.recommendation_grade === 'S').length,
+        'A': patterns.filter(p => p.recommendation_grade === 'A').length,
+        'B': patterns.filter(p => p.recommendation_grade === 'B').length,
+        'C': patterns.filter(p => p.recommendation_grade === 'C').length
+      },
+      scoreStats: calcStats(patterns.map(p => p.total_score)),
+      scoreDistribution: calcDistribution(patterns.map(p => p.total_score), 10)
+    },
+
+    // ========================================
+    // 인사이트 (임계값 조정 제안)
+    // ========================================
+    insights: []
+  };
+
+  // 4. 인사이트 생성
+  const insights = [];
+
+  // 거래량 비율 인사이트
+  if (analysis.volumeIndicators.volumeRatio.median) {
+    const vr = analysis.volumeIndicators.volumeRatio;
+    insights.push({
+      indicator: '거래량 비율',
+      current: '2.5배 이상 가점',
+      finding: `성공 종목 중앙값: ${vr.median}배 (범위: ${vr.min}~${vr.max})`,
+      suggestion: vr.median < 2.0
+        ? `${vr.median.toFixed(1)}배 이상으로 완화 검토`
+        : '현재 기준 적절'
+    });
+  }
+
+  // MFI 인사이트
+  if (analysis.priceIndicators.mfi.median) {
+    const mfi = analysis.priceIndicators.mfi;
+    insights.push({
+      indicator: 'MFI',
+      current: '70↑ 강한유입 기준',
+      finding: `성공 종목 중앙값: ${mfi.median} (범위: ${mfi.min}~${mfi.max})`,
+      suggestion: mfi.median < 60
+        ? '50~70 구간이 최적일 수 있음'
+        : '현재 기준 적절'
+    });
+  }
+
+  // RSI 인사이트
+  if (analysis.priceIndicators.rsi.median) {
+    const rsi = analysis.priceIndicators.rsi;
+    insights.push({
+      indicator: 'RSI',
+      current: '80↑ 과열 기준',
+      finding: `성공 종목 중앙값: ${rsi.median} (범위: ${rsi.min}~${rsi.max})`,
+      suggestion: rsi.max < 80
+        ? '성공 종목 대부분 RSI 80 미만 - 과열 기준 유효'
+        : '일부 고RSI 종목도 성공'
+    });
+  }
+
+  // 비대칭 비율 인사이트
+  if (analysis.volumeIndicators.asymmetricRatio.median) {
+    const ar = analysis.volumeIndicators.asymmetricRatio;
+    insights.push({
+      indicator: '비대칭 비율',
+      current: '1.5↑ 강한 매수세',
+      finding: `성공 종목 중앙값: ${ar.median} (범위: ${ar.min}~${ar.max})`,
+      suggestion: ar.median > 1.3
+        ? '비대칭 비율이 높을수록 성공 확률↑'
+        : '비대칭 비율 단독으로는 예측력 낮음'
+    });
+  }
+
+  // 고래 감지 인사이트
+  const whaleRate = (analysis.volumeIndicators.whaleStats.detected / patterns.length * 100).toFixed(1);
+  insights.push({
+    indicator: '고래 감지',
+    current: '감지 시 +15~30점',
+    finding: `성공 종목 중 ${whaleRate}%가 고래 감지`,
+    suggestion: parseFloat(whaleRate) > 50
+      ? '고래 감지가 성공과 높은 상관관계'
+      : '고래 미감지 종목도 성공 가능'
+  });
+
+  analysis.insights = insights;
+
+  // 5. 최근 패턴 목록 (상위 20개)
+  const recentPatterns = patterns.slice(0, 20).map(p => ({
+    stock_name: p.stock_name,
+    success_date: p.success_date,
+    max_return: p.max_return,
+    days_to_success: p.days_to_success,
+    recommendation_grade: p.recommendation_grade,
+    total_score: p.total_score,
+    volume_ratio: p.volume_ratio,
+    mfi: p.mfi,
+    whale_detected: p.whale_detected
+  }));
+
+  console.log(`📊 패턴 분석 완료: ${patterns.length}개 패턴, ${insights.length}개 인사이트`);
+
+  return res.status(200).json({
+    success: true,
+    totalPatterns: patterns.length,
+    analysis,
+    recentPatterns
+  });
+}
