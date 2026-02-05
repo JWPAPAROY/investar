@@ -114,7 +114,6 @@
       const [activeTab, setActiveTab] = useState('screening'); // screening, performance, dna
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
-      const [top3Expanded, setTop3Expanded] = useState(false); // TOP3 목록 펼치기
 
       // 🆕 v3.12.4: 카테고리별 데이터 캐싱
       const [cachedData, setCachedData] = useState({
@@ -1591,6 +1590,7 @@
       const [expandedStocks, setExpandedStocks] = useState({});
       const [expandedGrades, setExpandedGrades] = useState({});
       const [expandedCategories, setExpandedCategories] = useState({});
+      const [top3Expanded, setTop3Expanded] = useState(false); // TOP3 목록 펼치기
 
       const toggleExpand = (stockCode) => {
         setExpandedStocks(prev => ({
