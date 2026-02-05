@@ -545,6 +545,55 @@ module.exports = async (req, res) => {
 
     console.log(`✅ 성과 추적 완료: 승률 ${winRate.toFixed(1)}%, 평균 수익률 ${avgReturn.toFixed(2)}%`);
 
+    // 🆕 성공 패턴 수집 (연속 급등주 패턴 저장)
+    if (risingStocks.length > 0) {
+      const today = new Date().toISOString().slice(0, 10);
+
+      // 비동기로 패턴 저장 (응답 지연 방지)
+      (async () => {
+        try {
+          const patternsToSave = risingStocks
+            .filter(stock => stock.rise_analysis) // 분석 데이터가 있는 것만
+            .map(stock => ({
+              recommendation_id: stock.id,
+              stock_code: stock.stock_code,
+              stock_name: stock.stock_name,
+              success_date: today,
+              consecutive_days: stock.consecutive_rise_days,
+              total_return: stock.current_return,
+              recommendation_date: stock.recommendation_date,
+              recommendation_grade: stock.recommendation_grade,
+              recommendation_score: stock.total_score,
+              whale_detected: stock.whale_detected || false,
+              whale_confirmed: stock.rise_analysis?.details?.whaleConfirmed || false,
+              accumulation_detected: stock.accumulation_detected || false,
+              escape_velocity: stock.rise_analysis?.details?.escapeVelocity || false,
+              mfi: stock.mfi || null,
+              volume_ratio: stock.volume_ratio || null,
+              volume_trend: stock.rise_analysis?.details?.volumeTrend || null,
+              rise_pattern: stock.rise_analysis?.details?.risePattern || null
+            }));
+
+          if (patternsToSave.length > 0) {
+            const { error } = await supabase
+              .from('success_patterns')
+              .upsert(patternsToSave, {
+                onConflict: 'recommendation_id,success_date',
+                ignoreDuplicates: true
+              });
+
+            if (error) {
+              console.warn('⚠️ 성공 패턴 저장 실패:', error.message);
+            } else {
+              console.log(`📊 성공 패턴 저장: ${patternsToSave.length}개 종목`);
+            }
+          }
+        } catch (patternError) {
+          console.warn('⚠️ 성공 패턴 저장 오류:', patternError.message);
+        }
+      })();
+    }
+
     // DNA 추출 후보 모드
     if (dnaCandidates) {
       // 조건: 2회 이상 추천 + 평균 수익률 15% 이상
