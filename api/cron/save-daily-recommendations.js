@@ -407,25 +407,21 @@ module.exports = async (req, res) => {
 
           const dayStocks = [];
           for (const stock of prevTop3) {
-            // v3.27: 종가 기준 조회 (시간외가 제외)
+            // v3.27: Supabase 저장된 종가 사용 (타임아웃 방지)
             let latestPrice = stock.recommended_price;
-            try {
-              const chartData = await kisApi.getDailyChart(stock.stock_code, 1);
-              if (chartData && chartData[0] && chartData[0].close) {
-                latestPrice = chartData[0].close;
-              }
-            } catch (apiErr) {
-              console.warn(`⚠️ 종가 조회 실패 (${stock.stock_name}): ${apiErr.message}`);
-              // 실패 시 Supabase 최신 가격 fallback
-              const { data: priceData } = await supabase
-                .from('recommendation_daily_prices')
-                .select('closing_price')
-                .eq('recommendation_id', stock.id)
-                .order('tracking_date', { ascending: false })
-                .limit(1);
-              latestPrice = priceData?.[0]?.closing_price || stock.recommended_price;
+            let priceDate = prevDate;
+
+            const { data: priceData } = await supabase
+              .from('recommendation_daily_prices')
+              .select('closing_price, tracking_date')
+              .eq('recommendation_id', stock.id)
+              .order('tracking_date', { ascending: false })
+              .limit(1);
+
+            if (priceData?.[0]) {
+              latestPrice = priceData[0].closing_price;
+              priceDate = priceData[0].tracking_date;
             }
-            await new Promise(r => setTimeout(r, 100)); // Rate limit
 
             const returnRate = ((latestPrice - stock.recommended_price) / stock.recommended_price) * 100;
 
@@ -435,7 +431,7 @@ module.exports = async (req, res) => {
               recommended_price: stock.recommended_price,
               latestPrice: latestPrice,
               latestReturn: returnRate,
-              priceDate: today
+              priceDate: priceDate
             });
           }
 
