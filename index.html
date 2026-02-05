@@ -987,7 +987,7 @@
               {/* v3.18.1 Dual-Track Scoring 정보 */}
               {(stock.radarScore || stock.scoreBreakdown) && (
                 <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-300 rounded-xl p-6">
-                  <h3 className="text-xl font-bold mb-4">🎯 v3.23 Radar Scoring System</h3>
+                  <h3 className="text-xl font-bold mb-4">🎯 v3.26 Radar Scoring System</h3>
 
                   {/* Scoring Track 표시 */}
                   {stock.scoreBreakdown && stock.scoreBreakdown.scoringTrack && (
@@ -1015,7 +1015,7 @@
                         <div className="bg-white p-2 rounded border border-purple-200">
                           <div className="text-xs text-gray-600">Whale</div>
                           <div className="text-lg font-bold text-purple-700">{stock.radarScore.whaleBonus}</div>
-                          <div className="text-xs text-gray-500">/ 30점</div>
+                          <div className="text-xs text-gray-500">(0/15/30)</div>
                         </div>
                         <div className="bg-white p-2 rounded border border-green-200">
                           <div className="text-xs text-gray-600">Momentum</div>
@@ -1053,7 +1053,7 @@
                   {stock.overheatingV2 && stock.overheatingV2.overheated && (
                     <div className="p-4 bg-red-100 border-2 border-red-400 rounded-lg">
                       <h4 className="font-bold text-red-800 mb-2 flex items-center gap-2">
-                        <span>⚠️과열 감지 (v3.23)</span>
+                        <span>⚠️과열 감지 (v3.26)</span>
                       </h4>
                       <div className="space-y-2 text-sm">
                         <div className="flex items-center gap-2">
@@ -1872,9 +1872,9 @@
           <div className="bg-white rounded-xl shadow-lg p-6">
             <h3 className="text-2xl font-bold mb-4">📊 등급별 성과</h3>
 
-            {/* 등급 기준 설명 (v3.23 Radar Scoring System) */}
+            {/* 등급 기준 설명 (v3.26 Radar Scoring System) */}
             <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg">
-              <h4 className="font-bold text-blue-900 mb-3">🎯 등급 부여 기준 (v3.23 Radar Scoring System)</h4>
+              <h4 className="font-bold text-blue-900 mb-3">🎯 등급 부여 기준 (v3.26 Radar Scoring System)</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
                 <div className="bg-white p-3 rounded border-l-4 border-red-600">
                   <div className="font-bold text-red-700 mb-1">⚠️과열</div>
@@ -1913,11 +1913,12 @@
                 </div>
               </div>
               <div className="mt-3 p-3 bg-blue-100 rounded text-xs text-blue-900">
-                <strong>💡 Radar Scoring (v3.23):</strong><br />
+                <strong>💡 Radar Scoring (v3.26):</strong><br />
                 • <strong>Base(0-25):</strong> 거래량 비율, VPD raw, 시총 보정, 되돌림 페널티, 연속상승 보너스<br />
-                • <strong>Whale(0-30):</strong> 고래 감지 신호 보너스<br />
-                • <strong>Momentum(0-30):</strong> 거래량 가속도, 연속상승, 기관 진입 (당일급등 페널티)<br />
-                • <strong>Trend(0-15):</strong> 거래량 점진 증가 추세
+                • <strong>Whale(0/15/30):</strong> 확인된 고래 +30, 미확인 고래 +15 (v3.25)<br />
+                • <strong>Momentum(0-30):</strong> 거래량 가속도, 연속상승, 기관 진입<br />
+                • <strong>Trend(0-15):</strong> 거래량 점진 증가 추세<br />
+                • <strong>SignalAdj:</strong> 탈출속도(+5), 윗꼬리과다(-10), 매도고래3일내(-10)
               </div>
             </div>
 
