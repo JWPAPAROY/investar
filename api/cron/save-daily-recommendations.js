@@ -145,9 +145,6 @@ function selectSaveTop3(stocks) {
 }
 
 /**
- * v3.25: save 모드용 알림 메시지 (고래 상세 정보 포함)
- */
-/**
  * v3.27: SAVE 메시지 (오후 16:10)
  * 🌆 오늘의 결산 (오전 추천 성과 + 내일 TOP 3)
  */
@@ -190,13 +187,17 @@ function formatSaveAlertMessage(nextTop3, morningResults, date) {
 
     nextTop3.forEach((stock, i) => {
       const medal = ['🥇', '🥈', '🥉'][i];
+      const price = stock.currentPrice || 0;
+      const sl5 = Math.floor(price * 0.95);
+      const sl7 = Math.floor(price * 0.93);
       const grade = stock.recommendation?.grade || '?';
-      // 과열 종목 강조
       const gradeDisplay = grade === '과열' ? '과열 ⚠️' : `${grade}등급`;
 
       msg += `${medal} <b>${stock.stockName}</b> (${stock.totalScore}점, ${gradeDisplay})\n`;
+      msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
+      msg += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
 
-      // 최근 주가 (Save 모드)
+      // 최근 주가
       const chart = stock.trendAnalysis?.dailyData || [];
       if (chart.length >= 2) {
         msg += `   📈 최근 주가:`;
@@ -297,6 +298,16 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults) {
 
 
 /**
+ * 오늘 날짜 구하기 (KST 기준)
+ */
+function getTodayDateKST() {
+  const now = new Date();
+  const kstOffset = 9 * 60 * 60 * 1000;
+  const kstNow = new Date(now.getTime() + kstOffset);
+  return kstNow.toISOString().slice(0, 10);
+}
+
+/**
  * 어제 날짜 구하기 (KST 기준)
  */
 function getYesterdayDateKST() {
@@ -325,75 +336,56 @@ module.exports = async (req, res) => {
 
     // =============================================
     // 🔔 ALERT 모드: 아침 알림 (08:30 KST)
+    // v3.27: 실시간 스크리닝으로 변경 (Supabase 조회 → 실시간 분석)
     // =============================================
     if (mode === 'alert') {
-      console.log('🔔 아침 알림 모드 시작...');
+      console.log('🔔 아침 알림 모드 시작 (실시간 스크리닝)...');
 
-      const yesterday = req.query.date || getYesterdayDateKST();
-      console.log(`📅 조회 날짜: ${yesterday}`);
+      const today = getTodayDateKST();
+      console.log(`📅 기준 날짜: ${today}`);
 
-      // Step 1: 어제 저장된 종목 조회
-      const { data: stocks, error } = await supabase
-        .from('screening_recommendations')
-        .select('*')
-        .eq('recommendation_date', yesterday)
-        .eq('is_active', true)
-        .order('total_score', { ascending: false });
+      // Step 1: 실시간 스크리닝 (SAVE와 동일한 로직)
+      console.log('🔍 실시간 스크리닝 실행 중...');
+      const { stocks: screenedStocks } = await screener.screenAllStocks('ALL');
 
-      if (error) {
-        console.error('❌ Supabase 조회 실패:', error);
-        return res.status(500).json({ success: false, error: error.message });
+      if (!screenedStocks || screenedStocks.length === 0) {
+        console.log('⚠️ 스크리닝 결과 없음');
+        return res.status(200).json({
+          success: false,
+          mode: 'alert',
+          message: 'No stocks found'
+        });
       }
+      console.log(`✅ 스크리닝 완료: ${screenedStocks.length}개 종목`);
 
-      // Step 2: TOP 3 선별 + 고래 감지 종목
-      const top3 = selectAlertTop3(stocks || []);
-      const whaleStocks = selectWhaleStocks(stocks || [], top3);
-      console.log(`✅ TOP 3 선정: ${top3.length}개, 고래 감지: ${whaleStocks.length}개`);
+      // Step 2: TOP 3 선별 (SAVE와 동일한 selectSaveTop3 사용)
+      const top3Raw = selectSaveTop3(screenedStocks);
+      console.log(`✅ TOP 3 선정: ${top3Raw.length}개`);
 
-      // v3.27: TOP 3 종목의 최근 주가 데이터 조회 (Alert 메시지용)
-      for (const stock of top3) {
-        try {
-          const chartData = await kisApi.getDailyChart(stock.stock_code, 5); // 최근 5일치
-          if (chartData && chartData.length > 0) {
-            // 차트 데이터 가공 (전일비 계산 등)
-            const processed = [];
-            for (let i = 0; i < chartData.length; i++) {
-              const today = chartData[i];
-              const prev = chartData[i + 1];
-              let priceChange = 0;
-              if (prev) {
-                priceChange = ((today.close - prev.close) / prev.close) * 100;
-              }
-              processed.push({
-                date: today.date,
-                close: today.close,
-                priceChange: parseFloat(priceChange.toFixed(1))
-              });
-            }
-            stock.dailyData = processed;
-          }
-        } catch (apiErr) {
-          console.warn(`⚠️ 차트 조회 실패 (${stock.stock_name}):`, apiErr.message);
-        }
-        // API Rate Limit 고려 (약간의 지연)
-        await new Promise(r => setTimeout(r, 200));
-      }
+      // Step 3: 실시간 데이터를 Supabase 형식으로 변환 (formatAlertMessage 호환)
+      const top3 = top3Raw.map(s => ({
+        stock_code: s.stockCode,
+        stock_name: s.stockName,
+        total_score: s.totalScore,
+        recommendation_grade: s.recommendation?.grade || '?',
+        recommended_price: s.currentPrice,
+        whale_detected: (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수')),
+        // 최근 주가 데이터 (trendAnalysis에서 가져옴)
+        dailyData: s.trendAnalysis?.dailyData || []
+      }));
 
       top3.forEach((s, i) => {
         console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
       });
-      whaleStocks.forEach((s, i) => {
-        console.log(`  🐋 ${i + 1}. ${s.stock_name} (${s.total_score}점)`);
-      });
 
-      // Step 3: 최근 3일치 추천 종목 성과 조회
+      // Step 4: 최근 3일치 추천 종목 성과 조회 (실시간 현재가로 업데이트)
       let prevDayResults = []; // [{ date, stocks: [...] }, ...]
       try {
-        // 최근 3개 추천일 찾기 (yesterday 이전, 중복 제거)
+        // 최근 3개 추천일 찾기 (today 이전, 중복 제거)
         const { data: prevDateRows } = await supabase
           .from('screening_recommendations')
           .select('recommendation_date')
-          .lt('recommendation_date', yesterday)
+          .lt('recommendation_date', today)
           .order('recommendation_date', { ascending: false });
 
         // 중복 날짜 제거 후 최근 3일
@@ -409,23 +401,32 @@ module.exports = async (req, res) => {
             .eq('is_active', true)
             .order('total_score', { ascending: false });
 
-          // TOP 3 + 고래 감지 종목 통합
-          const prevTop3 = selectAlertTop3(prevStocks || []);
-          const prevWhale = selectWhaleStocks(prevStocks || [], prevTop3);
-          const prevAll = [...prevTop3, ...prevWhale];
-          if (prevAll.length === 0) continue;
+          // TOP 3만 선별 (selectSaveTop3와 동일한 기준 적용)
+          const prevTop3 = selectAlertTop3(prevStocks || []).slice(0, 3);
+          if (prevTop3.length === 0) continue;
 
           const dayStocks = [];
-          for (const stock of prevAll) {
-            const { data: priceData } = await supabase
-              .from('recommendation_daily_prices')
-              .select('closing_price, tracking_date')
-              .eq('recommendation_id', stock.id)
-              .order('tracking_date', { ascending: false })
-              .limit(1);
+          for (const stock of prevTop3) {
+            // v3.27: 실시간 현재가 조회 (KIS API)
+            let latestPrice = stock.recommended_price;
+            try {
+              const currentData = await kisApi.getCurrentPrice(stock.stock_code);
+              if (currentData && currentData.currentPrice) {
+                latestPrice = currentData.currentPrice;
+              }
+            } catch (apiErr) {
+              console.warn(`⚠️ 현재가 조회 실패 (${stock.stock_name}): ${apiErr.message}`);
+              // 실패 시 Supabase 최신 가격 fallback
+              const { data: priceData } = await supabase
+                .from('recommendation_daily_prices')
+                .select('closing_price')
+                .eq('recommendation_id', stock.id)
+                .order('tracking_date', { ascending: false })
+                .limit(1);
+              latestPrice = priceData?.[0]?.closing_price || stock.recommended_price;
+            }
+            await new Promise(r => setTimeout(r, 100)); // Rate limit
 
-            const latest = priceData?.[0];
-            const latestPrice = latest?.closing_price || stock.recommended_price;
             const returnRate = ((latestPrice - stock.recommended_price) / stock.recommended_price) * 100;
 
             dayStocks.push({
@@ -434,8 +435,7 @@ module.exports = async (req, res) => {
               recommended_price: stock.recommended_price,
               latestPrice: latestPrice,
               latestReturn: returnRate,
-              priceDate: latest?.tracking_date || prevDate,
-              whale_detected: stock.whale_detected
+              priceDate: today
             });
           }
 
@@ -443,21 +443,20 @@ module.exports = async (req, res) => {
             prevDayResults.push({ date: prevDate, stocks: dayStocks });
           }
         }
-        console.log(`✅ 이전 추천 결과: ${prevDayResults.length}일치`);
+        console.log(`✅ 이전 추천 결과: ${prevDayResults.length}일치 (실시간 현재가 반영)`);
       } catch (prevError) {
         console.warn('⚠️ 이전 추천 결과 조회 실패 (무시):', prevError.message);
       }
 
-      // Step 4: 텔레그램 알림 전송
-      const message = formatAlertMessage(top3, whaleStocks, yesterday, prevDayResults);
+      // Step 5: 텔레그램 알림 전송
+      const message = formatAlertMessage(top3, [], today, prevDayResults);
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
         success: true,
         mode: 'alert',
-        date: yesterday,
+        date: today,
         top3Count: top3.length,
-        whaleCount: whaleStocks.length,
         telegramSent: sent,
         stocks: top3.map(s => ({
           stockCode: s.stock_code,
@@ -465,12 +464,6 @@ module.exports = async (req, res) => {
           score: s.total_score,
           grade: s.recommendation_grade,
           whale: s.whale_detected
-        })),
-        whaleStocks: whaleStocks.map(s => ({
-          stockCode: s.stock_code,
-          stockName: s.stock_name,
-          score: s.total_score,
-          grade: s.recommendation_grade
         })),
         prevDayResults
       });
