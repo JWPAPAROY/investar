@@ -147,61 +147,35 @@ function selectSaveTop3(stocks) {
  * v3.25: save 모드용 알림 메시지 (고래 상세 정보 포함)
  */
 function formatSaveAlertMessage(top3, allStocks, date) {
-  let msg = `🏆 <b>오늘의 TOP 3 추천 종목</b>\n📅 ${date} 기준 (v3.25)\n\n`;
+  let msg = `🏆 <b>오늘의 TOP 3 추천 종목</b>\n📅 ${date}\n\n`;
 
   top3.forEach((stock, i) => {
     const medal = ['🥇', '🥈', '🥉'][i];
     const price = stock.currentPrice || 0;
-    const sl = Math.floor(price * 0.95);
+    const sl5 = Math.floor(price * 0.95);
+    const sl7 = Math.floor(price * 0.93);
     const grade = stock.recommendation?.grade || '?';
 
     msg += `${medal} <b>${stock.stockName}</b> (${stock.stockCode})\n`;
     msg += `   📊 ${stock.totalScore}점 | ${grade}등급\n`;
-    msg += `   💰 ${price.toLocaleString()}원 | 🛡️ 손절: ${sl.toLocaleString()}원\n`;
+    msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
+    msg += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
 
-    // 고래 상세 정보
-    const whales = (stock.advancedAnalysis?.indicators?.whale || []).filter(w => w.type?.includes('매수'));
-    whales.forEach(w => {
-      const volRatio = typeof w.volumeRatio === 'number' ? `거래량 ${w.volumeRatio.toFixed(1)}배` : '';
-      const priceChg = typeof w.priceChange === 'number' ? `가격 ${w.priceChange > 0 ? '+' : ''}${w.priceChange.toFixed(1)}%` : '';
-      const intensity = typeof w.intensity === 'number' ? `강도 ${w.intensity}` : (w.intensity ? `강도 ${w.intensity}` : '');
-      const details = [volRatio, priceChg, intensity].filter(Boolean).join(' | ');
-      msg += `   🐋 ${w.type || '매수고래'}${details ? ': ' + details : ''}\n`;
-    });
-
-    // 확인 상태
-    const confirmed = stock.scoreBreakdown?.whaleBonus?.confirmed;
-    if (confirmed !== undefined) {
-      msg += `   ${confirmed ? '✅ 확인된 고래' : '⚠️ 미확인 고래'}\n`;
+    // 최근 3일 주가
+    const chart = stock.trendAnalysis?.dailyData || [];
+    if (chart.length >= 2) {
+      msg += `   📈 최근 주가:`;
+      chart.slice(0, 3).forEach(d => {
+        const chg = d.priceChange != null ? (d.priceChange >= 0 ? `+${d.priceChange.toFixed(1)}%` : `${d.priceChange.toFixed(1)}%`) : '';
+        const dateStr = d.date ? `${d.date.slice(4,6)}/${d.date.slice(6,8)}` : '';
+        msg += ` ${dateStr} ${d.close ? d.close.toLocaleString() : '?'}원${chg ? '(' + chg + ')' : ''}`;
+      });
+      msg += '\n';
     }
-
-    // 탈출 속도 / 강한 매수세
-    const escape = stock.advancedAnalysis?.indicators?.escape;
-    if (escape?.detected) msg += `   🚀 탈출 속도 달성\n`;
-    const asym = stock.advancedAnalysis?.indicators?.asymmetric;
-    if (asym?.signal?.includes('강한 매수세')) msg += `   📈 강한 매수세${typeof asym.ratio === 'number' ? ' (비대칭 ' + asym.ratio.toFixed(1) + ')' : ''}\n`;
 
     msg += '\n';
   });
 
-  // 기타 고래 종목
-  const top3Codes = top3.map(s => s.stockCode);
-  const otherWhales = allStocks.filter(s => {
-    const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-    return hasBuyWhale && !top3Codes.includes(s.stockCode);
-  }).sort((a, b) => b.totalScore - a.totalScore);
-
-  if (otherWhales.length > 0) {
-    msg += `🐋 <b>기타 고래 감지</b>\n`;
-    otherWhales.forEach(s => {
-      const grade = s.recommendation?.grade || '?';
-      const overheat = grade === '과열' ? ' ⚠️' : '';
-      msg += `  • ${s.stockName} (${s.totalScore}점, ${grade}${overheat})\n`;
-    });
-    msg += '\n';
-  }
-
-  msg += `💡 <i>v3.25 확인된 고래 +30 | 미확인 +15</i>\n`;
   msg += `🔗 https://investar-xi.vercel.app`;
 
   return msg;
@@ -218,46 +192,25 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults) {
   let message = '';
 
   // ── 오늘의 TOP 3 ──
-  if ((!top3 || top3.length === 0) && (!whaleStocks || whaleStocks.length === 0)) {
+  if (!top3 || top3.length === 0) {
     message += `📊 <b>Investar 알림</b> (${date})\n\n`;
     message += `조건을 충족하는 종목이 없습니다.\n`;
     message += `다음 거래일을 기다려주세요.\n\n`;
   } else {
-    if (top3 && top3.length > 0) {
-      message += `🏆 <b>오늘의 TOP 3 추천 종목</b>\n`;
-      message += `📅 ${date} 기준\n\n`;
+    message += `🏆 <b>오늘의 TOP 3 추천 종목</b>\n`;
+    message += `📅 ${date}\n\n`;
 
-      top3.forEach((stock, i) => {
-        const medal = ['🥇', '🥈', '🥉'][i];
-        const stopLoss5 = Math.floor(stock.recommended_price * 0.95);
+    top3.forEach((stock, i) => {
+      const medal = ['🥇', '🥈', '🥉'][i];
+      const sl5 = Math.floor(stock.recommended_price * 0.95);
+      const sl7 = Math.floor(stock.recommended_price * 0.93);
 
-        message += `${medal} <b>${stock.stock_name}</b> (${stock.stock_code})\n`;
-        message += `   📊 ${stock.total_score.toFixed(1)}점 | ${stock.recommendation_grade}등급\n`;
-        message += `   💰 ${stock.recommended_price.toLocaleString()}원\n`;
-        message += `   🛡️ 손절가: ${stopLoss5.toLocaleString()}원 (-5%)\n`;
-
-        const categories = [];
-        if (stock.whale_detected) categories.push('🐋고래');
-        if (stock.accumulation_detected) categories.push('🤫매집');
-        if (categories.length > 0) {
-          message += `   ${categories.join(' ')}\n`;
-        }
-        message += `\n`;
-      });
-    }
-
-    // ── 고래 감지 종목 ──
-    if (whaleStocks && whaleStocks.length > 0) {
-      message += `🐋 <b>고래 감지 종목</b>\n`;
-      whaleStocks.forEach((stock, i) => {
-        const stopLoss5 = Math.floor(stock.recommended_price * 0.95);
-        const overheatTag = stock.recommendation_grade === '과열' ? ' ⚠️과열' : '';
-        message += `  ${i + 1}. <b>${stock.stock_name}</b> (${stock.stock_code})${overheatTag}\n`;
-        message += `     ${stock.total_score.toFixed(1)}점 | ${stock.recommendation_grade}등급 | ${stock.recommended_price.toLocaleString()}원\n`;
-        message += `     🛡️ 손절: ${stopLoss5.toLocaleString()}원\n`;
-      });
+      message += `${medal} <b>${stock.stock_name}</b> (${stock.stock_code})\n`;
+      message += `   📊 ${stock.total_score.toFixed(1)}점 | ${stock.recommendation_grade}등급\n`;
+      message += `   💰 현재가: ${stock.recommended_price.toLocaleString()}원\n`;
+      message += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
       message += `\n`;
-    }
+    });
   }
 
   // ── 최근 3일 추천 결과 ──
@@ -273,15 +226,13 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults) {
         const emoji = r >= 0 ? '✅' : '❌';
         const priceStr = stock.latestPrice ? stock.latestPrice.toLocaleString() : '?';
         const dateTag = stock.priceDate !== day.date ? ` (${stock.priceDate})` : '';
-        const whaleTag = stock.whale_detected ? ' 🐋' : '';
 
-        message += `  ${i + 1}. ${stock.stock_name}${whaleTag} → ${priceStr}원${dateTag} ${returnStr} ${emoji}\n`;
+        message += `  ${i + 1}. ${stock.stock_name} → ${priceStr}원${dateTag} ${returnStr} ${emoji}\n`;
       });
       message += `\n`;
     });
   }
 
-  message += `💡 <i>고래 감지 승률 89% | 고래+황금구간 전략</i>\n`;
   message += `🔗 https://investar-xi.vercel.app`;
 
   return message;
