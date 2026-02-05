@@ -313,7 +313,7 @@
 
           // 🆕 패턴 분석 데이터 로드 (비동기, 별도 로딩)
           setPatternLoading(true);
-          fetch(`${API_BASE_URL}/recommendations/pattern-analysis`)
+          fetch(`${API_BASE_URL}/recommendations/patternAnalysis`)
             .then(res => res.json())
             .then(data => {
               if (data.success) {
