@@ -2225,9 +2225,33 @@
                         <div className="bg-orange-50 border border-orange-200 rounded px-3 py-2 mt-2">
                           <div className="text-xs font-semibold text-orange-800 mb-1">📊 상승 원인 분석</div>
                           <div className="text-xs text-orange-900 space-y-1">
-                            {stock.rise_analysis.reasons.map((reason, idx) => (
-                              <div key={idx}>{reason}</div>
-                            ))}
+                            {stock.rise_analysis.reasons.map((reason, idx) => {
+                              const details = stock.rise_analysis.details || {};
+                              let supportingData = null;
+
+                              // 거래량 증가/감소 근거
+                              if (reason.includes('거래량') && details.volumeData) {
+                                const vd = details.volumeData;
+                                supportingData = `(${(vd.avgFirst/10000).toFixed(0)}만주 → ${(vd.avgSecond/10000).toFixed(0)}만주, ${vd.changeRate > 0 ? '+' : ''}${vd.changeRate}%)`;
+                              }
+                              // 상승 패턴 근거
+                              else if ((reason.includes('급등형') || reason.includes('점진적') || reason.includes('완만한')) && details.returnData) {
+                                supportingData = `(일평균 ${details.returnData.avgDailyReturn > 0 ? '+' : ''}${details.returnData.avgDailyReturn}%)`;
+                              }
+                              // MFI 근거
+                              else if (reason.includes('자금 유입') && details.mfiValue) {
+                                supportingData = `(MFI ${details.mfiValue}, 70↑=강한유입)`;
+                              }
+
+                              return (
+                                <div key={idx} className="flex items-center gap-1 flex-wrap">
+                                  <span>{reason}</span>
+                                  {supportingData && (
+                                    <span className="text-orange-600 font-medium">{supportingData}</span>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       )}

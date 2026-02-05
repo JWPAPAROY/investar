@@ -294,6 +294,14 @@ module.exports = async (req, res) => {
               const secondHalf = volumes.slice(Math.floor(volumes.length / 2));
               const avgFirst = firstHalf.reduce((a, b) => a + b, 0) / firstHalf.length;
               const avgSecond = secondHalf.reduce((a, b) => a + b, 0) / secondHalf.length;
+              const volumeChangeRate = avgFirst > 0 ? ((avgSecond - avgFirst) / avgFirst * 100) : 0;
+
+              // 근거 수치 저장
+              details.volumeData = {
+                avgFirst: Math.round(avgFirst),
+                avgSecond: Math.round(avgSecond),
+                changeRate: parseFloat(volumeChangeRate.toFixed(1))
+              };
 
               if (avgSecond > avgFirst * 1.2) {
                 reasons.push('📈 거래량 증가 동반');
@@ -313,6 +321,12 @@ module.exports = async (req, res) => {
             ? returns.reduce((a, b) => a + b, 0) / returns.length
             : 0;
 
+          // 근거 수치 저장
+          details.returnData = {
+            avgDailyReturn: parseFloat(avgDailyReturn.toFixed(2)),
+            days: returns.length
+          };
+
           if (avgDailyReturn >= 3) {
             reasons.push('🚀 급등형 상승');
             details.risePattern = 'explosive';
@@ -326,6 +340,7 @@ module.exports = async (req, res) => {
 
           // 4. MFI 기반 자금 유입 분석
           if (rec.mfi) {
+            details.mfiValue = parseFloat(rec.mfi.toFixed(1));
             if (rec.mfi >= 70) {
               reasons.push('💰 강한 자금 유입');
               details.mfiSignal = 'strong_inflow';
