@@ -134,21 +134,21 @@ SELECT
   COUNT(*) as sample_count,
 
   -- 거래량 비율 통계
-  ROUND(AVG(volume_ratio), 2) as volume_ratio_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY volume_ratio), 2) as volume_ratio_median,
-  ROUND(MIN(volume_ratio), 2) as volume_ratio_min,
-  ROUND(MAX(volume_ratio), 2) as volume_ratio_max,
-  ROUND(STDDEV(volume_ratio), 2) as volume_ratio_stddev,
+  ROUND(AVG(volume_ratio)::numeric, 2) as volume_ratio_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY volume_ratio)::numeric, 2) as volume_ratio_median,
+  ROUND(MIN(volume_ratio)::numeric, 2) as volume_ratio_min,
+  ROUND(MAX(volume_ratio)::numeric, 2) as volume_ratio_max,
+  ROUND(STDDEV(volume_ratio)::numeric, 2) as volume_ratio_stddev,
 
   -- 비대칭 비율 통계
-  ROUND(AVG(asymmetric_ratio), 2) as asymmetric_ratio_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY asymmetric_ratio), 2) as asymmetric_ratio_median,
-  ROUND(MIN(asymmetric_ratio), 2) as asymmetric_ratio_min,
-  ROUND(MAX(asymmetric_ratio), 2) as asymmetric_ratio_max,
+  ROUND(AVG(asymmetric_ratio)::numeric, 2) as asymmetric_ratio_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY asymmetric_ratio)::numeric, 2) as asymmetric_ratio_median,
+  ROUND(MIN(asymmetric_ratio)::numeric, 2) as asymmetric_ratio_min,
+  ROUND(MAX(asymmetric_ratio)::numeric, 2) as asymmetric_ratio_max,
 
   -- 5일 거래량 변화율 통계
-  ROUND(AVG(volume_5d_change_rate), 2) as volume_5d_change_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY volume_5d_change_rate), 2) as volume_5d_change_median,
+  ROUND(AVG(volume_5d_change_rate)::numeric, 2) as volume_5d_change_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY volume_5d_change_rate)::numeric, 2) as volume_5d_change_median,
 
   -- 거래량 가속도 분포
   COUNT(*) FILTER (WHERE volume_acceleration_trend = 'strong_acceleration') as accel_strong_count,
@@ -158,7 +158,7 @@ SELECT
 
   -- 고래 감지 통계
   COUNT(*) FILTER (WHERE whale_detected = true) as whale_detected_count,
-  ROUND(AVG(whale_volume_ratio) FILTER (WHERE whale_detected = true), 2) as whale_volume_ratio_avg,
+  ROUND((AVG(whale_volume_ratio) FILTER (WHERE whale_detected = true))::numeric, 2) as whale_volume_ratio_avg,
 
   -- OBV 추세 분포
   COUNT(*) FILTER (WHERE obv_trend = '상승') as obv_up_count,
@@ -175,43 +175,43 @@ SELECT
   COUNT(*) as sample_count,
 
   -- RSI 통계
-  ROUND(AVG(rsi), 2) as rsi_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY rsi), 2) as rsi_median,
-  ROUND(MIN(rsi), 2) as rsi_min,
-  ROUND(MAX(rsi), 2) as rsi_max,
-  ROUND(STDDEV(rsi), 2) as rsi_stddev,
+  ROUND(AVG(rsi)::numeric, 2) as rsi_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY rsi)::numeric, 2) as rsi_median,
+  ROUND(MIN(rsi)::numeric, 2) as rsi_min,
+  ROUND(MAX(rsi)::numeric, 2) as rsi_max,
+  ROUND(STDDEV(rsi)::numeric, 2) as rsi_stddev,
 
   -- MFI 통계
-  ROUND(AVG(mfi), 2) as mfi_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mfi), 2) as mfi_median,
-  ROUND(MIN(mfi), 2) as mfi_min,
-  ROUND(MAX(mfi), 2) as mfi_max,
+  ROUND(AVG(mfi)::numeric, 2) as mfi_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mfi)::numeric, 2) as mfi_median,
+  ROUND(MIN(mfi)::numeric, 2) as mfi_min,
+  ROUND(MAX(mfi)::numeric, 2) as mfi_max,
 
   -- 이격도 통계
-  ROUND(AVG(disparity), 2) as disparity_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY disparity), 2) as disparity_median,
-  ROUND(MIN(disparity), 2) as disparity_min,
-  ROUND(MAX(disparity), 2) as disparity_max,
+  ROUND(AVG(disparity)::numeric, 2) as disparity_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY disparity)::numeric, 2) as disparity_median,
+  ROUND(MIN(disparity)::numeric, 2) as disparity_min,
+  ROUND(MAX(disparity)::numeric, 2) as disparity_max,
 
   -- VWAP 괴리율 통계
-  ROUND(AVG(vwap_divergence), 2) as vwap_divergence_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vwap_divergence), 2) as vwap_divergence_median,
+  ROUND(AVG(vwap_divergence)::numeric, 2) as vwap_divergence_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY vwap_divergence)::numeric, 2) as vwap_divergence_median,
 
   -- 당일 등락률 통계
-  ROUND(AVG(daily_change_rate), 2) as daily_change_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY daily_change_rate), 2) as daily_change_median,
+  ROUND(AVG(daily_change_rate)::numeric, 2) as daily_change_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY daily_change_rate)::numeric, 2) as daily_change_median,
 
   -- 연속 상승일 분포
-  ROUND(AVG(consecutive_rise_days), 1) as consecutive_rise_avg,
+  ROUND(AVG(consecutive_rise_days)::numeric, 1) as consecutive_rise_avg,
   COUNT(*) FILTER (WHERE consecutive_rise_days >= 3) as consecutive_rise_3plus_count,
 
   -- 탈출 속도 통계
   COUNT(*) FILTER (WHERE escape_velocity = true) as escape_velocity_count,
-  ROUND(AVG(escape_closing_strength) FILTER (WHERE escape_velocity = true), 2) as escape_strength_avg,
+  ROUND((AVG(escape_closing_strength) FILTER (WHERE escape_velocity = true))::numeric, 2) as escape_strength_avg,
 
   -- 윗꼬리 비율 통계
-  ROUND(AVG(upper_shadow_ratio), 2) as upper_shadow_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY upper_shadow_ratio), 2) as upper_shadow_median
+  ROUND(AVG(upper_shadow_ratio)::numeric, 2) as upper_shadow_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY upper_shadow_ratio)::numeric, 2) as upper_shadow_median
 
 FROM success_patterns;
 
@@ -223,13 +223,13 @@ SELECT
   COUNT(*) as sample_count,
 
   -- 기관 매수일 통계
-  ROUND(AVG(institution_buy_days), 1) as institution_days_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY institution_buy_days), 1) as institution_days_median,
+  ROUND(AVG(institution_buy_days)::numeric, 1) as institution_days_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY institution_buy_days)::numeric, 1) as institution_days_median,
   COUNT(*) FILTER (WHERE institution_buy_days >= 3) as institution_3plus_count,
 
   -- 외국인 매수일 통계
-  ROUND(AVG(foreign_buy_days), 1) as foreign_days_avg,
-  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY foreign_buy_days), 1) as foreign_days_median,
+  ROUND(AVG(foreign_buy_days)::numeric, 1) as foreign_days_avg,
+  ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY foreign_buy_days)::numeric, 1) as foreign_days_median,
   COUNT(*) FILTER (WHERE foreign_buy_days >= 3) as foreign_3plus_count,
 
   -- 조용한 매집 통계
@@ -243,8 +243,8 @@ FROM success_patterns;
 CREATE OR REPLACE VIEW success_pattern_insights AS
 SELECT
   COUNT(*) as total_patterns,
-  ROUND(AVG(max_return), 2) as avg_max_return,
-  ROUND(AVG(days_to_success), 1) as avg_days_to_success,
+  ROUND(AVG(max_return)::numeric, 2) as avg_max_return,
+  ROUND(AVG(days_to_success)::numeric, 1) as avg_days_to_success,
 
   -- 등급별 분포
   COUNT(*) FILTER (WHERE recommendation_grade IN ('S+', 'S')) as grade_s_count,
@@ -257,16 +257,16 @@ SELECT
   COUNT(*) FILTER (WHERE total_score < 50) as score_under_50_count,
 
   -- 핵심 지표 평균 (한눈에 보기)
-  ROUND(AVG(volume_ratio), 2) as key_volume_ratio,
-  ROUND(AVG(mfi), 1) as key_mfi,
-  ROUND(AVG(rsi), 1) as key_rsi,
-  ROUND(AVG(asymmetric_ratio), 2) as key_asymmetric,
-  ROUND(AVG(disparity), 1) as key_disparity,
+  ROUND(AVG(volume_ratio)::numeric, 2) as key_volume_ratio,
+  ROUND(AVG(mfi)::numeric, 1) as key_mfi,
+  ROUND(AVG(rsi)::numeric, 1) as key_rsi,
+  ROUND(AVG(asymmetric_ratio)::numeric, 2) as key_asymmetric,
+  ROUND(AVG(disparity)::numeric, 1) as key_disparity,
 
   -- 신호 비율
-  ROUND(COUNT(*) FILTER (WHERE whale_detected = true)::DECIMAL / COUNT(*) * 100, 1) as whale_pct,
-  ROUND(COUNT(*) FILTER (WHERE escape_velocity = true)::DECIMAL / COUNT(*) * 100, 1) as escape_pct,
-  ROUND(COUNT(*) FILTER (WHERE accumulation_detected = true)::DECIMAL / COUNT(*) * 100, 1) as accumulation_pct
+  ROUND((COUNT(*) FILTER (WHERE whale_detected = true)::DECIMAL / NULLIF(COUNT(*), 0) * 100)::numeric, 1) as whale_pct,
+  ROUND((COUNT(*) FILTER (WHERE escape_velocity = true)::DECIMAL / NULLIF(COUNT(*), 0) * 100)::numeric, 1) as escape_pct,
+  ROUND((COUNT(*) FILTER (WHERE accumulation_detected = true)::DECIMAL / NULLIF(COUNT(*), 0) * 100)::numeric, 1) as accumulation_pct
 
 FROM success_patterns;
 
