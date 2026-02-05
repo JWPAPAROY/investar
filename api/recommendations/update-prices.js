@@ -41,6 +41,61 @@ module.exports = async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
 
+    // 수동 가격 업데이트 모드: ?stockCode=001440&price=31750
+    const manualStockCode = req.query.stockCode;
+    const manualPrice = parseInt(req.query.price);
+
+    if (manualStockCode && manualPrice > 0) {
+      console.log(`🔧 수동 가격 업데이트: ${manualStockCode} → ${manualPrice}원`);
+
+      // 해당 종목의 활성 추천 찾기
+      const { data: recs, error: findError } = await supabase
+        .from('screening_recommendations')
+        .select('id, stock_code, stock_name, recommended_price')
+        .eq('stock_code', manualStockCode)
+        .eq('is_active', true);
+
+      if (findError || !recs || recs.length === 0) {
+        return res.status(404).json({
+          success: false,
+          error: `종목 ${manualStockCode} 활성 추천 없음`
+        });
+      }
+
+      // 각 추천에 대해 가격 업데이트
+      const updates = recs.map(rec => {
+        const cumulativeReturn = rec.recommended_price > 0
+          ? ((manualPrice - rec.recommended_price) / rec.recommended_price * 100)
+          : 0;
+        return {
+          recommendation_id: rec.id,
+          tracking_date: today,
+          closing_price: manualPrice,
+          change_rate: 0,
+          volume: 0,
+          cumulative_return: parseFloat(cumulativeReturn.toFixed(2)),
+          days_since_recommendation: 0
+        };
+      });
+
+      const { error: upsertError } = await supabase
+        .from('recommendation_daily_prices')
+        .upsert(updates, { onConflict: 'recommendation_id,tracking_date' });
+
+      if (upsertError) {
+        return res.status(500).json({ success: false, error: upsertError.message });
+      }
+
+      return res.status(200).json({
+        success: true,
+        mode: 'manual',
+        stockCode: manualStockCode,
+        price: manualPrice,
+        updated: recs.length,
+        stocks: recs.map(r => ({ name: r.stock_name, return: ((manualPrice - r.recommended_price) / r.recommended_price * 100).toFixed(2) + '%' }))
+      });
+    }
+
     console.log(`\n📊 [${today}] 추천 종목 가격 업데이트 시작...\n`);
 
     // 30일+ 경과 추천 자동 만료
