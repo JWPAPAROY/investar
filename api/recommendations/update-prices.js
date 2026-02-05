@@ -226,7 +226,7 @@ module.exports = async (req, res) => {
     }
 
     // 자동 재시도 설정
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 5;
     const RETRY_DELAY = 1000; // 1초
     let remainingRecs = [...activeRecs];
     let retryCount = 0;
