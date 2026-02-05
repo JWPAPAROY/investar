@@ -1008,7 +1008,7 @@
                     <div className="mb-4 p-4 bg-gradient-to-r from-blue-100 to-cyan-100 border-2 border-blue-400 rounded-lg">
                       <h4 className="font-bold text-blue-800 mb-3 flex items-center gap-2">
                         <span>📡 Radar Scoring</span>
-                        <span className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full">{stock.radarScore.total}점 / 100점</span>
+                        <span className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full">{stock.totalScore}점 / 100점</span>
                       </h4>
                       <div className="grid grid-cols-4 gap-2 text-sm">
                         <div className="bg-white p-2 rounded border border-blue-200">
@@ -1018,7 +1018,7 @@
                         </div>
                         <div className="bg-white p-2 rounded border border-purple-200">
                           <div className="text-xs text-gray-600">Whale</div>
-                          <div className="text-lg font-bold text-purple-700">{stock.advancedAnalysis?.indicators?.whale?.length > 0 ? 30 : 0}</div>
+                          <div className="text-lg font-bold text-purple-700">{stock.radarScore.whaleBonus}</div>
                           <div className="text-xs text-gray-500">/ 30점</div>
                         </div>
                         <div className="bg-white p-2 rounded border border-green-200">
@@ -1032,7 +1032,24 @@
                           <div className="text-xs text-gray-500">/ 15점</div>
                         </div>
                       </div>
-
+                      {/* Signal Adjustments 표시 */}
+                      {stock.scoreBreakdown?.signalAdjustments && (
+                        (() => {
+                          const adj = stock.scoreBreakdown.signalAdjustments;
+                          const items = [];
+                          if (adj.escapeVelocityBonus) items.push({ label: '🚀 탈출 속도', value: `+${adj.escapeVelocityBonus}`, color: 'text-green-700' });
+                          if (adj.upperShadowPenalty) items.push({ label: '⚠️ 윗꼬리 과다', value: `${adj.upperShadowPenalty}`, color: 'text-red-700' });
+                          if (adj.sellWhalePenalty) items.push({ label: '🐳 매도고래', value: `${adj.sellWhalePenalty}`, color: 'text-red-700' });
+                          return items.length > 0 ? (
+                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                              <span className="text-gray-600 font-semibold">Signal Adj:</span>
+                              {items.map((item, i) => (
+                                <span key={i} className={`${item.color} font-bold`}>{item.label} {item.value}점</span>
+                              ))}
+                            </div>
+                          ) : null;
+                        })()
+                      )}
                     </div>
                   )}
 
