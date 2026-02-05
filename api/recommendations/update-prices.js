@@ -39,6 +39,7 @@ module.exports = async (req, res) => {
   }
 
   try {
+    const startTime = Date.now();
     const today = new Date().toISOString().slice(0, 10);
 
     // 수동 가격 업데이트 모드: ?stockCode=001440&price=31750
@@ -224,22 +225,69 @@ module.exports = async (req, res) => {
       }
     }
 
-    // 배치 단위 병렬 처리
-    for (let i = 0; i < activeRecs.length; i += BATCH_SIZE) {
-      const batch = activeRecs.slice(i, i + BATCH_SIZE);
-      console.log(`배치 ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(activeRecs.length / BATCH_SIZE)}: ${batch.length}개 종목 처리 중...`);
+    // 자동 재시도 설정
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY = 1000; // 1초
+    let remainingRecs = [...activeRecs];
+    let retryCount = 0;
 
-      // 배치 내 종목들을 병렬로 처리
-      const batchResults = await Promise.all(batch.map(rec => fetchStockPrice(rec)));
-
-      // null 제외하고 dailyPrices에 추가
-      const validResults = batchResults.filter(result => result !== null);
-      dailyPrices.push(...validResults);
-      successCount += validResults.length;
-
-      if (i + BATCH_SIZE < activeRecs.length) {
-        await new Promise(resolve => setTimeout(resolve, 50));
+    // 배치 단위 병렬 처리 + 자동 재시도
+    while (remainingRecs.length > 0 && retryCount <= MAX_RETRIES) {
+      if (retryCount > 0) {
+        console.log(`\n🔄 재시도 ${retryCount}/${MAX_RETRIES}: ${remainingRecs.length}개 종목...`);
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
       }
+
+      const failedRecs = [];
+
+      for (let i = 0; i < remainingRecs.length; i += BATCH_SIZE) {
+        const batch = remainingRecs.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(remainingRecs.length / BATCH_SIZE);
+        console.log(`배치 ${batchNum}/${totalBatches}: ${batch.length}개 종목 처리 중...`);
+
+        // 배치 내 종목들을 병렬로 처리
+        const batchResults = await Promise.all(batch.map(async (rec) => {
+          const result = await fetchStockPrice(rec);
+          return { rec, result };
+        }));
+
+        // 성공/실패 분류
+        for (const { rec, result } of batchResults) {
+          if (result !== null) {
+            dailyPrices.push(result);
+            successCount++;
+          } else {
+            failedRecs.push(rec);
+          }
+        }
+
+        if (i + BATCH_SIZE < remainingRecs.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+
+      // 실패한 종목만 다음 재시도 대상
+      remainingRecs = failedRecs;
+      retryCount++;
+
+      // 모두 성공하면 루프 종료
+      if (remainingRecs.length === 0) {
+        console.log(`✅ 모든 종목 업데이트 성공!`);
+        break;
+      }
+
+      // 타임아웃 방지: 45초 초과 시 중단
+      const elapsed = Date.now() - startTime;
+      if (elapsed > 45000) {
+        console.warn(`⚠️ 타임아웃 임박 (${Math.floor(elapsed/1000)}초), 재시도 중단`);
+        break;
+      }
+    }
+
+    if (remainingRecs.length > 0) {
+      console.warn(`⚠️ 최종 실패: ${remainingRecs.length}개 종목`);
+      console.warn(`실패 목록: ${remainingRecs.map(r => r.stock_name).join(', ')}`);
     }
 
     // Supabase에 일괄 저장 (upsert = 있으면 업데이트, 없으면 삽입)
