@@ -114,6 +114,7 @@
       const [activeTab, setActiveTab] = useState('screening'); // screening, performance, dna
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
+      const [top3Expanded, setTop3Expanded] = useState(false); // TOP3 목록 펼치기
 
       // 🆕 v3.12.4: 카테고리별 데이터 캐싱
       const [cachedData, setCachedData] = useState({
@@ -1745,7 +1746,7 @@
                   <div className="space-y-2">
                     {top3Stocks
                       .sort((a, b) => b.current_return - a.current_return)
-                      .slice(0, 10)
+                      .slice(0, top3Expanded ? top3Stocks.length : 10)
                       .map((stock, index) => (
                         <div key={stock.stock_code} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
                           <div className="flex items-center gap-2">
@@ -1766,9 +1767,12 @@
                       ))}
                   </div>
                   {top3Stocks.length > 10 && (
-                    <div className="text-center mt-2 text-sm text-gray-500">
-                      +{top3Stocks.length - 10}개 종목 더 보기
-                    </div>
+                    <button
+                      onClick={() => setTop3Expanded(!top3Expanded)}
+                      className="w-full text-center mt-2 text-sm text-blue-600 hover:text-blue-800 hover:underline cursor-pointer py-2"
+                    >
+                      {top3Expanded ? '접기 ▲' : `+${top3Stocks.length - 10}개 종목 더 보기 ▼`}
+                    </button>
                   )}
                 </div>
 
