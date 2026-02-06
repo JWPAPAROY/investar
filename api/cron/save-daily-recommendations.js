@@ -154,9 +154,9 @@ function formatSaveAlertMessage(nextTop3, morningResults, date) {
   const dateShort = date.slice(5).replace('-', '/');
   let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n\n`;
 
-  // ── 1. 어제 추천 당일 성과 ──
+  // ── 1. 어제 추천 종목의 오늘 성과 ──
   if (morningResults && morningResults.length > 0) {
-    msg += `📊 <b>어제 추천 당일 성과</b>\n`;
+    msg += `📊 <b>어제 추천 종목의 오늘 성과</b>\n`;
     let winCount = 0;
     let totalReturn = 0;
 
@@ -263,6 +263,10 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults) {
     message += `━━━━━━━━━━━━━━━━━━━━\n`;
     message += `📈 <b>과거 추천 성과</b>\n\n`;
 
+    let totalWinAll = 0;
+    let totalReturnAll = 0;
+    let totalCountAll = 0;
+
     prevDayResults.forEach((day, dayIndex) => {
       // 날짜 포맷
       const dayShort = day.date.slice(5).replace('-', '/');
@@ -271,27 +275,26 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults) {
 
       // TOP 3만 표시 (최대 3개)
       const displayStocks = day.stocks.slice(0, 3);
-      let winCount = 0;
-      let totalReturn = 0;
 
       displayStocks.forEach((stock, i) => {
         const r = stock.latestReturn;
         const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
         const emoji = r >= 0 ? '✅' : '❌';
-        if (r >= 0) winCount++;
-        totalReturn += r;
+        if (r >= 0) totalWinAll++;
+        totalReturnAll += r;
+        totalCountAll++;
 
         message += `  ${i + 1}. ${stock.stock_name} → ${returnStr} ${emoji}\n`;
       });
-
-      // 평균 수익률, 승률
-      if (displayStocks.length > 0) {
-        const avgReturn = totalReturn / displayStocks.length;
-        const winRate = (winCount / displayStocks.length * 100).toFixed(0);
-        message += `  📊 평균: ${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(1)}% | 승률: ${winRate}%\n`;
-      }
       message += `\n`;
     });
+
+    // 전체 요약
+    if (totalCountAll > 0) {
+      const avgReturnAll = totalReturnAll / totalCountAll;
+      const winRateAll = (totalWinAll / totalCountAll * 100).toFixed(0);
+      message += `📊 전체: 평균 ${avgReturnAll >= 0 ? '+' : ''}${avgReturnAll.toFixed(1)}% | 승률 ${winRateAll}% (${totalWinAll}/${totalCountAll})\n`;
+    }
   }
 
   return message;
