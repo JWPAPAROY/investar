@@ -308,26 +308,32 @@ function formatTrackMessage(trackResults, timeStr, recDate) {
 
   let winCount = 0;
   let totalReturn = 0;
+  let validCount = 0;
 
   trackResults.forEach((stock, i) => {
     const medal = ['🥇', '🥈', '🥉'][i];
-    const r = stock.return_rate;
-    const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
-    const emoji = r >= 0 ? '✅' : '❌';
-    if (r >= 0) winCount++;
-    totalReturn += r;
-
     const recPrice = stock.recommended_price.toLocaleString();
-    const curPrice = stock.current_price > 0 ? stock.current_price.toLocaleString() : '조회실패';
     const gradeDisplay = stock.grade === '과열' ? '과열 ⚠️' : `${stock.grade}등급`;
 
-    msg += `${medal} <b>${stock.stock_name}</b> (${gradeDisplay})\n`;
-    msg += `   💰 ${recPrice} → ${curPrice}원 (${returnStr}) ${emoji}\n`;
+    if (stock.current_price > 0) {
+      const r = stock.return_rate;
+      const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
+      const emoji = r >= 0 ? '✅' : '❌';
+      if (r >= 0) winCount++;
+      totalReturn += r;
+      validCount++;
+
+      msg += `${medal} <b>${stock.stock_name}</b> (${gradeDisplay})\n`;
+      msg += `   💰 ${recPrice} → ${stock.current_price.toLocaleString()}원 (${returnStr}) ${emoji}\n`;
+    } else {
+      msg += `${medal} <b>${stock.stock_name}</b> (${gradeDisplay})\n`;
+      msg += `   💰 ${recPrice}원 → ⚠️ 조회실패\n`;
+    }
   });
 
-  if (trackResults.length > 0) {
-    const avgReturn = totalReturn / trackResults.length;
-    const winRate = (winCount / trackResults.length * 100).toFixed(0);
+  if (validCount > 0) {
+    const avgReturn = totalReturn / validCount;
+    const winRate = (winCount / validCount * 100).toFixed(0);
     msg += `\n📈 평균: ${avgReturn >= 0 ? '+' : ''}${avgReturn.toFixed(1)}% | 승률: ${winRate}%`;
   }
 
