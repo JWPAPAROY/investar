@@ -412,7 +412,33 @@ function getYesterdayDateKST() {
 }
 
 module.exports = async (req, res) => {
-  const mode = req.query.mode || 'save';
+  let mode = req.query.mode || 'save';
+
+  // =============================================
+  // 📱 WEBHOOK 모드: 텔레그램 명령어 처리
+  // /추적, /알림, /도움
+  // =============================================
+  if (mode === 'webhook') {
+    const update = req.body || {};
+    const text = (update.message?.text || '').trim();
+    const chatId = update.message?.chat?.id;
+    console.log(`📱 Webhook 수신: "${text}" (chat: ${chatId})`);
+
+    if (text.startsWith('/추적') || text.startsWith('/track')) {
+      mode = 'track';
+    } else if (text.startsWith('/알림') || text.startsWith('/alert')) {
+      mode = 'alert';
+    } else {
+      // /도움 또는 미인식 명령어 → 도움말 전송
+      const helpMsg = `📱 <b>사용 가능한 명령어</b>\n\n`
+        + `/추적 — 장중 주가 추적 (3일치)\n`
+        + `/알림 — 오늘의 TOP 3 + 과거 성과\n`
+        + `/도움 — 이 도움말`;
+      await sendTelegramMessage(helpMsg);
+      return res.status(200).json({ ok: true });
+    }
+  }
+
   console.log(`📊 Cron 실행 (mode: ${mode})\n`);
 
   try {
