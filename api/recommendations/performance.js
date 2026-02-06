@@ -90,98 +90,116 @@ module.exports = async (req, res) => {
 
     console.log(`📊 ${recommendations.length}개 추천 종목 성과 추적 중...`);
 
-    // 현재 가격 조회 및 수익률 계산 (순차 처리로 rate limit 방지)
+    // === Phase 1: 전체 daily_prices 일괄 조회 (N개 개별 쿼리 → 1개 쿼리) ===
+    const recIds = recommendations.map(r => r.id);
+    const { data: allPriceData, error: allPriceError } = await supabase
+      .from('recommendation_daily_prices')
+      .select('*')
+      .in('recommendation_id', recIds)
+      .order('tracking_date', { ascending: true });
+
+    if (allPriceError) {
+      console.warn('일별 가격 일괄 조회 실패:', allPriceError.message);
+    }
+
+    // recommendation_id별로 그룹화
+    const pricesByRecId = {};
+    if (allPriceData) {
+      for (const p of allPriceData) {
+        if (!pricesByRecId[p.recommendation_id]) {
+          pricesByRecId[p.recommendation_id] = [];
+        }
+        pricesByRecId[p.recommendation_id].push(p);
+      }
+    }
+
+    // === Phase 2: 실시간 가격이 필요한 종목 식별 ===
+    const todayDateString = new Date().toDateString();
+    const recsNeedingRealtime = [];
+
+    for (const rec of recommendations) {
+      const priceData = pricesByRecId[rec.id] || [];
+      const latestPriceDate = priceData.length > 0
+        ? new Date(priceData[priceData.length - 1].tracking_date).toDateString()
+        : null;
+      const recDate = new Date(rec.recommendation_date);
+      const daysSince = Math.floor((new Date() - recDate) / (1000 * 60 * 60 * 24));
+
+      const needsRealTimePrice =
+        daysSince === 0 ||
+        priceData.length === 0 ||
+        latestPriceDate !== todayDateString;
+
+      if (needsRealTimePrice) {
+        recsNeedingRealtime.push(rec);
+      }
+    }
+
+    // === Phase 3: 실시간 가격 병렬 조회 (배치 5개씩) ===
+    const realtimePrices = {}; // stock_code → price
+    const BATCH_SIZE = 5;
+
+    // 종목코드 중복 제거 (같은 종목이 여러 날짜에 추천될 수 있음)
+    const uniqueCodes = [...new Set(recsNeedingRealtime.map(r => r.stock_code))];
+    console.log(`📊 실시간 가격 조회: ${uniqueCodes.length}개 종목 (전체 ${recommendations.length}개 중)`);
+
+    for (let i = 0; i < uniqueCodes.length; i += BATCH_SIZE) {
+      const batch = uniqueCodes.slice(i, i + BATCH_SIZE);
+      const results = await Promise.all(batch.map(async (code) => {
+        try {
+          const data = await kisApi.getCurrentPrice(code);
+          return { code, data };
+        } catch (err) {
+          console.warn(`⚠️ 실시간 가격 조회 실패 [${code}]:`, err.message);
+          return { code, data: null };
+        }
+      }));
+
+      for (const { code, data } of results) {
+        if (data?.currentPrice) {
+          realtimePrices[code] = data;
+        }
+      }
+    }
+
+    // === Phase 4: 각 추천 종목에 가격/수익률 매핑 ===
     const stocksWithPerformance = [];
 
     for (const rec of recommendations) {
       try {
-        // 추천 이후 경과일 (먼저 계산)
         const recDate = new Date(rec.recommendation_date);
         const today = new Date();
         const daysSince = Math.floor((today - recDate) / (1000 * 60 * 60 * 24));
 
-        // 날짜별 가격 데이터 조회 (Supabase에서)
         let dailyPrices = [];
-        let currentPrice = rec.recommended_price; // 기본값
-        let isRealTimePrice = false;
+        let currentPrice = rec.recommended_price;
 
-        try {
-          const { data: priceData, error: priceError } = await supabase
-            .from('recommendation_daily_prices')
-            .select('*')
-            .eq('recommendation_id', rec.id)
-            .order('tracking_date', { ascending: true });
+        // daily_prices 데이터 매핑
+        const priceData = pricesByRecId[rec.id] || [];
+        if (priceData.length > 0) {
+          dailyPrices = priceData.map(p => ({
+            date: p.tracking_date,
+            price: p.closing_price,
+            return: rec.recommended_price > 0
+              ? ((p.closing_price - rec.recommended_price) / rec.recommended_price * 100).toFixed(2)
+              : 0,
+            volume: p.volume,
+            cumulativeReturn: p.cumulative_return,
+            daysSince: p.days_since_recommendation
+          }));
+          currentPrice = priceData[priceData.length - 1].closing_price;
+        }
 
-          if (!priceError && priceData && priceData.length > 0) {
-            // daily_prices 데이터 가공
-            dailyPrices = priceData.map(p => ({
-              date: p.tracking_date,
-              price: p.closing_price,
-              return: rec.recommended_price > 0
-                ? ((p.closing_price - rec.recommended_price) / rec.recommended_price * 100).toFixed(2)
-                : 0,
-              volume: p.volume,
-              cumulativeReturn: p.cumulative_return,
-              daysSince: p.days_since_recommendation
-            }));
+        // 실시간 가격 적용
+        if (realtimePrices[rec.stock_code]) {
+          const rtData = realtimePrices[rec.stock_code];
+          currentPrice = rtData.currentPrice;
 
-            // 가장 최근 가격을 현재가로 사용
-            currentPrice = priceData[priceData.length - 1].closing_price;
+          // 종목명 업데이트
+          if (rtData.stockName &&
+            (!rec.stock_name || rec.stock_name === rec.stock_code || rec.stock_name.startsWith('['))) {
+            rec.stock_name = rtData.stockName;
           }
-
-          // 🆕 실시간 가격 조회 조건 확대 (Cron 실패 대비)
-          // 1. 오늘 추천 종목
-          // 2. daily_prices 없음
-          // 3. 최신 데이터가 오늘이 아님 (Cron 미실행 또는 실패)
-          const latestPriceDate = priceData && priceData.length > 0
-            ? new Date(priceData[priceData.length - 1].tracking_date).toDateString()
-            : null;
-          const todayDateString = new Date().toDateString();
-
-          const needsRealTimePrice =
-            daysSince === 0 ||  // 오늘 추천
-            !priceData || priceData.length === 0 ||  // 데이터 없음
-            latestPriceDate !== todayDateString;  // 최신 데이터가 오늘 아님
-
-          if (needsRealTimePrice) {
-            try {
-              const realtimeData = await kisApi.getCurrentPrice(rec.stock_code);
-              if (realtimeData) {
-                // 가격 업데이트
-                if (realtimeData.currentPrice) {
-                  currentPrice = realtimeData.currentPrice;
-                  isRealTimePrice = true;
-                  console.log(`✅ 실시간 가격 조회 [${rec.stock_name}]: ${currentPrice}원 (이유: ${daysSince === 0 ? '오늘 추천' : latestPriceDate ? '최신 데이터 없음' : 'daily_prices 없음'})`);
-                }
-
-                // 종목명이 없거나 종목코드인 경우, 실시간 데이터에서 업데이트
-                if (realtimeData.stockName &&
-                  (!rec.stock_name || rec.stock_name === rec.stock_code || rec.stock_name.startsWith('['))) {
-                  rec.stock_name = realtimeData.stockName;
-                  console.log(`✅ 종목명 업데이트 [${rec.stock_code}]: ${realtimeData.stockName}`);
-
-                  // Supabase에도 업데이트
-                  try {
-                    const { createClient } = require('@supabase/supabase-js');
-                    const supabase = createClient(
-                      process.env.SUPABASE_URL,
-                      process.env.SUPABASE_KEY
-                    );
-                    await supabase
-                      .from('screening_recommendations')
-                      .update({ stock_name: realtimeData.stockName })
-                      .eq('stock_code', rec.stock_code);
-                  } catch (updateErr) {
-                    console.warn(`⚠️ 종목명 DB 업데이트 실패 [${rec.stock_code}]:`, updateErr.message);
-                  }
-                }
-              }
-            } catch (kisErr) {
-              console.warn(`⚠️ 실시간 가격 조회 실패 [${rec.stock_code}]:`, kisErr.message);
-            }
-          }
-        } catch (priceErr) {
-          console.warn(`일별 가격 조회 실패 [${rec.stock_code}]:`, priceErr.message);
         }
 
         // 수익률 계산
