@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.29 (성공 패턴 분석 v2)
+- **버전**: 3.30 (텔레그램 웹훅 + 수동 명령어)
 - **최종 업데이트**: 2026-02-06
 
 ---
@@ -1005,6 +1005,40 @@ async function testGoldenZones() {
 
 ## 📝 변경 이력
 
+### v3.30 (2026-02-06) - 텔레그램 웹훅 + 수동 명령어 + 버그 수정
+
+#### 1️⃣ 텔레그램 웹훅 핸들러
+- POST 요청으로 텔레그램 봇 메시지 수신 처리
+- 명령어 파싱: `/알림`, `/추적`, `/결산`, `/도움` → 각각 alert, track, save, help 모드 실행
+- 웹훅 URL: `/api/cron/save-daily-recommendations` (기존 cron 핸들러와 통합)
+
+#### 2️⃣ `/결산` 장중 실행 가드
+- 장중(09:00-15:30 KST) 수동 `/결산` 시 DB 저장 건너뜀 (`skipDbSave`)
+- 스크리닝은 정상 실행, 텔레그램 메시지만 전송
+- 메시지에 `⚠️ 장중 데이터 (종가 미확정, DB 미저장)` 경고 표시
+- 16:00 cron이 최종 결산 및 DB 저장 처리
+
+#### 3️⃣ StockDetailModal null.toFixed() 크래시 수정
+- JSON 직렬화 시 NaN→null 변환 → 프론트엔드에서 null.toFixed() TypeError
+- `priceChange`, `volumeChange`, `periodPriceChange`, `periodVolumeChange`에 `|| 0` 가드 추가
+
+#### 4️⃣ Cron 실행 순서 수정
+- 기존: update-prices(16:00) → save(16:10) → 새 추천 종목 가격 미업데이트
+- 변경: save(16:00) → update-prices(16:15) → 모든 종목 가격 업데이트 보장
+
+#### 5️⃣ performance.js 최적화
+- Supabase 쿼리: N개 개별 → 1개 배치 + 페이지네이션 (1000행/페이지)
+- KIS API: 직렬 호출 → 5개씩 병렬 배치 + 200ms 딜레이 + 최대 2회 재시도
+- 40초 타임아웃 가드 (Vercel 60초 제한)
+
+#### 6️⃣ 성과 검증 탭 섹션 순서 변경
+- 변경 전: 등급별 성과 → 연속 급등주 → 성공 패턴 분석 → 공통 추천
+- 변경 후: 공통 추천 → 등급별 성과 → 연속 급등주 → 성공 패턴 분석
+
+**수정 파일**: `api/cron/save-daily-recommendations.js`, `api/recommendations/performance.js`, `index.html`, `vercel.json`
+
+---
+
 ### v3.29 (2026-02-06) - 성공 패턴 분석 시스템 v2
 
 **목적**: +10% 수익 달성 종목들의 추천 시점 지표 특징 추출 → 스크리닝 임계값 최적화
@@ -1534,28 +1568,37 @@ return (score >= 50 && score < 80) || (stock.goldenZone && stock.goldenZone.dete
 #### 텔레그램 알림 기능 추가 🆕
 
 **구현 내용**: 기존 `save-daily-recommendations.js`에 mode 파라미터 추가
-- `mode=save` (16:10 KST): 기존 스크리닝 + Supabase 저장
-- `mode=alert` (08:30 KST): 전날 저장된 TOP 3 텔레그램 알림
+- `mode=save` (16:00 KST): 당일 스크리닝 + Supabase 저장 + 결산 메시지
+- `mode=alert` (08:00 KST): 실시간 스크리닝 TOP 3 텔레그램 알림
+- `mode=track` (10:00/11:30/13:30/15:00 KST): 장중 주가 추적 알림
 
 **Cron 스케줄 (vercel.json)**:
 | 시간 (UTC) | 시간 (KST) | 모드 | 동작 |
 |-----------|-----------|------|------|
-| 07:10 | 16:10 | save | 당일 스크리닝 → Supabase 저장 |
-| 23:30 | 08:30 | alert | 전날 TOP 3 → 텔레그램 알림 |
+| 07:00 | 16:00 | save | 당일 스크리닝 → Supabase 저장 + 결산 메시지 |
+| 07:15 | 16:15 | update-prices | 전체 종목 가격 업데이트 |
+| 23:00 | 08:00 | alert | 실시간 스크리닝 TOP 3 → 텔레그램 알림 |
+| 01:00 | 10:00 | track | 장중 주가 추적 (개장 1시간 후) |
+| 02:30 | 11:30 | track | 장중 주가 추적 (오전장 마감 전) |
+| 04:30 | 13:30 | track | 장중 주가 추적 (오후장 초반) |
+| 06:00 | 15:00 | track | 장중 주가 추적 (장 마감 30분 전) |
+| 07:20 | 16:20 | patterns | 성공 패턴 수집 |
 
-**알림 메시지 내용**:
-- 🥇🥈🥉 TOP 3 종목 (고래 감지 종목 우선)
-- 종목명, 코드, 점수, 등급
-- 추천가, 손절가 (-5%)
-- 고래/매집 태그
+**텔레그램 웹훅 수동 명령어** (v3.30):
+| 명령어 | 모드 | 설명 |
+|--------|------|------|
+| `/알림` `/alert` | alert | 실시간 스크리닝 TOP 3 알림 |
+| `/추적` `/track` | track | 현재 추적 종목 주가 상태 |
+| `/결산` `/save` | save | 오늘의 결산 (장중: 메시지만, 장후: DB 저장+메시지) |
+| `/도움` `/help` | - | 명령어 안내 |
 
 **환경변수 (Vercel)**:
 - `TELEGRAM_BOT_TOKEN`: 텔레그램 봇 토큰
 - `TELEGRAM_CHAT_ID`: 알림 받을 채팅 ID
 
 **수정 파일**:
-- `api/cron/save-daily-recommendations.js`: alert 모드 추가
-- `vercel.json`: Cron 스케줄 추가
+- `api/cron/save-daily-recommendations.js`: 전체 모드 + 웹훅 핸들러
+- `vercel.json`: Cron 스케줄
 
 **핵심 철학**: "API 추가 없이 기존 파일에 mode 파라미터로 기능 확장"
 
@@ -2008,10 +2051,10 @@ Base(0-25) + Momentum(0-40) + Trend(0-35) = Total(0-100)
 ---
 
 **Last Updated**: 2026-02-06
-**Version**: 3.29 (성공 패턴 분석 v2)
+**Version**: 3.30 (텔레그램 웹훅 + 수동 명령어)
 **Author**: Claude Code with @knwwhr
 
-**v3.29: 성공 패턴 분석 v2 (+10% 달성 종목 지표 특징 추출)**
+**v3.30: 텔레그램 웹훅 + /결산 장중 가드 + 버그 수정 다수**
 **🔧 등급: ⚠️과열(RSI>80 AND 이격도>115) > S+(90+) > S(75-89) > A(60-74) > B(45-59) > C(30-44) > D(<30)**
 **📊 공식: Base(0-25) + Whale(0/15/30) + Momentum(0-30) + Trend(0-15) + SignalAdj = Total(0-100)**
 **📊 SignalAdj: 탈출속도(+5) + 윗꼬리과다(-10) + 매도고래3일내(-10)**
