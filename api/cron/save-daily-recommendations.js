@@ -149,10 +149,16 @@ function selectSaveTop3(stocks) {
  * v3.27: SAVE 메시지 (오후 16:10)
  * 🌆 오늘의 결산 (오전 추천 성과 + 내일 TOP 3)
  */
-function formatSaveAlertMessage(nextTop3, morningResults, date) {
+function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
-  let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n\n`;
+  let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n`;
+
+  // 장중 수동 결산 경고
+  if (options.skipDbSave) {
+    msg += `⚠️ <i>장중 데이터 (종가 미확정, DB 미저장)</i>\n`;
+  }
+  msg += `\n`;
 
   // ── 1. 어제 추천 종목의 오늘 성과 ──
   if (morningResults && morningResults.length > 0) {
@@ -423,6 +429,9 @@ module.exports = async (req, res) => {
     const text = (update.message?.text || '').trim();
     const chatId = update.message?.chat?.id;
     console.log(`📱 Webhook 수신: "${text}" (chat: ${chatId})`);
+
+    // 웹훅에서 호출됨을 표시 (save 모드에서 장중 DB 저장 방지용)
+    req._fromWebhook = true;
 
     if (text.startsWith('/추적') || text.startsWith('/track')) {
       mode = 'track';
@@ -700,6 +709,17 @@ module.exports = async (req, res) => {
     // =============================================
     // 💾 SAVE 모드: 저장 (16:10 KST) - 기존 로직
     // =============================================
+    // 장중 여부 체크 (KST 15:30 이전 = 장중)
+    const saveNow = new Date();
+    const saveKstHour = (saveNow.getUTCHours() + 9) % 24;
+    const saveKstMin = saveNow.getUTCMinutes();
+    const isFromWebhook = req._fromWebhook || false;
+    const isMarketOpen = saveKstHour >= 9 && (saveKstHour < 15 || (saveKstHour === 15 && saveKstMin < 30));
+    const skipDbSave = isFromWebhook && isMarketOpen;
+
+    if (skipDbSave) {
+      console.log('📱 수동 결산 (장중) - DB 저장 건너뜀, 메시지만 전송');
+    }
     console.log('💾 저장 모드 시작...');
 
     // Step 1: 종합 스크리닝 (전체 종목)
@@ -824,48 +844,55 @@ module.exports = async (req, res) => {
       };
     });
 
-    const { data, error } = await supabase
-      .from('screening_recommendations')
-      .upsert(recommendations, {
-        onConflict: 'recommendation_date,stock_code',
-        ignoreDuplicates: false
-      })
-      .select();
-
-    if (error) {
-      console.error('❌ Supabase 저장 실패:', error);
-      return res.status(500).json({
-        success: false,
-        error: error.message
-      });
-    }
-
-    console.log(`✅ ${data.length}개 추천 종목 저장 완료 (${today})`);
-
-    // ⭐ v3.10.0: 추천 당일 가격도 함께 저장 (즉시 성과 집계)
-    if (data && data.length > 0) {
-      const dailyPrices = data.map(rec => ({
-        recommendation_id: rec.id,
-        tracking_date: today,
-        closing_price: rec.recommended_price,
-        change_rate: rec.change_rate || 0,
-        volume: rec.volume || 0,
-        cumulative_return: 0, // 추천 당일은 0%
-        days_since_recommendation: 0
-      }));
-
-      const { error: dailyError } = await supabase
-        .from('recommendation_daily_prices')
-        .upsert(dailyPrices, {
-          onConflict: 'recommendation_id,tracking_date',
+    // 장중 수동 결산 시 DB 저장 건너뜀
+    let data = recommendations; // skipDbSave 시 recommendations를 data로 사용
+    if (!skipDbSave) {
+      const { data: savedData, error } = await supabase
+        .from('screening_recommendations')
+        .upsert(recommendations, {
+          onConflict: 'recommendation_date,stock_code',
           ignoreDuplicates: false
-        });
+        })
+        .select();
 
-      if (dailyError) {
-        console.warn('⚠️ 당일 가격 저장 실패 (무시):', dailyError.message);
-      } else {
-        console.log(`✅ ${dailyPrices.length}개 당일 가격 저장 완료`);
+      if (error) {
+        console.error('❌ Supabase 저장 실패:', error);
+        return res.status(500).json({
+          success: false,
+          error: error.message
+        });
       }
+
+      data = savedData;
+      console.log(`✅ ${data.length}개 추천 종목 저장 완료 (${today})`);
+
+      // ⭐ v3.10.0: 추천 당일 가격도 함께 저장 (즉시 성과 집계)
+      if (data && data.length > 0) {
+        const dailyPrices = data.map(rec => ({
+          recommendation_id: rec.id,
+          tracking_date: today,
+          closing_price: rec.recommended_price,
+          change_rate: rec.change_rate || 0,
+          volume: rec.volume || 0,
+          cumulative_return: 0, // 추천 당일은 0%
+          days_since_recommendation: 0
+        }));
+
+        const { error: dailyError } = await supabase
+          .from('recommendation_daily_prices')
+          .upsert(dailyPrices, {
+            onConflict: 'recommendation_id,tracking_date',
+            ignoreDuplicates: false
+          });
+
+        if (dailyError) {
+          console.warn('⚠️ 당일 가격 저장 실패 (무시):', dailyError.message);
+        } else {
+          console.log(`✅ ${dailyPrices.length}개 당일 가격 저장 완료`);
+        }
+      }
+    } else {
+      console.log(`⏭️ DB 저장 건너뜀 (장중 수동 결산) - ${recommendations.length}개 종목`);
     }
 
     // 등급별 통계
@@ -940,7 +967,7 @@ module.exports = async (req, res) => {
 
       // 3. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today);
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave });
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {
@@ -953,7 +980,8 @@ module.exports = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      saved: data.length,
+      saved: skipDbSave ? 0 : data.length,
+      skippedDbSave: skipDbSave,
       date: today,
       grades: gradeStats,
       telegramSent: tgSent,
