@@ -23,6 +23,22 @@
     {
       "path": "/api/patterns",
       "schedule": "20 7 * * *"
+    },
+    {
+      "path": "/api/cron/save-daily-recommendations?mode=track&time=1",
+      "schedule": "0 1 * * 1-5"
+    },
+    {
+      "path": "/api/cron/save-daily-recommendations?mode=track&time=2",
+      "schedule": "30 2 * * 1-5"
+    },
+    {
+      "path": "/api/cron/save-daily-recommendations?mode=track&time=3",
+      "schedule": "30 4 * * 1-5"
+    },
+    {
+      "path": "/api/cron/save-daily-recommendations?mode=track&time=4",
+      "schedule": "0 6 * * 1-5"
     }
   ]
 }
