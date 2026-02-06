@@ -550,37 +550,39 @@ module.exports = async (req, res) => {
         return res.status(200).json({ success: false, mode: 'track', message: 'No TOP 3 to track' });
       }
 
-      // Step 3: 각 종목 현재가 조회
+      // Step 3: 각 종목 현재가 조회 (최대 3회 재시도)
+      const MAX_RETRIES = 3;
+      const RETRY_DELAY = 1000;
       const trackResults = [];
-      for (const stock of top3) {
-        try {
-          const priceData = await kisApi.getCurrentPrice(stock.stock_code);
-          const currentPrice = priceData?.currentPrice || 0;
-          const returnRate = stock.recommended_price > 0
-            ? ((currentPrice - stock.recommended_price) / stock.recommended_price * 100)
-            : 0;
 
-          trackResults.push({
-            stock_name: stock.stock_name,
-            stock_code: stock.stock_code,
-            recommended_price: stock.recommended_price,
-            current_price: currentPrice,
-            return_rate: returnRate,
-            change_rate: priceData?.changeRate || 0,
-            grade: stock.recommendation_grade
-          });
-        } catch (err) {
-          console.warn(`⚠️ 현재가 조회 실패 (${stock.stock_name}):`, err.message);
-          trackResults.push({
-            stock_name: stock.stock_name,
-            stock_code: stock.stock_code,
-            recommended_price: stock.recommended_price,
-            current_price: 0,
-            return_rate: 0,
-            change_rate: 0,
-            grade: stock.recommendation_grade
-          });
+      for (const stock of top3) {
+        let priceData = null;
+
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            priceData = await kisApi.getCurrentPrice(stock.stock_code);
+            if (priceData?.currentPrice) break;
+            console.warn(`⚠️ ${stock.stock_name} 현재가 0 (${attempt}/${MAX_RETRIES})`);
+          } catch (err) {
+            console.warn(`⚠️ ${stock.stock_name} 조회 실패 (${attempt}/${MAX_RETRIES}): ${err.message}`);
+          }
+          if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, RETRY_DELAY));
         }
+
+        const currentPrice = priceData?.currentPrice || 0;
+        const returnRate = (stock.recommended_price > 0 && currentPrice > 0)
+          ? ((currentPrice - stock.recommended_price) / stock.recommended_price * 100)
+          : 0;
+
+        trackResults.push({
+          stock_name: stock.stock_name,
+          stock_code: stock.stock_code,
+          recommended_price: stock.recommended_price,
+          current_price: currentPrice,
+          return_rate: returnRate,
+          change_rate: priceData?.changeRate || 0,
+          grade: stock.recommendation_grade
+        });
       }
 
       // Step 4: 메시지 포맷 및 전송
