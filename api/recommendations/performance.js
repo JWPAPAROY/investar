@@ -50,6 +50,7 @@ module.exports = async (req, res) => {
   }
 
   try {
+    const apiStartTime = Date.now();
     const days = parseInt(req.query.days) || 30;
     const dnaCandidates = req.query.dna_candidates === 'true'; // DNA 후보 조회 모드
 
@@ -92,15 +93,33 @@ module.exports = async (req, res) => {
 
     // === Phase 1: 전체 daily_prices 일괄 조회 (N개 개별 쿼리 → 1개 쿼리) ===
     const recIds = recommendations.map(r => r.id);
-    const { data: allPriceData, error: allPriceError } = await supabase
-      .from('recommendation_daily_prices')
-      .select('*')
-      .in('recommendation_id', recIds)
-      .order('tracking_date', { ascending: true });
+    let allPriceData = [];
 
-    if (allPriceError) {
-      console.warn('일별 가격 일괄 조회 실패:', allPriceError.message);
+    // Supabase 기본 1000행 제한 → 페이지네이션
+    const PAGE_SIZE = 1000;
+    let page = 0;
+    let hasMore = true;
+    while (hasMore) {
+      const { data: pageData, error: pageError } = await supabase
+        .from('recommendation_daily_prices')
+        .select('*')
+        .in('recommendation_id', recIds)
+        .order('tracking_date', { ascending: true })
+        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+
+      if (pageError) {
+        console.warn('일별 가격 조회 실패:', pageError.message);
+        break;
+      }
+      if (pageData && pageData.length > 0) {
+        allPriceData = allPriceData.concat(pageData);
+        hasMore = pageData.length === PAGE_SIZE;
+        page++;
+      } else {
+        hasMore = false;
+      }
     }
+    console.log(`📦 daily_prices 조회: ${allPriceData.length}행 (${page + 1}페이지)`);
 
     // recommendation_id별로 그룹화
     const pricesByRecId = {};
@@ -135,32 +154,66 @@ module.exports = async (req, res) => {
       }
     }
 
-    // === Phase 3: 실시간 가격 병렬 조회 (배치 5개씩) ===
-    const realtimePrices = {}; // stock_code → price
-    const BATCH_SIZE = 5;
+    // === Phase 3: 실시간 가격 병렬 조회 (배치 5개씩 + 딜레이 + 재시도) ===
+    const realtimePrices = {}; // stock_code → { currentPrice, stockName }
+    const RT_BATCH_SIZE = 5;
+    const RT_BATCH_DELAY = 200; // 배치 간 200ms 딜레이
+    const MAX_RETRIES = 2;
 
     // 종목코드 중복 제거 (같은 종목이 여러 날짜에 추천될 수 있음)
     const uniqueCodes = [...new Set(recsNeedingRealtime.map(r => r.stock_code))];
     console.log(`📊 실시간 가격 조회: ${uniqueCodes.length}개 종목 (전체 ${recommendations.length}개 중)`);
 
-    for (let i = 0; i < uniqueCodes.length; i += BATCH_SIZE) {
-      const batch = uniqueCodes.slice(i, i + BATCH_SIZE);
-      const results = await Promise.all(batch.map(async (code) => {
-        try {
-          const data = await kisApi.getCurrentPrice(code);
-          return { code, data };
-        } catch (err) {
-          console.warn(`⚠️ 실시간 가격 조회 실패 [${code}]:`, err.message);
-          return { code, data: null };
-        }
-      }));
+    let remainingCodes = [...uniqueCodes];
+    let retryCount = 0;
 
-      for (const { code, data } of results) {
-        if (data?.currentPrice) {
-          realtimePrices[code] = data;
+    while (remainingCodes.length > 0 && retryCount <= MAX_RETRIES) {
+      if (retryCount > 0) {
+        console.log(`🔄 재시도 ${retryCount}/${MAX_RETRIES}: ${remainingCodes.length}개 종목`);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      const failedCodes = [];
+
+      for (let i = 0; i < remainingCodes.length; i += RT_BATCH_SIZE) {
+        const batch = remainingCodes.slice(i, i + RT_BATCH_SIZE);
+        const results = await Promise.all(batch.map(async (code) => {
+          try {
+            const data = await kisApi.getCurrentPrice(code);
+            return { code, data };
+          } catch (err) {
+            return { code, data: null };
+          }
+        }));
+
+        for (const { code, data } of results) {
+          if (data?.currentPrice) {
+            realtimePrices[code] = data;
+          } else {
+            failedCodes.push(code);
+          }
+        }
+
+        // 배치 간 딜레이 (rate limit 방지)
+        if (i + RT_BATCH_SIZE < remainingCodes.length) {
+          await new Promise(resolve => setTimeout(resolve, RT_BATCH_DELAY));
         }
       }
+
+      remainingCodes = failedCodes;
+      retryCount++;
+
+      // 타임아웃 방지: 40초 초과 시 중단
+      if (Date.now() - apiStartTime > 40000) {
+        console.warn(`⚠️ 타임아웃 임박 (${Math.floor((Date.now() - apiStartTime) / 1000)}초), 재시도 중단`);
+        break;
+      }
     }
+
+    if (remainingCodes.length > 0) {
+      console.warn(`⚠️ 실시간 가격 최종 실패: ${remainingCodes.length}개 (${remainingCodes.join(', ')})`);
+    }
+    console.log(`✅ 실시간 가격 조회 완료: ${Object.keys(realtimePrices).length}/${uniqueCodes.length}개`);
 
     // === Phase 4: 각 추천 종목에 가격/수익률 매핑 ===
     const stocksWithPerformance = [];
