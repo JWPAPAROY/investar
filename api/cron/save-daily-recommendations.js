@@ -422,10 +422,11 @@ module.exports = async (req, res) => {
         console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
       });
 
-      // Step 3: 과거 추천 종목 성과 조회 (D-2부터, D-1은 아직 가격 미업데이트)
-      let prevDayResults = []; // [{ date, stocks: [...] }, ...]
+      // Step 3: 과거 추천 종목 성과 조회 (D-1의 SAVE 데이터부터)
+      // SAVE날짜 → ALERT 전달일 매핑: SAVE 2/4 → ALERT 2/5, SAVE 2/3 → ALERT 2/4, ...
+      let prevDayResults = []; // [{ date, alertDate, stocks: [...] }, ...]
       try {
-        // 최근 3개 추천일 찾기 (latestSaveDate 이전 = D-2부터)
+        // 최근 추천일 찾기 (latestSaveDate 이전, 가격 업데이트 완료된 것만)
         const { data: prevDateRows } = await supabase
           .from('screening_recommendations')
           .select('recommendation_date')
@@ -434,9 +435,13 @@ module.exports = async (req, res) => {
 
         // 중복 날짜 제거 후 최근 3일
         const uniqueDates = [...new Set((prevDateRows || []).map(r => r.recommendation_date))].slice(0, 3);
-        console.log(`📅 이전 추천일: ${uniqueDates.join(', ') || '없음'}`);
+        // ALERT 전달일 매핑: [latestSaveDate, uniqueDates[0], uniqueDates[1]]
+        const alertDates = [latestSaveDate, ...uniqueDates.slice(0, -1)];
+        console.log(`📅 이전 추천일(SAVE): ${uniqueDates.join(', ') || '없음'}`);
+        console.log(`📅 ALERT 전달일: ${alertDates.join(', ') || '없음'}`);
 
-        for (const prevDate of uniqueDates) {
+        for (let idx = 0; idx < uniqueDates.length; idx++) {
+          const prevDate = uniqueDates[idx];
           // 해당 날짜 종목 조회
           const { data: prevStocks } = await supabase
             .from('screening_recommendations')
@@ -480,7 +485,7 @@ module.exports = async (req, res) => {
           }
 
           if (dayStocks.length > 0) {
-            prevDayResults.push({ date: prevDate, stocks: dayStocks });
+            prevDayResults.push({ date: alertDates[idx], stocks: dayStocks });
           }
         }
         console.log(`✅ 이전 추천 결과: ${prevDayResults.length}일치 (실시간 현재가 반영)`);
