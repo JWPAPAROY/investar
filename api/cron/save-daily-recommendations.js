@@ -428,11 +428,14 @@ module.exports = async (req, res) => {
       mode = 'track';
     } else if (text.startsWith('/알림') || text.startsWith('/alert')) {
       mode = 'alert';
+    } else if (text.startsWith('/결산') || text.startsWith('/save')) {
+      mode = 'save';
     } else {
       // /도움 또는 미인식 명령어 → 도움말 전송
       const helpMsg = `📱 <b>사용 가능한 명령어</b>\n\n`
         + `/추적 — 장중 주가 추적 (3일치)\n`
         + `/알림 — 오늘의 TOP 3 + 과거 성과\n`
+        + `/결산 — 오늘의 결산 (종가 기준)\n`
         + `/도움 — 이 도움말`;
       await sendTelegramMessage(helpMsg);
       return res.status(200).json({ ok: true });
