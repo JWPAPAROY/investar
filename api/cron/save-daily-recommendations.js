@@ -301,7 +301,8 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
       totalReturn += r;
 
       const marketTag = formatMarketTag(stock.market);
-      msg += `  ${medal} ${stock.stockName} ${marketTag}: ${startPrice.toLocaleString()} → ${endPrice.toLocaleString()}원 (${returnStr}) ${emoji}\n`;
+      const displayName = stock.stockName || stock.stock_name || stock.stockCode || stock.stock_code || '미상장';
+      msg += `  ${medal} ${displayName} ${marketTag}: ${startPrice.toLocaleString()} → ${endPrice.toLocaleString()}원 (${returnStr}) ${emoji}\n`;
     });
 
     const avgReturn = totalReturn / morningResults.length;
@@ -326,7 +327,8 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
       const gradeDisplay = grade === '과열' ? '과열 ⚠️' : `${grade}등급`;
 
       const marketTag = formatMarketTag(stock.market);
-      msg += `${medal} <b>${stock.stockName}</b> ${marketTag} (${stock.totalScore}점, ${gradeDisplay})\n`;
+      const displayName = stock.stockName || stock.stock_name || stock.stockCode || stock.stock_code || '미상장';
+      msg += `${medal} <b>${displayName}</b> ${marketTag} (${stock.totalScore || 0}점, ${gradeDisplay})\n`;
       msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
       msg += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
 
@@ -377,7 +379,8 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       const grade = stock.recommendation_grade || '?';
 
       const marketTag = formatMarketTag(stock.market);
-      message += `${medal} <b>${stock.stock_name}</b> ${marketTag} (${stock.stock_code})\n`;
+      const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
+      message += `${medal} <b>${displayName}</b> ${marketTag} (${stock.stock_code})\n`;
       message += `   📊 ${(stock.total_score || 0).toFixed(0)}점 | ${grade}등급\n`;
       message += `   💰 현재가: ${price.toLocaleString()}원\n`;
       message += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
@@ -498,21 +501,24 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null) {
         if (stock.current_price > 0) {
           const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
           const marketTag = formatMarketTag(stock.market);
-          msg += `${medal} <b>${stock.stock_name}</b> ${marketTag} (${gradeDisplay})\n`;
+          const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
+          msg += `${medal} <b>${displayName}</b> ${marketTag} (${gradeDisplay})\n`;
           msg += `   💰 ${recPrice} → ${stock.current_price.toLocaleString()}원 (${returnStr}) ${signal}\n`;
         } else {
           const marketTag = formatMarketTag(stock.market);
-          msg += `${medal} <b>${stock.stock_name}</b> ${marketTag} (${gradeDisplay})\n`;
+          const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
+          msg += `${medal} <b>${displayName}</b> ${marketTag} (${gradeDisplay})\n`;
           msg += `   💰 ${recPrice}원 → ⚠️ 조회실패\n`;
         }
       } else {
         // 이전 추천: 간결 표시
         const marketTag = formatMarketTag(stock.market);
+        const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
         if (stock.current_price > 0) {
           const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
-          msg += `  ${i + 1}. ${stock.stock_name} ${marketTag} → ${returnStr} ${signal}\n`;
+          msg += `  ${i + 1}. ${displayName} ${marketTag} → ${returnStr} ${signal}\n`;
         } else {
-          msg += `  ${i + 1}. ${stock.stock_name} ${marketTag} → ⚠️ 조회실패\n`;
+          msg += `  ${i + 1}. ${displayName} ${marketTag} → ⚠️ 조회실패\n`;
         }
       }
     });
