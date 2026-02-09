@@ -102,18 +102,23 @@ function formatSentimentLine(kospiSentiment, kosdaqSentiment) {
     msg += `  KOSDAQ ${kosdaqSentiment.emoji} ${kosdaqSentiment.label} (이격도 ${kosdaqSentiment.disparity} | RSI ${kosdaqSentiment.rsi})\n`;
   }
 
-  // 행동 가이드
+  // 행동 가이드 (v3.33: 모멘텀 전략에 맞게 수정)
   const kGrade = kospiSentiment?.grade;
   const qGrade = kosdaqSentiment?.grade;
 
+  // 모멘텀 전략: 상승 추세에 편승, 하락 추세에 손절
   if (kGrade === 'extreme' && qGrade === 'extreme') {
-    msg += `  ⚠️ 시장 전체 과열 - 신규 매수 비중 축소 권장\n`;
+    msg += `  🚀 시장 상승 추세 - 추천 종목 적극 매수!\n`;
+  } else if (kGrade === 'extreme' || qGrade === 'extreme') {
+    msg += `  � 상승 추세 강세 - 추세 편승, 보유 유지\n`;
+  } else if (kGrade === 'optimism' || qGrade === 'optimism') {
+    msg += `  📈 상승 추세 지속 - 분할 매수 권장\n`;
   } else if (kGrade === 'fear' && qGrade === 'fear') {
-    msg += `  💡 시장 전체 과매도 - 역발상 매수 구간\n`;
-  } else if (kGrade === 'extreme' && (qGrade === 'fear' || qGrade === 'anxiety')) {
-    msg += `  💡 코스닥 과매도 구간 - 코스닥 종목 주목\n`;
-  } else if (qGrade === 'extreme' && (kGrade === 'fear' || kGrade === 'anxiety')) {
-    msg += `  💡 코스피 과매도 구간 - 코스피 종목 주목\n`;
+    msg += `  � 시장 하락 추세 - 관망 권장, 손절 우선\n`;
+  } else if (kGrade === 'fear' || qGrade === 'fear') {
+    msg += `  ⚠️ 하락 추세 주의 - 손절 라인 준수\n`;
+  } else if (kGrade === 'anxiety' || qGrade === 'anxiety') {
+    msg += `  ⚠️ 변동성 확대 - 비중 축소 고려\n`;
   }
 
   return msg + `\n`;
