@@ -1100,6 +1100,8 @@ module.exports = async (req, res) => {
 
           for (const s of yestTop3) {
             let closingPrice = null;
+            const MAX_RETRIES = 3;
+            const RETRY_DELAY = 500;
 
             // 1차: 오늘 스크리닝 결과에서 일봉 종가 찾기
             const todayStock = stocks.find(t => t.stockCode === s.stock_code);
@@ -1107,38 +1109,44 @@ module.exports = async (req, res) => {
               closingPrice = todayStock.chartData[0].close;
             }
 
-            // 2차: 일봉 API로 오늘 종가 조회 (시간외가 제외)
+            // 2차: 일봉 API로 오늘 종가 조회 (3회 재시도)
             if (!closingPrice) {
-              try {
-                const chartData = await kisApi.getDailyChart(s.stock_code, 1);
-                if (chartData && chartData[0] && chartData[0].close) {
-                  closingPrice = chartData[0].close;
-                  console.log(`  ✓ ${s.stock_name} 일봉 종가: ${closingPrice.toLocaleString()}원`);
+              for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                  const chartData = await kisApi.getDailyChart(s.stock_code, 1);
+                  if (chartData && chartData[0] && chartData[0].close) {
+                    closingPrice = chartData[0].close;
+                    console.log(`  ✓ ${s.stock_name} 일봉 종가: ${closingPrice.toLocaleString()}원`);
+                    break;
+                  }
+                } catch (apiErr) {
+                  console.warn(`⚠️ 일봉 조회 실패 (${s.stock_name}) ${attempt}/${MAX_RETRIES}: ${apiErr.message}`);
                 }
-              } catch (apiErr) {
-                console.warn(`⚠️ 일봉 조회 실패 (${s.stock_name}): ${apiErr.message}`);
+                if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, RETRY_DELAY));
               }
-              await new Promise(r => setTimeout(r, 200)); // Rate limit
             }
 
-            // 3차: 현재가 API로 종가 조회 (v3.31 추가)
+            // 3차: 현재가 API로 종가 조회 (3회 재시도)
             if (!closingPrice) {
-              try {
-                const priceData = await kisApi.getCurrentPrice(s.stock_code);
-                if (priceData && priceData.currentPrice) {
-                  closingPrice = priceData.currentPrice;
-                  console.log(`  ✓ ${s.stock_name} 현재가 API: ${closingPrice.toLocaleString()}원`);
+              for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+                try {
+                  const priceData = await kisApi.getCurrentPrice(s.stock_code);
+                  if (priceData && priceData.currentPrice) {
+                    closingPrice = priceData.currentPrice;
+                    console.log(`  ✓ ${s.stock_name} 현재가 API: ${closingPrice.toLocaleString()}원`);
+                    break;
+                  }
+                } catch (apiErr2) {
+                  console.warn(`⚠️ 현재가 조회 실패 (${s.stock_name}) ${attempt}/${MAX_RETRIES}: ${apiErr2.message}`);
                 }
-              } catch (apiErr2) {
-                console.warn(`⚠️ 현재가 조회 실패 (${s.stock_name}): ${apiErr2.message}`);
+                if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, RETRY_DELAY));
               }
-              await new Promise(r => setTimeout(r, 200)); // Rate limit
             }
 
             // 조회 실패 시 추천가 유지 + 경고
             if (!closingPrice) {
               closingPrice = s.recommended_price;
-              console.warn(`⚠️ ${s.stock_name} 종가 조회 실패 - 추천가 유지: ${closingPrice.toLocaleString()}원`);
+              console.warn(`⚠️ ${s.stock_name} 종가 조회 최종 실패 - 추천가 유지: ${closingPrice.toLocaleString()}원`);
             }
 
             const returnRate = ((closingPrice - s.recommended_price) / s.recommended_price) * 100;
