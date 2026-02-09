@@ -409,6 +409,7 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       const displayStocks = day.stocks.slice(0, 3);
 
       displayStocks.forEach((stock, i) => {
+        const r = stock.latestReturn;
         const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
         const emoji = r >= 0 ? '✅' : '❌';
         if (r >= 0) totalWinAll++;
