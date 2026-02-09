@@ -988,6 +988,7 @@ module.exports = async (req, res) => {
         recommended_price: stock.chartData?.[0]?.close || stock.currentPrice || 0,
         recommendation_grade: stock.recommendation?.grade || 'D',
         total_score: stock.totalScore || 0,
+        market: stock.market || null, // v3.32: 시장 구분 (KOSPI/KOSDAQ)
 
         // 기본 정보
         change_rate: stock.changeRate || 0,
