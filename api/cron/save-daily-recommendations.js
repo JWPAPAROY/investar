@@ -1039,7 +1039,7 @@ module.exports = async (req, res) => {
         recommendation: { grade: s.recommendation_grade }
       }));
 
-      const message = formatSaveAlertMessage(morningResults, nextTop3, today, sentiment);
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment });
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
