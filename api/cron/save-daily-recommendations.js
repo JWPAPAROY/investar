@@ -13,6 +13,22 @@
  */
 
 const screener = require('../../backend/screening');
+
+// v3.32: 시장 정보 전역 캐시 (API 호출 최소화)
+let globalMarketMapCache = null;
+async function getGlobalMarketMap() {
+  if (!globalMarketMapCache) {
+    console.log('🔄 시장 정보 맵 로딩 중 (Global)...');
+    try {
+      const { marketMap } = await kisApi.getAllStockList('ALL');
+      globalMarketMapCache = marketMap;
+    } catch (e) {
+      console.error('❌ 시장 정보 로딩 실패:', e.message);
+      globalMarketMapCache = new Map();
+    }
+  }
+  return globalMarketMapCache;
+}
 const supabase = require('../../backend/supabaseClient');
 const kisApi = require('../../backend/kisApi');
 
@@ -123,8 +139,8 @@ function formatSentimentLine(kospiSentiment, kosdaqSentiment) {
  * @returns {string} - '[코스피]' 또는 '[코스닥]' 또는 ''
  */
 function formatMarketTag(market) {
-  if (market === 'KOSPI') return '[코스피]';
-  if (market === 'KOSDAQ') return '[코스닥]';
+  if (market === 'KOSPI') return '[KOSPI]';
+  if (market === 'KOSDAQ') return '[KOSDAQ]';
   return '';
 }
 
@@ -407,14 +423,14 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       const displayStocks = day.stocks.slice(0, 3);
 
       displayStocks.forEach((stock, i) => {
-        const r = stock.latestReturn;
         const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
         const emoji = r >= 0 ? '✅' : '❌';
         if (r >= 0) totalWinAll++;
         totalReturnAll += r;
         totalCountAll++;
 
-        message += `  ${i + 1}. ${stock.stock_name} → ${returnStr} ${emoji}\n`;
+        const marketTag = formatMarketTag(stock.market);
+        message += `  ${i + 1}. ${stock.stock_name} ${marketTag} → ${returnStr} ${emoji}\n`;
       });
       message += `\n`;
     });
@@ -635,6 +651,21 @@ module.exports = async (req, res) => {
       const top3 = selectAlertTop3(savedStocks || []).slice(0, 3);
       console.log(`✅ TOP 3 선정: ${top3.length}개`);
 
+      // v3.32: 시장 정보 보완 (alert 모드)
+      const missingMarket = top3.some(s => !s.market);
+      if (missingMarket) {
+        try {
+          const map = await getGlobalMarketMap();
+          top3.forEach(s => {
+            if (!s.market && map.has(s.stock_code)) {
+              s.market = map.get(s.stock_code);
+            }
+          });
+        } catch (err) {
+          console.warn('⚠️ 시장 정보 보완 실패:', err.message);
+        }
+      }
+
       top3.forEach((s, i) => {
         console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
       });
@@ -671,6 +702,19 @@ module.exports = async (req, res) => {
           const prevTop3 = selectAlertTop3(prevStocks || []).slice(0, 3);
           if (prevTop3.length === 0) continue;
 
+          // v3.32: 과거 추천 종목 시장 정보 보완
+          const missingPrevMarket = prevTop3.some(s => !s.market);
+          if (missingPrevMarket) {
+            try {
+              const map = await getGlobalMarketMap();
+              prevTop3.forEach(s => {
+                if (!s.market && map.has(s.stock_code)) {
+                  s.market = map.get(s.stock_code);
+                }
+              });
+            } catch (err) { }
+          }
+
           const dayStocks = [];
           for (const stock of prevTop3) {
             // v3.27: Supabase 저장된 종가 사용 (타임아웃 방지)
@@ -697,7 +741,8 @@ module.exports = async (req, res) => {
               recommended_price: stock.recommended_price,
               latestPrice: latestPrice,
               latestReturn: returnRate,
-              priceDate: priceDate
+              priceDate: priceDate,
+              market: stock.market // v3.32 추가
             });
           }
 
@@ -760,23 +805,8 @@ module.exports = async (req, res) => {
 
       const today = getTodayDateKST();
 
-      // v3.32: 시장 정보 맵 캐시 (필요 시 로드)
-      // Track 모드는 기존 데이터(market 누락)를 사용할 수 있으므로 실시간 보완 필요
-      let marketMapCache = null;
-      const getMarketMap = async () => {
-        if (!marketMapCache) {
-          console.log('🔄 시장 정보 맵 로딩 중 (For missing market tags)...');
-          try {
-            // 전체 종목 리스트 조회 (API 호출 발생) - 최초 1회만
-            const { marketMap } = await kisApi.getAllStockList('ALL');
-            marketMapCache = marketMap;
-          } catch (e) {
-            console.error('❌ 시장 정보 로딩 실패:', e.message);
-            marketMapCache = new Map(); // 빈 맵 반환하여 에러 방지
-          }
-        }
-        return marketMapCache;
-      };
+      // v3.32: 시장 정보 맵 로딩 로직을 전역 함수(getGlobalMarketMap)로 대체
+
 
       // Step 1: 최근 3개 SAVE 날짜 찾기
       const { data: saveDateRows } = await supabase
@@ -819,7 +849,7 @@ module.exports = async (req, res) => {
         const missingMarket = top3.some(s => !s.market);
         if (missingMarket) {
           try {
-            const map = await getMarketMap();
+            const map = await getGlobalMarketMap();
             top3.forEach(s => {
               if (!s.market && map.has(s.stock_code)) {
                 s.market = map.get(s.stock_code);
@@ -860,7 +890,6 @@ module.exports = async (req, res) => {
             stock_code: stock.stock_code,
             recommended_price: stock.recommended_price,
             current_price: currentPrice,
-            return_rate: returnRate,
             return_rate: returnRate,
             grade: stock.recommendation_grade,
             market: stock.market // v3.32 추가
