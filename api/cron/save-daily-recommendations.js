@@ -562,9 +562,11 @@ module.exports = async (req, res) => {
 
   // =============================================
   // 📱 WEBHOOK 모드: 텔레그램 명령어 처리
-  // /추적, /알림, /도움
+  // POST 요청이고 body에 텔레그램 메시지가 있으면 웹훅으로 판단
   // =============================================
-  if (mode === 'webhook') {
+  const isTelegramWebhook = req.method === 'POST' && req.body?.message?.text;
+
+  if (mode === 'webhook' || isTelegramWebhook) {
     const update = req.body || {};
     const text = (update.message?.text || '').trim();
     const chatId = update.message?.chat?.id;
