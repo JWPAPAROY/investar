@@ -575,10 +575,13 @@ module.exports = async (req, res) => {
 
     if (text.startsWith('/추적') || text.startsWith('/track')) {
       mode = 'track';
+      await sendTelegramMessage('📤 /추적 명령어 접수! 처리 중...');
     } else if (text.startsWith('/알림') || text.startsWith('/alert')) {
       mode = 'alert';
+      await sendTelegramMessage('📤 /알림 명령어 접수! 처리 중...');
     } else if (text.startsWith('/결산') || text.startsWith('/save')) {
       mode = 'save';
+      await sendTelegramMessage('📤 /결산 명령어 접수! 처리 중...');
     } else {
       // /도움 또는 미인식 명령어 → 도움말 전송
       const helpMsg = `📱 <b>사용 가능한 명령어</b>\n\n`
@@ -1377,6 +1380,12 @@ module.exports = async (req, res) => {
 
   } catch (error) {
     console.error('❌ 일일 추천 저장 실패:', error);
+
+    // v3.33: 에러 발생 시 텔레그램으로 에러 메시지 전송
+    try {
+      await sendTelegramMessage(`❌ 처리 중 오류 발생\n원인: ${error.message}\n\n다시 시도해주세요.`);
+    } catch (e) { }
+
     return res.status(500).json({
       success: false,
       error: error.message
