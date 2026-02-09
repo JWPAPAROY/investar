@@ -912,15 +912,27 @@ module.exports = async (req, res) => {
       const saveTop3 = selectSaveTop3(stocks);
       console.log(`📱 TOP 3 후보: ${saveTop3.length}개 - ${saveTop3.map(s => s.stockName + '(' + s.totalScore + ')').join(', ')}`);
 
-      // 2. 어제 추천 종목의 당일 성과 분석 (오늘 종가 기준)
+      // 2. 전 거래일 추천 종목의 당일 성과 분석 (오늘 종가 기준)
+      // v3.31: 주말/휴일에도 정상 동작하도록 가장 최근 SAVE 날짜 조회 (ALERT 모드와 동일)
       let morningResults = [];
       try {
-        const yesterday = getYesterdayDateKST();
-        const { data: yestStocks } = await supabase
+        const { data: prevSaveDateRows } = await supabase
+          .from('screening_recommendations')
+          .select('recommendation_date')
+          .lt('recommendation_date', today)
+          .order('recommendation_date', { ascending: false });
+        
+        const latestSaveDate = [...new Set((prevSaveDateRows || []).map(r => r.recommendation_date))][0];
+        
+        if (!latestSaveDate) {
+          console.log('⚠️ 이전 SAVE 데이터 없음 - 성과 분석 건너뜀');
+        }
+        
+        const { data: yestStocks } = latestSaveDate ? await supabase
           .from('screening_recommendations')
           .select('*')
-          .eq('recommendation_date', yesterday)
-          .eq('is_active', true);
+          .eq('recommendation_date', latestSaveDate)
+          .eq('is_active', true) : { data: null };
 
         if (yestStocks && yestStocks.length > 0) {
           const yestTop3 = selectAlertTop3(yestStocks).slice(0, 3);
