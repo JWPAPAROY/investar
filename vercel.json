@@ -5,16 +5,19 @@
     }
   },
   "rewrites": [
-    { "source": "/tracking-dashboard.html", "destination": "/tracking-dashboard.html" }
+    {
+      "source": "/tracking-dashboard.html",
+      "destination": "/tracking-dashboard.html"
+    }
   ],
   "crons": [
     {
-      "path": "/api/cron/save-daily-recommendations?mode=save",
-      "schedule": "0 7 * * 1-5"
+      "path": "/api/recommendations/update-prices",
+      "schedule": "50 6 * * 1-5"
     },
     {
-      "path": "/api/recommendations/update-prices",
-      "schedule": "15 7 * * *"
+      "path": "/api/cron/save-daily-recommendations?mode=save",
+      "schedule": "0 7 * * 1-5"
     },
     {
       "path": "/api/cron/save-daily-recommendations?mode=alert",
