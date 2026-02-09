@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.30
-- **최종 업데이트**: 2026-02-06
+- **버전**: 3.33
+- **최종 업데이트**: 2026-02-09
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -537,6 +537,14 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.33 (2026-02-09)
+- 시장 심리 가이드 모멘텀 전략으로 변경 (과열=적극 매수, 공포=손절/관망)
+- `/결산` 속도 최적화: 기존 데이터 있으면 재스크리닝 없이 빠른 반환
+- `save` 모드에서 `market` 필드 DB 저장 (KOSPI/KOSDAQ 태그 속도 개선)
+- `kisApi.getCurrentPrice`에서 시장 구분 정보 반환 추가
+- `formatTrackMessage` 이전 추천에 marketTag 추가
+- `formatAlertMessage` r 변수 누락 버그 수정
 
 ### v3.30 (2026-02-06)
 - 텔레그램 웹훅 핸들러 (`/알림`, `/추적`, `/결산`, `/도움`)
