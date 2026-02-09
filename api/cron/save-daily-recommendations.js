@@ -488,10 +488,12 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null) {
 
         if (stock.current_price > 0) {
           const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
-          msg += `${medal} <b>${stock.stock_name}</b> (${gradeDisplay})\n`;
+          const marketTag = formatMarketTag(stock.market);
+          msg += `${medal} <b>${stock.stock_name}</b> ${marketTag} (${gradeDisplay})\n`;
           msg += `   💰 ${recPrice} → ${stock.current_price.toLocaleString()}원 (${returnStr}) ${signal}\n`;
         } else {
-          msg += `${medal} <b>${stock.stock_name}</b> (${gradeDisplay})\n`;
+          const marketTag = formatMarketTag(stock.market);
+          msg += `${medal} <b>${stock.stock_name}</b> ${marketTag} (${gradeDisplay})\n`;
           msg += `   💰 ${recPrice}원 → ⚠️ 조회실패\n`;
         }
       } else {
