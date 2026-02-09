@@ -245,6 +245,9 @@ class KISApi {
     try {
       const token = await this.getAccessToken();
       const endDate = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      const startDateObj = new Date();
+      startDateObj.setDate(startDateObj.getDate() - days - 10); // 여유있게 조회
+      const startDate = startDateObj.toISOString().split('T')[0].replace(/-/g, '');
 
       const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice`, {
         headers: {
@@ -257,7 +260,7 @@ class KISApi {
         params: {
           FID_COND_MRKT_DIV_CODE: 'U',  // U: 업종
           FID_INPUT_ISCD: indexCode,
-          FID_INPUT_DATE_1: endDate,
+          FID_INPUT_DATE_1: startDate,
           FID_INPUT_DATE_2: endDate,
           FID_PERIOD_DIV_CODE: 'D'
         }
