@@ -933,14 +933,46 @@ module.exports = async (req, res) => {
     }
     console.log('💾 저장 모드 시작...');
 
-    // v3.32: 오늘 데이터가 이미 있으면 재스크리닝 없이 빠른 반환
-    const today = new Date().toISOString().slice(0, 10);
-    const { data: existingData } = await supabase
+    // v3.33: 오늘 데이터가 이미 있으면 재스크리닝 없이 빠른 반환
+    // 자정~장 시작 전(00:00-09:00)에는 전날 데이터도 허용
+    let today = new Date().toISOString().slice(0, 10);
+    const isBeforeMarketOpen = saveKstHour < 9; // 09:00 KST 이전
+
+    let existingData = null;
+    const { data: todayData } = await supabase
       .from('screening_recommendations')
       .select('*')
       .eq('recommendation_date', today)
       .eq('is_active', true)
       .order('total_score', { ascending: false });
+
+    if (todayData && todayData.length > 0) {
+      existingData = todayData;
+    } else if (isBeforeMarketOpen) {
+      // 장 시작 전이고 오늘 데이터가 없으면 전날 데이터 조회
+      console.log('🌙 장 시작 전 - 전날 데이터 조회 시도...');
+      const { data: prevDateRows } = await supabase
+        .from('screening_recommendations')
+        .select('recommendation_date')
+        .order('recommendation_date', { ascending: false })
+        .limit(1);
+
+      if (prevDateRows && prevDateRows.length > 0) {
+        const prevDate = prevDateRows[0].recommendation_date;
+        const { data: prevData } = await supabase
+          .from('screening_recommendations')
+          .select('*')
+          .eq('recommendation_date', prevDate)
+          .eq('is_active', true)
+          .order('total_score', { ascending: false });
+
+        if (prevData && prevData.length > 0) {
+          existingData = prevData;
+          today = prevDate; // 메시지에 표시할 날짜도 전날로 변경
+          console.log(`⚡ 전날 데이터 사용 (${prevDate}, ${prevData.length}개)`);
+        }
+      }
+    }
 
     if (existingData && existingData.length > 0 && !skipDbSave) {
       console.log(`⚡ 기존 결산 데이터 발견 (${existingData.length}개) - 재스크리닝 건너뜀`);
