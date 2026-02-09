@@ -501,11 +501,12 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null) {
         }
       } else {
         // 이전 추천: 간결 표시
+        const marketTag = formatMarketTag(stock.market);
         if (stock.current_price > 0) {
           const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
-          msg += `  ${i + 1}. ${stock.stock_name} → ${returnStr} ${signal}\n`;
+          msg += `  ${i + 1}. ${stock.stock_name} ${marketTag} → ${returnStr} ${signal}\n`;
         } else {
-          msg += `  ${i + 1}. ${stock.stock_name} → ⚠️ 조회실패\n`;
+          msg += `  ${i + 1}. ${stock.stock_name} ${marketTag} → ⚠️ 조회실패\n`;
         }
       }
     });
