@@ -1,5 +1,5 @@
 /**
- * 매일 추천 종목 자동 저장 & 알림 Cron (v3.30)
+ * 매일 추천 종목 자동 저장 & 알림 Cron (v3.32)
  *
  * 모드:
  * - save  (16:10 KST): 스크리닝 + Supabase 저장 + 내일 TOP 3 알림
@@ -15,6 +15,118 @@
 const screener = require('../../backend/screening');
 const supabase = require('../../backend/supabaseClient');
 const kisApi = require('../../backend/kisApi');
+
+/**
+ * v3.32: 시장 심리 지수 계산
+ * 지수 일봉(30일)에서 이격도, RSI, 추세 위치 분석
+ * @param {Array} chartData - 지수 일봉 [{date, close, ...}] 내림차순
+ * @returns {Object|null} - {score, grade, emoji, label, disparity, rsi}
+ */
+function calculateMarketSentiment(chartData) {
+  if (!chartData || chartData.length < 20) return null;
+
+  const closes = chartData.map(d => d.close);
+  const current = closes[0];
+
+  // 1. 20일 이격도
+  const ma20 = closes.slice(0, 20).reduce((a, b) => a + b, 0) / 20;
+  const disparity = (current / ma20) * 100;
+  let disparityScore = 0;
+  if (disparity <= 95) disparityScore = -2;
+  else if (disparity <= 98) disparityScore = -1;
+  else if (disparity >= 105) disparityScore = 2;
+  else if (disparity >= 102) disparityScore = 1;
+
+  // 2. RSI(14)
+  let gains = 0, losses = 0;
+  for (let i = 0; i < 14 && i < closes.length - 1; i++) {
+    const diff = closes[i] - closes[i + 1]; // 내림차순이므로 [i]가 최신
+    if (diff > 0) gains += diff;
+    else losses += Math.abs(diff);
+  }
+  const rs = losses === 0 ? 100 : gains / losses;
+  const rsi = 100 - (100 / (1 + rs));
+  let rsiScore = 0;
+  if (rsi <= 30) rsiScore = -2;
+  else if (rsi <= 40) rsiScore = -1;
+  else if (rsi >= 70) rsiScore = 2;
+  else if (rsi >= 60) rsiScore = 1;
+
+  // 3. 추세 위치 (가용 일수 기준 이동평균)
+  let trendScore = 0;
+  if (chartData.length >= 25) {
+    const availableDays = Math.min(closes.length, 30);
+    const maApprox = closes.slice(0, availableDays).reduce((a, b) => a + b, 0) / availableDays;
+    const trendPosition = ((current - maApprox) / maApprox) * 100;
+    if (trendPosition <= -10) trendScore = -2;
+    else if (trendPosition <= -3) trendScore = -1;
+    else if (trendPosition >= 10) trendScore = 2;
+    else if (trendPosition >= 3) trendScore = 1;
+  }
+
+  const totalScore = disparityScore + rsiScore + trendScore; // -6 ~ +6
+
+  // 등급 판정
+  let grade, emoji, label;
+  if (totalScore <= -3) { grade = 'fear'; emoji = '😱'; label = '공포'; }
+  else if (totalScore <= -1) { grade = 'anxiety'; emoji = '😟'; label = '불안'; }
+  else if (totalScore <= 1) { grade = 'neutral'; emoji = '😐'; label = '중립'; }
+  else if (totalScore <= 3) { grade = 'optimism'; emoji = '😊'; label = '낙관'; }
+  else { grade = 'extreme'; emoji = '🔥'; label = '과열'; }
+
+  return {
+    score: totalScore,
+    grade, emoji, label,
+    disparity: disparity.toFixed(1),
+    rsi: rsi.toFixed(0)
+  };
+}
+
+/**
+ * v3.32: 시장 심리 지수 메시지 포맷
+ * @param {Object} kospiSentiment - KOSPI 심리 지수
+ * @param {Object} kosdaqSentiment - KOSDAQ 심리 지수
+ * @returns {string} - 텔레그램 메시지 문자열
+ */
+function formatSentimentLine(kospiSentiment, kosdaqSentiment) {
+  if (!kospiSentiment && !kosdaqSentiment) return '';
+
+  let msg = `📊 <b>시장 심리</b>\n`;
+
+  if (kospiSentiment) {
+    msg += `  KOSPI ${kospiSentiment.emoji} ${kospiSentiment.label} (이격도 ${kospiSentiment.disparity} | RSI ${kospiSentiment.rsi})\n`;
+  }
+  if (kosdaqSentiment) {
+    msg += `  KOSDAQ ${kosdaqSentiment.emoji} ${kosdaqSentiment.label} (이격도 ${kosdaqSentiment.disparity} | RSI ${kosdaqSentiment.rsi})\n`;
+  }
+
+  // 행동 가이드
+  const kGrade = kospiSentiment?.grade;
+  const qGrade = kosdaqSentiment?.grade;
+
+  if (kGrade === 'extreme' && qGrade === 'extreme') {
+    msg += `  ⚠️ 시장 전체 과열 - 신규 매수 비중 축소 권장\n`;
+  } else if (kGrade === 'fear' && qGrade === 'fear') {
+    msg += `  💡 시장 전체 과매도 - 역발상 매수 구간\n`;
+  } else if (kGrade === 'extreme' && (qGrade === 'fear' || qGrade === 'anxiety')) {
+    msg += `  💡 코스닥 과매도 구간 - 코스닥 종목 주목\n`;
+  } else if (qGrade === 'extreme' && (kGrade === 'fear' || kGrade === 'anxiety')) {
+    msg += `  💡 코스피 과매도 구간 - 코스피 종목 주목\n`;
+  }
+
+  return msg + `\n`;
+}
+
+/**
+ * v3.32: 시장 태그 포맷 (종목명 옆에 표시)
+ * @param {string} market - 'KOSPI' 또는 'KOSDAQ'
+ * @returns {string} - '[코스피]' 또는 '[코스닥]' 또는 ''
+ */
+function formatMarketTag(market) {
+  if (market === 'KOSPI') return '[코스피]';
+  if (market === 'KOSDAQ') return '[코스닥]';
+  return '';
+}
 
 /**
  * 텔레그램 메시지 전송
@@ -160,6 +272,11 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
   }
   msg += `\n`;
 
+  // v3.32: 시장 심리 지수
+  if (options.sentiment) {
+    msg += formatSentimentLine(options.sentiment.kospi, options.sentiment.kosdaq);
+  }
+
   // ── 1. 어제 추천 종목의 오늘 성과 ──
   if (morningResults && morningResults.length > 0) {
     msg += `📊 <b>어제 추천 종목의 오늘 성과</b>\n`;
@@ -200,7 +317,8 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
       const grade = stock.recommendation?.grade || '?';
       const gradeDisplay = grade === '과열' ? '과열 ⚠️' : `${grade}등급`;
 
-      msg += `${medal} <b>${stock.stockName}</b> (${stock.totalScore}점, ${gradeDisplay})\n`;
+      const marketTag = formatMarketTag(stock.market);
+      msg += `${medal} <b>${stock.stockName}</b> ${marketTag} (${stock.totalScore}점, ${gradeDisplay})\n`;
       msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
       msg += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
 
@@ -226,10 +344,15 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
  * v3.27: ALERT 메시지 (아침 08:30)
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
-function formatAlertMessage(top3, whaleStocks, date, prevDayResults) {
+function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
+
+  // v3.32: 시장 심리 지수
+  if (sentiment) {
+    message += formatSentimentLine(sentiment.kospi, sentiment.kosdaq);
+  }
 
   // ── 오늘의 TOP 3 ──
   if (!top3 || top3.length === 0) {
@@ -245,7 +368,8 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults) {
       const sl7 = Math.floor(price * 0.93);
       const grade = stock.recommendation_grade || '?';
 
-      message += `${medal} <b>${stock.stock_name}</b> (${stock.stock_code})\n`;
+      const marketTag = formatMarketTag(stock.market);
+      message += `${medal} <b>${stock.stock_name}</b> ${marketTag} (${stock.stock_code})\n`;
       message += `   📊 ${stock.total_score.toFixed(0)}점 | ${grade}등급\n`;
       message += `   💰 현재가: ${price.toLocaleString()}원\n`;
       message += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
@@ -325,8 +449,13 @@ function getReturnSignal(r) {
   return r >= 0 ? '✅' : '❌';
 }
 
-function formatTrackMessage(dayResults, timeStr) {
+function formatTrackMessage(dayResults, timeStr, sentiment = null) {
   let msg = `📊 <b>주가 추적</b> (${timeStr})\n\n`;
+
+  // v3.32: 시장 심리 지수
+  if (sentiment) {
+    msg += formatSentimentLine(sentiment.kospi, sentiment.kosdaq);
+  }
 
   let totalWin = 0;
   let totalReturn = 0;
@@ -579,8 +708,24 @@ module.exports = async (req, res) => {
         console.warn('⚠️ 이전 추천 결과 조회 실패 (무시):', prevError.message);
       }
 
+      // v3.32: 시장 심리 지수 조회
+      let sentiment = null;
+      try {
+        const [kospiChart, kosdaqChart] = await Promise.all([
+          kisApi.getIndexChart('0001', 30),
+          kisApi.getIndexChart('1001', 30)
+        ]);
+        sentiment = {
+          kospi: calculateMarketSentiment(kospiChart),
+          kosdaq: calculateMarketSentiment(kosdaqChart)
+        };
+        console.log(`📊 시장 심리: KOSPI ${sentiment.kospi?.label || '?'}, KOSDAQ ${sentiment.kosdaq?.label || '?'}`);
+      } catch (sentErr) {
+        console.warn('⚠️ 시장 심리 지수 조회 실패:', sentErr.message);
+      }
+
       // Step 5: 텔레그램 알림 전송
-      const message = formatAlertMessage(top3, [], today, prevDayResults);
+      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment);
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -687,8 +832,24 @@ module.exports = async (req, res) => {
         dayResults.push({ alertDate: alertDates[dayIdx], stocks });
       }
 
+      // v3.32: 시장 심리 지수 조회
+      let sentiment = null;
+      try {
+        const [kospiChart, kosdaqChart] = await Promise.all([
+          kisApi.getIndexChart('0001', 30),
+          kisApi.getIndexChart('1001', 30)
+        ]);
+        sentiment = {
+          kospi: calculateMarketSentiment(kospiChart),
+          kosdaq: calculateMarketSentiment(kosdaqChart)
+        };
+        console.log(`📊 시장 심리: KOSPI ${sentiment.kospi?.label || '?'}, KOSDAQ ${sentiment.kosdaq?.label || '?'}`);
+      } catch (sentErr) {
+        console.warn('⚠️ 시장 심리 지수 조회 실패:', sentErr.message);
+      }
+
       // Step 3: 메시지 포맷 및 전송
-      const trackMsg = formatTrackMessage(dayResults, kstTimeStr);
+      const trackMsg = formatTrackMessage(dayResults, kstTimeStr, sentiment);
       const sent = await sendTelegramMessage(trackMsg);
 
       return res.status(200).json({
@@ -995,9 +1156,25 @@ module.exports = async (req, res) => {
         console.warn('⚠️ 어제 추천 성과 분석 실패:', mErr.message);
       }
 
+      // v3.32: 시장 심리 지수 조회
+      let sentiment = null;
+      try {
+        const [kospiChart, kosdaqChart] = await Promise.all([
+          kisApi.getIndexChart('0001', 30),
+          kisApi.getIndexChart('1001', 30)
+        ]);
+        sentiment = {
+          kospi: calculateMarketSentiment(kospiChart),
+          kosdaq: calculateMarketSentiment(kosdaqChart)
+        };
+        console.log(`📊 시장 심리: KOSPI ${sentiment.kospi?.label || '?'}, KOSDAQ ${sentiment.kosdaq?.label || '?'}`);
+      } catch (sentErr) {
+        console.warn('⚠️ 시장 심리 지수 조회 실패:', sentErr.message);
+      }
+
       // 3. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave });
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment });
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {
