@@ -292,15 +292,16 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
 
     morningResults.forEach((stock, i) => {
       const medal = ['🥇', '🥈', '🥉'][i];
-      const startPrice = stock.recommendPrice;
-      const endPrice = stock.closingPrice;
-      const r = stock.returnRate;
+      const startPrice = stock.recommendedPrice || stock.recommendPrice || 0;
+      const endPrice = stock.currentPrice || stock.closingPrice || 0;
+      const r = stock.returnRate || 0;
       const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
       const emoji = r >= 0 ? '✅' : '❌';
       if (r >= 0) winCount++;
       totalReturn += r;
 
-      msg += `  ${medal} ${stock.stockName}: ${startPrice.toLocaleString()} → ${endPrice.toLocaleString()}원 (${returnStr}) ${emoji}\n`;
+      const marketTag = formatMarketTag(stock.market);
+      msg += `  ${medal} ${stock.stockName} ${marketTag}: ${startPrice.toLocaleString()} → ${endPrice.toLocaleString()}원 (${returnStr}) ${emoji}\n`;
     });
 
     const avgReturn = totalReturn / morningResults.length;
