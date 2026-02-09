@@ -921,13 +921,13 @@ module.exports = async (req, res) => {
           .select('recommendation_date')
           .lt('recommendation_date', today)
           .order('recommendation_date', { ascending: false });
-        
+
         const latestSaveDate = [...new Set((prevSaveDateRows || []).map(r => r.recommendation_date))][0];
-        
+
         if (!latestSaveDate) {
           console.log('⚠️ 이전 SAVE 데이터 없음 - 성과 분석 건너뜀');
         }
-        
+
         const { data: yestStocks } = latestSaveDate ? await supabase
           .from('screening_recommendations')
           .select('*')
@@ -952,15 +952,33 @@ module.exports = async (req, res) => {
                 const chartData = await kisApi.getDailyChart(s.stock_code, 1);
                 if (chartData && chartData[0] && chartData[0].close) {
                   closingPrice = chartData[0].close;
+                  console.log(`  ✓ ${s.stock_name} 일봉 종가: ${closingPrice.toLocaleString()}원`);
                 }
               } catch (apiErr) {
-                console.warn(`⚠️ 종가 조회 실패 (${s.stock_name}): ${apiErr.message}`);
+                console.warn(`⚠️ 일봉 조회 실패 (${s.stock_name}): ${apiErr.message}`);
               }
-              await new Promise(r => setTimeout(r, 100)); // Rate limit
+              await new Promise(r => setTimeout(r, 200)); // Rate limit
             }
 
-            // 조회 실패 시 추천가 유지
-            if (!closingPrice) closingPrice = s.recommended_price;
+            // 3차: 현재가 API로 종가 조회 (v3.31 추가)
+            if (!closingPrice) {
+              try {
+                const priceData = await kisApi.getCurrentPrice(s.stock_code);
+                if (priceData && priceData.currentPrice) {
+                  closingPrice = priceData.currentPrice;
+                  console.log(`  ✓ ${s.stock_name} 현재가 API: ${closingPrice.toLocaleString()}원`);
+                }
+              } catch (apiErr2) {
+                console.warn(`⚠️ 현재가 조회 실패 (${s.stock_name}): ${apiErr2.message}`);
+              }
+              await new Promise(r => setTimeout(r, 200)); // Rate limit
+            }
+
+            // 조회 실패 시 추천가 유지 + 경고
+            if (!closingPrice) {
+              closingPrice = s.recommended_price;
+              console.warn(`⚠️ ${s.stock_name} 종가 조회 실패 - 추천가 유지: ${closingPrice.toLocaleString()}원`);
+            }
 
             const returnRate = ((closingPrice - s.recommended_price) / s.recommended_price) * 100;
             morningResults.push({
