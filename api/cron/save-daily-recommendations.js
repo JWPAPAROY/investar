@@ -14,21 +14,7 @@
 
 const screener = require('../../backend/screening');
 
-// v3.32: 시장 정보 전역 캐시 (API 호출 최소화)
-let globalMarketMapCache = null;
-async function getGlobalMarketMap() {
-  if (!globalMarketMapCache) {
-    console.log('🔄 시장 정보 맵 로딩 중 (Global)...');
-    try {
-      const { marketMap } = await kisApi.getAllStockList('ALL');
-      globalMarketMapCache = marketMap;
-    } catch (e) {
-      console.error('❌ 시장 정보 로딩 실패:', e.message);
-      globalMarketMapCache = new Map();
-    }
-  }
-  return globalMarketMapCache;
-}
+
 const supabase = require('../../backend/supabaseClient');
 const kisApi = require('../../backend/kisApi');
 
@@ -651,19 +637,19 @@ module.exports = async (req, res) => {
       const top3 = selectAlertTop3(savedStocks || []).slice(0, 3);
       console.log(`✅ TOP 3 선정: ${top3.length}개`);
 
-      // v3.32: 시장 정보 보완 (alert 모드)
-      const missingMarket = top3.some(s => !s.market);
-      if (missingMarket) {
-        try {
-          const map = await getGlobalMarketMap();
-          top3.forEach(s => {
-            if (!s.market && map.has(s.stock_code)) {
-              s.market = map.get(s.stock_code);
+      // v3.32: 시장 정보 보완 (개별 API 호출)
+      if (top3.some(s => !s.market)) {
+        console.log('🔄 일부 종목 시장 정보 누락, 개별 조회 시도...');
+        await Promise.all(top3.map(async s => {
+          if (!s.market) {
+            try {
+              const info = await kisApi.getCurrentPrice(s.stock_code);
+              if (info?.market) s.market = info.market;
+            } catch (e) {
+              console.warn(`⚠️ 시장 정보 보완 실패 (${s.stock_name}):`, e.message);
             }
-          });
-        } catch (err) {
-          console.warn('⚠️ 시장 정보 보완 실패:', err.message);
-        }
+          }
+        }));
       }
 
       top3.forEach((s, i) => {
@@ -703,16 +689,15 @@ module.exports = async (req, res) => {
           if (prevTop3.length === 0) continue;
 
           // v3.32: 과거 추천 종목 시장 정보 보완
-          const missingPrevMarket = prevTop3.some(s => !s.market);
-          if (missingPrevMarket) {
-            try {
-              const map = await getGlobalMarketMap();
-              prevTop3.forEach(s => {
-                if (!s.market && map.has(s.stock_code)) {
-                  s.market = map.get(s.stock_code);
-                }
-              });
-            } catch (err) { }
+          if (prevTop3.some(s => !s.market)) {
+            await Promise.all(prevTop3.map(async s => {
+              if (!s.market) {
+                try {
+                  const info = await kisApi.getCurrentPrice(s.stock_code);
+                  if (info?.market) s.market = info.market;
+                } catch (e) { }
+              }
+            }));
           }
 
           const dayStocks = [];
@@ -844,25 +829,11 @@ module.exports = async (req, res) => {
         const top3 = selectAlertTop3(savedStocks || []).slice(0, 3);
         if (top3.length === 0) continue;
 
-        // v3.32: 시장 정보(market) 누락 시 보완 (기존 데이터 호환성)
-        // DB에 market 컬럼이 없거나 데이터가 null인 경우
-        const missingMarket = top3.some(s => !s.market);
-        if (missingMarket) {
-          try {
-            const map = await getGlobalMarketMap();
-            top3.forEach(s => {
-              if (!s.market && map.has(s.stock_code)) {
-                s.market = map.get(s.stock_code);
-              }
-            });
-          } catch (err) {
-            console.warn('⚠️ 시장 정보 보완 실패:', err.message);
-          }
-        }
-
         const stocks = [];
         for (const stock of top3) {
-          let currentPrice = priceCache[stock.stock_code] || 0;
+          let cached = priceCache[stock.stock_code];
+          let currentPrice = cached?.price || 0;
+          let marketInfo = stock.market || cached?.market;
 
           // 캐시에 없으면 API 호출 (재시도 포함)
           if (!currentPrice) {
@@ -871,7 +842,8 @@ module.exports = async (req, res) => {
                 const priceData = await kisApi.getCurrentPrice(stock.stock_code);
                 if (priceData?.currentPrice) {
                   currentPrice = priceData.currentPrice;
-                  priceCache[stock.stock_code] = currentPrice;
+                  marketInfo = marketInfo || priceData.market;
+                  priceCache[stock.stock_code] = { price: currentPrice, market: marketInfo };
                   break;
                 }
               } catch (err) {
@@ -892,7 +864,7 @@ module.exports = async (req, res) => {
             current_price: currentPrice,
             return_rate: returnRate,
             grade: stock.recommendation_grade,
-            market: stock.market // v3.32 추가
+            market: marketInfo // v3.32 수정
           });
         }
 

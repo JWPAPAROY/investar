@@ -156,9 +156,15 @@ class KISApi {
         });
       }
 
+      const marketName = output.rprs_mrkt_kor_name || '';
+      let marketDiv = null;
+      if (marketName.toUpperCase().includes('KOSPI')) marketDiv = 'KOSPI';
+      else if (marketName.toUpperCase().includes('KOSDAQ') || marketName.toUpperCase().includes('KSQ')) marketDiv = 'KOSDAQ';
+
       return {
         stockCode: stockCode,
         stockName: stockName,
+        market: marketDiv, // v3.32: 시장 구분 추가
         currentPrice: price,                                 // 현재가
         price: price,                                        // 호환성을 위해 추가
         changePrice: parseInt(output.prdy_vrss || 0),       // 전일대비
