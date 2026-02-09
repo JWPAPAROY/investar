@@ -928,6 +928,91 @@ module.exports = async (req, res) => {
     }
     console.log('💾 저장 모드 시작...');
 
+    // v3.32: 오늘 데이터가 이미 있으면 재스크리닝 없이 빠른 반환
+    const today = new Date().toISOString().slice(0, 10);
+    const { data: existingData } = await supabase
+      .from('screening_recommendations')
+      .select('*')
+      .eq('recommendation_date', today)
+      .eq('is_active', true)
+      .order('total_score', { ascending: false });
+
+    if (existingData && existingData.length > 0 && !skipDbSave) {
+      console.log(`⚡ 기존 결산 데이터 발견 (${existingData.length}개) - 재스크리닝 건너뜀`);
+
+      // 기존 데이터로 메시지 생성
+      const top3ForAlert = selectAlertTop3(existingData).slice(0, 3);
+
+      // 시장 정보 보완 (DB에 없는 경우)
+      if (top3ForAlert.some(s => !s.market)) {
+        await Promise.all(top3ForAlert.map(async s => {
+          if (!s.market) {
+            try {
+              const info = await kisApi.getCurrentPrice(s.stock_code);
+              if (info?.market) s.market = info.market;
+            } catch (e) { }
+          }
+        }));
+      }
+
+      // 오늘 아침 추천 성과 조회 (morningResults)
+      let morningResults = [];
+      try {
+        for (const stock of top3ForAlert) {
+          const priceData = await kisApi.getCurrentPrice(stock.stock_code);
+          if (priceData?.currentPrice) {
+            const returnRate = ((priceData.currentPrice - stock.recommended_price) / stock.recommended_price) * 100;
+            morningResults.push({
+              stockName: stock.stock_name,
+              stockCode: stock.stock_code,
+              recommendedPrice: stock.recommended_price,
+              currentPrice: priceData.currentPrice,
+              returnRate: returnRate,
+              market: stock.market
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ 오전 성과 조회 실패:', e.message);
+      }
+
+      // 시장 심리 지수
+      let sentiment = null;
+      try {
+        const [kospiChart, kosdaqChart] = await Promise.all([
+          kisApi.getIndexChart('0001', 30),
+          kisApi.getIndexChart('1001', 30)
+        ]);
+        sentiment = {
+          kospi: calculateMarketSentiment(kospiChart),
+          kosdaq: calculateMarketSentiment(kosdaqChart)
+        };
+      } catch (e) { }
+
+      // 메시지 생성 (nextTop3 = 기존 top3)
+      const nextTop3 = top3ForAlert.map(s => ({
+        stockCode: s.stock_code,
+        stockName: s.stock_name,
+        market: s.market,
+        totalScore: s.total_score,
+        currentPrice: s.recommended_price,
+        recommendation: { grade: s.recommendation_grade }
+      }));
+
+      const message = formatSaveAlertMessage(morningResults, nextTop3, today, sentiment);
+      const sent = await sendTelegramMessage(message);
+
+      return res.status(200).json({
+        success: true,
+        mode: 'save',
+        cached: true, // 캐시 사용 여부 표시
+        date: today,
+        existingCount: existingData.length,
+        top3Count: top3ForAlert.length,
+        telegramSent: sent
+      });
+    }
+
     // Step 1: 종합 스크리닝 (전체 종목)
     console.log('🔍 종합 스크리닝 실행 중...');
     const { stocks } = await screener.screenAllStocks('ALL');
@@ -957,8 +1042,7 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 3: Supabase에 저장
-    const today = new Date().toISOString().slice(0, 10);
+    // Step 3: Supabase에 저장 (today는 위에서 이미 선언됨)
 
     const recommendations = filteredStocks.map(stock => {
       // 고래 정보 추출
