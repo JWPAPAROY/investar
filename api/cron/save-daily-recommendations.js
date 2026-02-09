@@ -645,7 +645,9 @@ module.exports = async (req, res) => {
         await Promise.all(top3.map(async s => {
           if (!s.market) {
             try {
+              console.log(`  🔍 [${s.stock_name}] 시장 정보 조회 중...`);
               const info = await kisApi.getCurrentPrice(s.stock_code);
+              console.log(`  ✅ [${s.stock_name}] 시장: ${info?.market || 'null'}`);
               if (info?.market) s.market = info.market;
             } catch (e) {
               console.warn(`⚠️ 시장 정보 보완 실패 (${s.stock_name}):`, e.message);
@@ -653,6 +655,8 @@ module.exports = async (req, res) => {
           }
         }));
       }
+      // 로그: 보완 후 시장 정보 확인
+      top3.forEach(s => console.log(`  📌 [${s.stock_name}] market=${s.market}`));
 
       top3.forEach((s, i) => {
         console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
