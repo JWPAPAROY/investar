@@ -378,7 +378,7 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
 
       const marketTag = formatMarketTag(stock.market);
       message += `${medal} <b>${stock.stock_name}</b> ${marketTag} (${stock.stock_code})\n`;
-      message += `   📊 ${stock.total_score.toFixed(0)}점 | ${grade}등급\n`;
+      message += `   📊 ${(stock.total_score || 0).toFixed(0)}점 | ${grade}등급\n`;
       message += `   💰 현재가: ${price.toLocaleString()}원\n`;
       message += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
 
@@ -415,7 +415,7 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       const displayStocks = day.stocks.slice(0, 3);
 
       displayStocks.forEach((stock, i) => {
-        const r = stock.latestReturn;
+        const r = stock.latestReturn || 0;
         const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
         const emoji = r >= 0 ? '✅' : '❌';
         if (r >= 0) totalWinAll++;
@@ -478,7 +478,7 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null) {
     msg += `📅 ${daysAgo}(${dateShort}) 추천\n`;
 
     day.stocks.forEach((stock, i) => {
-      const r = stock.return_rate;
+      const r = stock.return_rate || 0;
       const signal = stock.current_price > 0 ? getReturnSignal(r) : '⚠️조회실패';
 
       if (stock.current_price > 0) {
@@ -492,8 +492,8 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null) {
       if (dayIdx === 0) {
         // 오늘 추천: 상세 표시
         const medal = ['🥇', '🥈', '🥉'][i];
-        const gradeDisplay = stock.grade === '과열' ? '과열 ⚠️' : `${stock.grade}등급`;
-        const recPrice = stock.recommended_price.toLocaleString();
+        const gradeDisplay = stock.grade === '과열' ? '과열 ⚠️' : `${stock.grade || '?'}등급`;
+        const recPrice = (stock.recommended_price || 0).toLocaleString();
 
         if (stock.current_price > 0) {
           const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
