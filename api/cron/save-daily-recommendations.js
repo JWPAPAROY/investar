@@ -944,7 +944,7 @@ module.exports = async (req, res) => {
         stock_name: (stock.stockName && stock.stockName.trim() !== '' && !stock.stockName.startsWith('['))
           ? stock.stockName
           : stock.stockCode,
-        recommended_price: stock.currentPrice || 0,
+        recommended_price: stock.chartData?.[0]?.close || stock.currentPrice || 0,
         recommendation_grade: stock.recommendation?.grade || 'D',
         total_score: stock.totalScore || 0,
 
