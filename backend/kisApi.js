@@ -234,6 +234,56 @@ class KISApi {
   }
 
   /**
+   * 지수(KOSPI/KOSDAQ) 일봉 데이터 조회
+   * @param {string} indexCode - 지수코드 ('0001'=KOSPI, '1001'=KOSDAQ)
+   * @param {number} days - 조회 일수 (기본 30)
+   * @returns {Promise<Array>} - 일봉 데이터 배열 (내림차순, [0]=최신)
+   */
+  async getIndexChart(indexCode, days = 30) {
+    await this.rateLimiter.acquire();
+
+    try {
+      const token = await this.getAccessToken();
+      const endDate = new Date().toISOString().split('T')[0].replace(/-/g, '');
+
+      const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'authorization': `Bearer ${token}`,
+          'appkey': this.appKey,
+          'appsecret': this.appSecret,
+          'tr_id': 'FHKUP03500100'
+        },
+        params: {
+          FID_COND_MRKT_DIV_CODE: 'U',  // U: 업종
+          FID_INPUT_ISCD: indexCode,
+          FID_INPUT_DATE_1: endDate,
+          FID_INPUT_DATE_2: endDate,
+          FID_PERIOD_DIV_CODE: 'D'
+        }
+      });
+
+      if (response.data.rt_cd === '0') {
+        const output = response.data.output || response.data.output2 || [];
+        const chartData = output.slice(0, days).map(item => ({
+          date: item.stck_bsop_date || item.bsop_date,
+          open: parseInt(item.stck_oprc || item.bstp_nmix_oprc || 0),
+          high: parseInt(item.stck_hgpr || item.bstp_nmix_hgpr || 0),
+          low: parseInt(item.stck_lwpr || item.bstp_nmix_lwpr || 0),
+          close: parseInt(item.stck_clpr || item.bstp_nmix_prpr || 0),
+          volume: parseInt(item.acml_vol || 0)
+        }));
+        return chartData;
+      } else {
+        throw new Error(`API 오류: ${response.data.msg1}`);
+      }
+    } catch (error) {
+      console.error(`❌ 지수 일봉 데이터 조회 실패 [${indexCode}]:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
    * 분봉 데이터 조회 (실시간 거래량 분석용)
    * @param {string} stockCode - 종목코드
    * @param {string} timeUnit - 시간단위 ('1', '3', '5', '10', '30', '60')
@@ -606,6 +656,7 @@ class KISApi {
 
     const stockMap = new Map(); // code -> name 매핑 (중복 제거 + 이름 캐싱)
     const badgeMap = new Map(); // code -> { volumeSurge, tradingValue, volume } 뱃지 정보
+    const marketMap = new Map(); // code -> 'KOSPI' 또는 'KOSDAQ'
     const markets = market === 'ALL' ? ['KOSPI', 'KOSDAQ'] : [market];
     const apiCallResults = []; // 각 API 호출 결과 추적
     let filteredCount = 0; // ETF/ETN 필터링 카운트
@@ -638,10 +689,10 @@ class KISApi {
 
         filteredPriceChange.forEach(item => {
           if (!stockMap.has(item.code)) {
-            // 종목명이 유효한 경우에만 캐시에 저장
             if (item.name && item.name.trim() !== '') {
               stockMap.set(item.code, item.name);
             }
+            marketMap.set(item.code, mkt);
             badgeMap.set(item.code, { priceChange: true, volumeSurge: false, volume: false, tradingValue: false });
           } else {
             badgeMap.get(item.code).priceChange = true;
@@ -662,10 +713,10 @@ class KISApi {
 
         filteredVolumeSurge.forEach(item => {
           if (!stockMap.has(item.code)) {
-            // 종목명이 유효한 경우에만 캐시에 저장
             if (item.name && item.name.trim() !== '') {
               stockMap.set(item.code, item.name);
             }
+            marketMap.set(item.code, mkt);
             badgeMap.set(item.code, { priceChange: false, volumeSurge: true, volume: false, tradingValue: false });
           } else {
             badgeMap.get(item.code).volumeSurge = true;
@@ -686,10 +737,10 @@ class KISApi {
 
         filteredVolume.forEach(item => {
           if (!stockMap.has(item.code)) {
-            // 종목명이 유효한 경우에만 캐시에 저장
             if (item.name && item.name.trim() !== '') {
               stockMap.set(item.code, item.name);
             }
+            marketMap.set(item.code, mkt);
             badgeMap.set(item.code, { priceChange: false, volumeSurge: false, volume: true, tradingValue: false });
           } else {
             badgeMap.get(item.code).volume = true;
@@ -710,10 +761,10 @@ class KISApi {
 
         filteredTradingValue.forEach(item => {
           if (!stockMap.has(item.code)) {
-            // 종목명이 유효한 경우에만 캐시에 저장
             if (item.name && item.name.trim() !== '') {
               stockMap.set(item.code, item.name);
             }
+            marketMap.set(item.code, mkt);
             badgeMap.set(item.code, { priceChange: false, volumeSurge: false, volume: false, tradingValue: true });
           } else {
             badgeMap.get(item.code).tradingValue = true;
@@ -750,7 +801,7 @@ class KISApi {
         filteredOutCount: filteredCount // ETF/ETN 제외 개수
       };
 
-      return { codes, nameMap: stockMap, badgeMap };
+      return { codes, nameMap: stockMap, badgeMap, marketMap };
 
     } catch (error) {
       console.error('❌ 동적 종목 리스트 생성 실패:', error.message);
@@ -803,6 +854,11 @@ class KISApi {
       this.stockNameCache = new Map();
       this.rankBadgeCache = new Map();
 
+      // Fallback marketMap 생성
+      const fallbackMarketMap = new Map();
+      kospiStocks.forEach(c => fallbackMarketMap.set(c, 'KOSPI'));
+      kosdaqStocks.forEach(c => fallbackMarketMap.set(c, 'KOSDAQ'));
+
       // 디버그 정보 저장
       this._lastPoolDebug = {
         totalCodes: codes.length,
@@ -814,7 +870,7 @@ class KISApi {
         usingFallback: true
       };
 
-      return { codes, nameMap: new Map(), badgeMap: new Map() };
+      return { codes, nameMap: new Map(), badgeMap: new Map(), marketMap: fallbackMarketMap };
     }
   }
 
