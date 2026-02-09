@@ -760,6 +760,24 @@ module.exports = async (req, res) => {
 
       const today = getTodayDateKST();
 
+      // v3.32: 시장 정보 맵 캐시 (필요 시 로드)
+      // Track 모드는 기존 데이터(market 누락)를 사용할 수 있으므로 실시간 보완 필요
+      let marketMapCache = null;
+      const getMarketMap = async () => {
+        if (!marketMapCache) {
+          console.log('🔄 시장 정보 맵 로딩 중 (For missing market tags)...');
+          try {
+            // 전체 종목 리스트 조회 (API 호출 발생) - 최초 1회만
+            const { marketMap } = await kisApi.getAllStockList('ALL');
+            marketMapCache = marketMap;
+          } catch (e) {
+            console.error('❌ 시장 정보 로딩 실패:', e.message);
+            marketMapCache = new Map(); // 빈 맵 반환하여 에러 방지
+          }
+        }
+        return marketMapCache;
+      };
+
       // Step 1: 최근 3개 SAVE 날짜 찾기
       const { data: saveDateRows } = await supabase
         .from('screening_recommendations')
@@ -796,6 +814,22 @@ module.exports = async (req, res) => {
         const top3 = selectAlertTop3(savedStocks || []).slice(0, 3);
         if (top3.length === 0) continue;
 
+        // v3.32: 시장 정보(market) 누락 시 보완 (기존 데이터 호환성)
+        // DB에 market 컬럼이 없거나 데이터가 null인 경우
+        const missingMarket = top3.some(s => !s.market);
+        if (missingMarket) {
+          try {
+            const map = await getMarketMap();
+            top3.forEach(s => {
+              if (!s.market && map.has(s.stock_code)) {
+                s.market = map.get(s.stock_code);
+              }
+            });
+          } catch (err) {
+            console.warn('⚠️ 시장 정보 보완 실패:', err.message);
+          }
+        }
+
         const stocks = [];
         for (const stock of top3) {
           let currentPrice = priceCache[stock.stock_code] || 0;
@@ -827,7 +861,9 @@ module.exports = async (req, res) => {
             recommended_price: stock.recommended_price,
             current_price: currentPrice,
             return_rate: returnRate,
-            grade: stock.recommendation_grade
+            return_rate: returnRate,
+            grade: stock.recommendation_grade,
+            market: stock.market // v3.32 추가
           });
         }
 
