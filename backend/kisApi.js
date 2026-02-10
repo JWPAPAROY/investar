@@ -136,7 +136,8 @@ class KISApi {
 
       // 캐싱된 종목명 우선 사용, 없으면 API 응답
       let cachedName = this.getCachedStockName(stockCode);
-      let stockName = cachedName || output.prdt_name;
+      // v3.33: hts_kor_isnm 필드 사용 (HTS 한글 종목명), prdt_name은 fallback
+      let stockName = cachedName || output.hts_kor_isnm || output.prdt_name;
 
       // 종목명이 여전히 없으면 별도 API로 조회
       if (!stockName || stockName.trim() === '') {
@@ -907,7 +908,8 @@ class KISApi {
       });
 
       if (response.data.rt_cd === '0' && response.data.output) {
-        const stockName = response.data.output.prdt_name;
+        // v3.33: hts_kor_isnm 필드 사용 (HTS 한글 종목명), prdt_name은 fallback
+        const stockName = response.data.output.hts_kor_isnm || response.data.output.prdt_name;
 
         // 캐시에 저장
         if (stockName && this.stockNameCache) {
