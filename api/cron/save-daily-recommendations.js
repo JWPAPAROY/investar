@@ -152,6 +152,110 @@ function getDisplayName(stock) {
 }
 
 /**
+ * v3.33: 종목 정보(종목명, 시장) 보완 통합 함수
+ * 1단계: DB에서 이전 데이터 조회 (market 필터 없이)
+ * 2단계: KIS API getCurrentPrice 호출
+ * @param {Array} stocks - stock_code, stock_name, market 필드를 가진 배열
+ */
+async function supplementStockInfo(stocks) {
+  if (!stocks || stocks.length === 0) return;
+
+  // 보완이 필요한 종목 확인
+  const needsFix = stocks.filter(s => {
+    const code = s.stock_code || s.stockCode || '';
+    const name = s.stock_name || s.stockName || '';
+    return !name || name === code || name.startsWith('[') || !s.market;
+  });
+
+  if (needsFix.length === 0) {
+    console.log('✅ 모든 종목 정보 정상');
+    return;
+  }
+
+  console.log(`🔄 ${needsFix.length}개 종목 정보 보완 필요`);
+
+  // 1단계: DB에서 이전 데이터 조회 (market 필터 제거!)
+  try {
+    const stockCodes = needsFix.map(s => s.stock_code || s.stockCode);
+    const { data: prevData } = await supabase
+      .from('screening_recommendations')
+      .select('stock_code, stock_name, market')
+      .in('stock_code', stockCodes)
+      .order('recommendation_date', { ascending: false });
+
+    if (prevData && prevData.length > 0) {
+      const infoMap = {};
+      prevData.forEach(d => {
+        if (!infoMap[d.stock_code]) {
+          // stock_name이 유효한 경우만
+          if (d.stock_name && d.stock_name !== d.stock_code && !d.stock_name.startsWith('[')) {
+            infoMap[d.stock_code] = d;
+          }
+        }
+      });
+
+      needsFix.forEach(s => {
+        const code = s.stock_code || s.stockCode;
+        const prev = infoMap[code];
+        if (prev) {
+          if (prev.stock_name) {
+            s.stock_name = prev.stock_name;
+            if (s.stockName !== undefined) s.stockName = prev.stock_name;
+            console.log(`  📦 DB [${code}] → ${prev.stock_name}`);
+          }
+          if (prev.market && !s.market) {
+            s.market = prev.market;
+          }
+        }
+      });
+    }
+  } catch (e) {
+    console.warn('⚠️ DB 보완 실패:', e.message);
+  }
+
+  // 2단계: 여전히 부족한 종목은 KIS API 호출
+  const stillNeeds = stocks.filter(s => {
+    const code = s.stock_code || s.stockCode || '';
+    const name = s.stock_name || s.stockName || '';
+    return !name || name === code || name.startsWith('[') || !s.market;
+  });
+
+  if (stillNeeds.length > 0) {
+    console.log(`🔍 ${stillNeeds.length}개 종목 KIS API 조회 중...`);
+    for (const s of stillNeeds) {
+      const code = s.stock_code || s.stockCode;
+      try {
+        const info = await kisApi.getCurrentPrice(code);
+        if (info) {
+          console.log(`  🔍 API [${code}] → stockName=${info.stockName}, market=${info.market}`);
+          const currentName = s.stock_name || s.stockName || '';
+          if (info.stockName && info.stockName !== code && !info.stockName.startsWith('[')) {
+            s.stock_name = info.stockName;
+            if (s.stockName !== undefined) s.stockName = info.stockName;
+            console.log(`  ✅ API [${code}] → ${info.stockName}`);
+          }
+          if (info.market && !s.market) {
+            s.market = info.market;
+            console.log(`  ✅ API [${code}] market → ${info.market}`);
+          }
+        } else {
+          console.warn(`  ❌ API [${code}] → null 반환`);
+        }
+      } catch (e) {
+        console.warn(`  ❌ API [${code}] 실패: ${e.message}`);
+      }
+    }
+  }
+
+  // 최종 결과 로그
+  stocks.forEach(s => {
+    const code = s.stock_code || s.stockCode;
+    const name = s.stock_name || s.stockName;
+    console.log(`  📌 최종 [${code}] name=${name} market=${s.market}`);
+  });
+}
+
+/**
  * 텔레그램 메시지 전송
  */
 async function sendTelegramMessage(message) {
@@ -673,70 +777,8 @@ module.exports = async (req, res) => {
       const top3 = selectAlertTop3(savedStocks || []).slice(0, 3);
       console.log(`✅ TOP 3 선정: ${top3.length}개`);
 
-      // v3.33: 종목명/시장 정보 보완 (DB 이전 데이터에서 조회)
-      const needsSupplementation = top3.some(s =>
-        !s.market || !s.stock_name || s.stock_name === s.stock_code
-      );
-
-      if (needsSupplementation) {
-        console.log('🔄 종목명/시장 정보 보완 중...');
-        const stockCodes = top3.map(s => s.stock_code);
-        const { data: prevStockData } = await supabase
-          .from('screening_recommendations')
-          .select('stock_code, stock_name, market')
-          .in('stock_code', stockCodes)
-          .not('market', 'is', null)
-          .order('recommendation_date', { ascending: false });
-
-        if (prevStockData && prevStockData.length > 0) {
-          const stockInfoMap = {};
-          prevStockData.forEach(d => {
-            if (!stockInfoMap[d.stock_code] && d.stock_name && d.stock_name !== d.stock_code) {
-              stockInfoMap[d.stock_code] = d;
-            }
-          });
-
-          top3.forEach(s => {
-            const prevInfo = stockInfoMap[s.stock_code];
-            if (prevInfo) {
-              if (!s.market && prevInfo.market) {
-                s.market = prevInfo.market;
-                console.log(`  ✅ [${s.stock_code}] market=${prevInfo.market}`);
-              }
-              if ((!s.stock_name || s.stock_name === s.stock_code) && prevInfo.stock_name) {
-                s.stock_name = prevInfo.stock_name;
-                console.log(`  ✅ [${s.stock_code}] name=${prevInfo.stock_name}`);
-              }
-            }
-          });
-        }
-      }
-
-      // v3.33: DB 보완 실패 시 KIS API로 직접 종목명/시장 조회
-      const stillNeedsNames = top3.filter(s =>
-        !s.stock_name || s.stock_name === s.stock_code || !s.market
-      );
-      if (stillNeedsNames.length > 0) {
-        console.log(`🔍 ${stillNeedsNames.length}개 종목 API 종목명/시장 조회 중...`);
-        await Promise.all(stillNeedsNames.map(async s => {
-          try {
-            const info = await kisApi.getCurrentPrice(s.stock_code);
-            if (info) {
-              if (info.stockName && (!s.stock_name || s.stock_name === s.stock_code)) {
-                s.stock_name = info.stockName;
-                console.log(`  ✅ [${s.stock_code}] name=${info.stockName}`);
-              }
-              if (info.market && !s.market) {
-                s.market = info.market;
-                console.log(`  ✅ [${s.stock_code}] market=${info.market}`);
-              }
-            }
-          } catch (e) { }
-        }));
-      }
-
-      // 로그: 보완 후 확인
-      top3.forEach(s => console.log(`  📌 [${s.stock_name}] market=${s.market}`));
+      // v3.33: 종목 정보 보완 (통합 함수)
+      await supplementStockInfo(top3);
 
       top3.forEach((s, i) => {
         console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
@@ -915,57 +957,8 @@ module.exports = async (req, res) => {
         const top3 = selectAlertTop3(savedStocks || []).slice(0, 3);
         if (top3.length === 0) continue;
 
-        // v3.33: 종목명/시장 정보 보완 (DB 이전 데이터에서 조회)
-        const needsSupplementation = top3.some(s =>
-          !s.market || !s.stock_name || s.stock_name === s.stock_code
-        );
-
-        if (needsSupplementation) {
-          const stockCodes = top3.map(s => s.stock_code);
-          const { data: prevStockData } = await supabase
-            .from('screening_recommendations')
-            .select('stock_code, stock_name, market')
-            .in('stock_code', stockCodes)
-            .not('market', 'is', null)
-            .order('recommendation_date', { ascending: false });
-
-          if (prevStockData && prevStockData.length > 0) {
-            const stockInfoMap = {};
-            prevStockData.forEach(d => {
-              if (!stockInfoMap[d.stock_code] && d.stock_name && d.stock_name !== d.stock_code) {
-                stockInfoMap[d.stock_code] = d;
-              }
-            });
-
-            top3.forEach(s => {
-              const prevInfo = stockInfoMap[s.stock_code];
-              if (prevInfo) {
-                if (!s.market && prevInfo.market) s.market = prevInfo.market;
-                if ((!s.stock_name || s.stock_name === s.stock_code) && prevInfo.stock_name) {
-                  s.stock_name = prevInfo.stock_name;
-                }
-              }
-            });
-          }
-        }
-
-        // v3.33: DB 보완 실패 시 KIS API로 직접 종목명/시장 조회
-        const stillNeedsNames = top3.filter(s =>
-          !s.stock_name || s.stock_name === s.stock_code || !s.market
-        );
-        if (stillNeedsNames.length > 0) {
-          await Promise.all(stillNeedsNames.map(async s => {
-            try {
-              const info = await kisApi.getCurrentPrice(s.stock_code);
-              if (info) {
-                if (info.stockName && (!s.stock_name || s.stock_name === s.stock_code)) {
-                  s.stock_name = info.stockName;
-                }
-                if (info.market && !s.market) s.market = info.market;
-              }
-            } catch (e) { }
-          }));
-        }
+        // v3.33: 종목 정보 보완 (통합 함수)
+        await supplementStockInfo(top3);
 
         const stocks = [];
         for (const stock of top3) {
@@ -1131,70 +1124,8 @@ module.exports = async (req, res) => {
       // 기존 데이터로 메시지 생성
       const top3ForAlert = selectAlertTop3(existingData).slice(0, 3);
 
-      // v3.33: 종목명/시장 정보 보완 (DB 이전 데이터에서 조회)
-      const needsSupplementation = top3ForAlert.some(s =>
-        !s.market || !s.stock_name || s.stock_name === s.stock_code
-      );
-
-      if (needsSupplementation) {
-        console.log('🔄 종목명/시장 정보 보완 중...');
-        // 해당 종목들의 이전 데이터 조회
-        const stockCodes = top3ForAlert.map(s => s.stock_code);
-        const { data: prevStockData } = await supabase
-          .from('screening_recommendations')
-          .select('stock_code, stock_name, market')
-          .in('stock_code', stockCodes)
-          .not('market', 'is', null)
-          .order('recommendation_date', { ascending: false });
-
-        if (prevStockData && prevStockData.length > 0) {
-          // 종목코드별로 가장 최근 데이터 매핑
-          const stockInfoMap = {};
-          prevStockData.forEach(d => {
-            if (!stockInfoMap[d.stock_code] && d.stock_name && d.stock_name !== d.stock_code) {
-              stockInfoMap[d.stock_code] = d;
-            }
-          });
-
-          // 누락된 정보 보완
-          top3ForAlert.forEach(s => {
-            const prevInfo = stockInfoMap[s.stock_code];
-            if (prevInfo) {
-              if (!s.market && prevInfo.market) {
-                s.market = prevInfo.market;
-                console.log(`  ✅ [${s.stock_code}] market=${prevInfo.market}`);
-              }
-              if ((!s.stock_name || s.stock_name === s.stock_code) && prevInfo.stock_name) {
-                s.stock_name = prevInfo.stock_name;
-                console.log(`  ✅ [${s.stock_code}] name=${prevInfo.stock_name}`);
-              }
-            }
-          });
-        }
-      }
-
-      // v3.33: DB 보완 실패 시 KIS API로 직접 종목명/시장 조회
-      const stillNeedsNames = top3ForAlert.filter(s =>
-        !s.stock_name || s.stock_name === s.stock_code || !s.market
-      );
-      if (stillNeedsNames.length > 0) {
-        console.log(`🔍 ${stillNeedsNames.length}개 종목 API 종목명/시장 조회 중...`);
-        await Promise.all(stillNeedsNames.map(async s => {
-          try {
-            const info = await kisApi.getCurrentPrice(s.stock_code);
-            if (info) {
-              if (info.stockName && (!s.stock_name || s.stock_name === s.stock_code)) {
-                s.stock_name = info.stockName;
-                console.log(`  ✅ [${s.stock_code}] name=${info.stockName}`);
-              }
-              if (info.market && !s.market) {
-                s.market = info.market;
-                console.log(`  ✅ [${s.stock_code}] market=${info.market}`);
-              }
-            }
-          } catch (e) { }
-        }));
-      }
+      // v3.33: 종목 정보 보완 (통합 함수)
+      await supplementStockInfo(top3ForAlert);
 
       // 오늘 아침 추천 성과 조회 (morningResults)
       let morningResults = [];
