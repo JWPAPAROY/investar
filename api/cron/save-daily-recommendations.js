@@ -284,9 +284,9 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
     msg += formatSentimentLine(options.sentiment.kospi, options.sentiment.kosdaq);
   }
 
-  // ── 1. 어제 추천 종목의 오늘 성과 ──
+  // ── 1. D-1 추천 종목의 당일 성과 ──
   if (morningResults && morningResults.length > 0) {
-    msg += `📊 <b>어제 추천 종목의 오늘 성과</b>\n`;
+    msg += `📊 <b>D-1 추천 종목의 당일 성과</b>\n`;
     let winCount = 0;
     let totalReturn = 0;
 
@@ -409,9 +409,9 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
     let totalCountAll = 0;
 
     prevDayResults.forEach((day, dayIndex) => {
-      // 날짜 포맷
+      // 날짜 포맷 (D-1, D-2, ...)
       const dayShort = day.date.slice(5).replace('-', '/');
-      const daysAgo = dayIndex === 0 ? '어제' : `${dayIndex + 1}일 전`;
+      const daysAgo = `D-${dayIndex + 1}`;
       message += `📅 ${daysAgo}(${dayShort}) 추천\n`;
 
       // TOP 3만 표시 (최대 3개)
@@ -426,7 +426,8 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
         totalCountAll++;
 
         const marketTag = formatMarketTag(stock.market);
-        message += `  ${i + 1}. ${stock.stock_name} ${marketTag} → ${returnStr} ${emoji}\n`;
+        const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
+        message += `  ${i + 1}. ${displayName} ${marketTag} → ${returnStr} ${emoji}\n`;
       });
       message += `\n`;
     });
@@ -477,7 +478,7 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null) {
 
   dayResults.forEach((day, dayIdx) => {
     const dateShort = day.alertDate.slice(5).replace('-', '/');
-    const daysAgo = dayIdx === 0 ? '오늘' : dayIdx === 1 ? '어제' : `${dayIdx + 1}일 전`;
+    const daysAgo = dayIdx === 0 ? 'D-Day' : `D-${dayIdx}`;
     msg += `📅 ${daysAgo}(${dateShort}) 추천\n`;
 
     day.stocks.forEach((stock, i) => {
@@ -913,6 +914,7 @@ module.exports = async (req, res) => {
           let cached = priceCache[stock.stock_code];
           let currentPrice = cached?.price || 0;
           let marketInfo = stock.market || cached?.market;
+          let stockName = stock.stock_name;
 
           // 캐시에 없으면 API 호출 (재시도 포함)
           if (!currentPrice) {
@@ -922,14 +924,37 @@ module.exports = async (req, res) => {
                 if (priceData?.currentPrice) {
                   currentPrice = priceData.currentPrice;
                   marketInfo = marketInfo || priceData.market;
-                  priceCache[stock.stock_code] = { price: currentPrice, market: marketInfo };
+                  // v3.33: API 응답에서 종목명/시장 보완
+                  if (priceData.stockName && (!stockName || stockName === stock.stock_code)) {
+                    stockName = priceData.stockName;
+                  }
+                  if (priceData.market && !marketInfo) {
+                    marketInfo = priceData.market;
+                  }
+                  priceCache[stock.stock_code] = { price: currentPrice, market: marketInfo, name: stockName };
                   break;
                 }
               } catch (err) {
-                console.warn(`⚠️ ${stock.stock_name} 조회 실패 (${attempt}/${MAX_RETRIES}): ${err.message}`);
+                console.warn(`⚠️ ${stockName} 조회 실패 (${attempt}/${MAX_RETRIES}): ${err.message}`);
               }
               if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, RETRY_DELAY));
             }
+          }
+
+          // v3.33: API 실패 시 recommendation_daily_prices에서 종가 fallback
+          if (!currentPrice && stock.id) {
+            try {
+              const { data: closingData } = await supabase
+                .from('recommendation_daily_prices')
+                .select('closing_price')
+                .eq('recommendation_id', stock.id)
+                .order('tracking_date', { ascending: false })
+                .limit(1);
+              if (closingData?.[0]?.closing_price) {
+                currentPrice = closingData[0].closing_price;
+                console.log(`📦 [${stockName}] 종가 fallback: ${currentPrice}원`);
+              }
+            } catch (e) { }
           }
 
           const returnRate = (stock.recommended_price > 0 && currentPrice > 0)
@@ -937,7 +962,7 @@ module.exports = async (req, res) => {
             : 0;
 
           stocks.push({
-            stock_name: stock.stock_name,
+            stock_name: stockName,
             stock_code: stock.stock_code,
             recommended_price: stock.recommended_price,
             current_price: currentPrice,
@@ -1094,16 +1119,50 @@ module.exports = async (req, res) => {
       let morningResults = [];
       try {
         for (const stock of top3ForAlert) {
-          const priceData = await kisApi.getCurrentPrice(stock.stock_code);
-          if (priceData?.currentPrice) {
-            const returnRate = ((priceData.currentPrice - stock.recommended_price) / stock.recommended_price) * 100;
+          let currentPrice = 0;
+          let stockName = stock.stock_name;
+          let marketInfo = stock.market;
+
+          // 1차: API 호출
+          try {
+            const priceData = await kisApi.getCurrentPrice(stock.stock_code);
+            if (priceData?.currentPrice) {
+              currentPrice = priceData.currentPrice;
+              // v3.33: API 응답에서 종목명/시장 보완
+              if (priceData.stockName && (!stockName || stockName === stock.stock_code)) {
+                stockName = priceData.stockName;
+              }
+              if (priceData.market && !marketInfo) {
+                marketInfo = priceData.market;
+              }
+            }
+          } catch (e) { }
+
+          // 2차: API 실패 시 recommendation_daily_prices에서 종가 fallback
+          if (!currentPrice && stock.id) {
+            try {
+              const { data: closingData } = await supabase
+                .from('recommendation_daily_prices')
+                .select('closing_price')
+                .eq('recommendation_id', stock.id)
+                .order('tracking_date', { ascending: false })
+                .limit(1);
+              if (closingData?.[0]?.closing_price) {
+                currentPrice = closingData[0].closing_price;
+                console.log(`📦 [${stockName}] 종가 fallback: ${currentPrice}원`);
+              }
+            } catch (e) { }
+          }
+
+          if (currentPrice > 0) {
+            const returnRate = ((currentPrice - stock.recommended_price) / stock.recommended_price) * 100;
             morningResults.push({
-              stockName: stock.stock_name,
+              stockName: stockName,
               stockCode: stock.stock_code,
               recommendedPrice: stock.recommended_price,
-              currentPrice: priceData.currentPrice,
+              currentPrice: currentPrice,
               returnRate: returnRate,
-              market: stock.market
+              market: marketInfo
             });
           }
         }
