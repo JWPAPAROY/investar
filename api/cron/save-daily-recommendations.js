@@ -217,46 +217,36 @@ async function supplementStockInfo(stocks) {
     console.warn('⚠️ DB 보완 실패:', e.message);
   }
 
-  // 2단계: 종목명이 부족한 종목은 getStockName 직접 호출 (CTPF1002R, 1 API콜/종목)
-  const needsName = stocks.filter(s => {
+  // 2단계: 여전히 부족한 종목은 KIS API 호출
+  const stillNeeds = stocks.filter(s => {
     const code = s.stock_code || s.stockCode || '';
     const name = s.stock_name || s.stockName || '';
-    return !name || name === code || name.startsWith('[');
+    return !name || name === code || name.startsWith('[') || !s.market;
   });
 
-  if (needsName.length > 0) {
-    console.log(`🔍 ${needsName.length}개 종목명 CTPF1002R 조회 중...`);
-    for (const s of needsName) {
-      const code = s.stock_code || s.stockCode;
-      try {
-        const name = await kisApi.getStockName(code);
-        if (name && name !== code && !name.startsWith('[')) {
-          s.stock_name = name;
-          if (s.stockName !== undefined) s.stockName = name;
-          console.log(`  ✅ 종목명 [${code}] → ${name}`);
-        } else {
-          console.warn(`  ❌ 종목명 [${code}] → 유효하지 않음: ${name}`);
-        }
-      } catch (e) {
-        console.warn(`  ❌ 종목명 [${code}] 실패: ${e.message}`);
-      }
-    }
-  }
-
-  // 3단계: 시장 정보가 부족한 종목은 getCurrentPrice로 시장만 조회
-  const needsMarket = stocks.filter(s => !s.market);
-  if (needsMarket.length > 0) {
-    console.log(`🔍 ${needsMarket.length}개 시장 정보 조회 중...`);
-    for (const s of needsMarket) {
+  if (stillNeeds.length > 0) {
+    console.log(`🔍 ${stillNeeds.length}개 종목 KIS API 조회 중...`);
+    for (const s of stillNeeds) {
       const code = s.stock_code || s.stockCode;
       try {
         const info = await kisApi.getCurrentPrice(code);
-        if (info?.market) {
-          s.market = info.market;
-          console.log(`  ✅ 시장 [${code}] → ${info.market}`);
+        if (info) {
+          console.log(`  🔍 API [${code}] → stockName=${info.stockName}, market=${info.market}`);
+          const currentName = s.stock_name || s.stockName || '';
+          if (info.stockName && info.stockName !== code && !info.stockName.startsWith('[')) {
+            s.stock_name = info.stockName;
+            if (s.stockName !== undefined) s.stockName = info.stockName;
+            console.log(`  ✅ API [${code}] → ${info.stockName}`);
+          }
+          if (info.market && !s.market) {
+            s.market = info.market;
+            console.log(`  ✅ API [${code}] market → ${info.market}`);
+          }
+        } else {
+          console.warn(`  ❌ API [${code}] → null 반환`);
         }
       } catch (e) {
-        console.warn(`  ❌ 시장 [${code}] 실패: ${e.message}`);
+        console.warn(`  ❌ API [${code}] 실패: ${e.message}`);
       }
     }
   }
@@ -418,12 +408,9 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
     msg += formatSentimentLine(options.sentiment.kospi, options.sentiment.kosdaq);
   }
 
-  // ── 1. 이전 추천 종목의 당일 성과 ──
+  // ── 1. D-1 추천 종목의 오늘 성과 ──
   if (morningResults && morningResults.length > 0) {
-    const recDateLabel = options.recommendDate
-      ? options.recommendDate.slice(5).replace('-', '/')
-      : '이전';
-    msg += `📊 <b>${recDateLabel} 추천 종목의 당일 성과</b>\n`;
+    msg += `📊 <b>D-1 추천 종목의 오늘 성과</b>\n`;
     let winCount = 0;
     let totalReturn = 0;
 
@@ -1144,59 +1131,81 @@ module.exports = async (req, res) => {
       // v3.33: 종목 정보 보완 (통합 함수)
       await supplementStockInfo(top3ForAlert);
 
-      // 오늘 아침 추천 성과 조회 (morningResults)
+      // D-1 추천 종목의 오늘 성과 (이전 SAVE 데이터에서 조회 — ALERT 모드와 동일 로직)
       let morningResults = [];
       try {
-        for (const stock of top3ForAlert) {
-          let currentPrice = 0;
-          let stockName = stock.stock_name;
-          let marketInfo = stock.market;
+        const { data: prevSaveDateRows } = await supabase
+          .from('screening_recommendations')
+          .select('recommendation_date')
+          .lt('recommendation_date', today)
+          .order('recommendation_date', { ascending: false });
 
-          // 1차: API 호출
-          try {
-            const priceData = await kisApi.getCurrentPrice(stock.stock_code);
-            if (priceData?.currentPrice) {
-              currentPrice = priceData.currentPrice;
-              // v3.33: API 응답에서 종목명/시장 보완
-              if (priceData.stockName && (!stockName || stockName === stock.stock_code)) {
-                stockName = priceData.stockName;
-              }
-              if (priceData.market && !marketInfo) {
-                marketInfo = priceData.market;
-              }
-            }
-          } catch (e) { }
+        const prevSaveDate = [...new Set((prevSaveDateRows || []).map(r => r.recommendation_date))][0];
 
-          // 2차: API 실패 시 recommendation_daily_prices에서 종가 fallback
-          if (!currentPrice && stock.id) {
+        if (prevSaveDate) {
+          console.log(`📅 D-1 추천일: ${prevSaveDate}`);
+          const { data: prevStocks } = await supabase
+            .from('screening_recommendations')
+            .select('*')
+            .eq('recommendation_date', prevSaveDate)
+            .eq('is_active', true)
+            .order('total_score', { ascending: false });
+
+          const prevTop3 = selectAlertTop3(prevStocks || []).slice(0, 3);
+          await supplementStockInfo(prevTop3);
+
+          for (const s of prevTop3) {
+            let currentPrice = 0;
+            let stockName = s.stock_name;
+            let marketInfo = s.market;
+
+            // 1차: API 호출
             try {
-              const { data: closingData } = await supabase
-                .from('recommendation_daily_prices')
-                .select('closing_price')
-                .eq('recommendation_id', stock.id)
-                .order('tracking_date', { ascending: false })
-                .limit(1);
-              if (closingData?.[0]?.closing_price) {
-                currentPrice = closingData[0].closing_price;
-                console.log(`📦 [${stockName}] 종가 fallback: ${currentPrice}원`);
+              const priceData = await kisApi.getCurrentPrice(s.stock_code);
+              if (priceData?.currentPrice) {
+                currentPrice = priceData.currentPrice;
+                if (priceData.stockName && (!stockName || stockName === s.stock_code)) {
+                  stockName = priceData.stockName;
+                }
+                if (priceData.market && !marketInfo) {
+                  marketInfo = priceData.market;
+                }
               }
             } catch (e) { }
-          }
 
-          if (currentPrice > 0) {
-            const returnRate = ((currentPrice - stock.recommended_price) / stock.recommended_price) * 100;
-            morningResults.push({
-              stockName: stockName,
-              stockCode: stock.stock_code,
-              recommendedPrice: stock.recommended_price,
-              currentPrice: currentPrice,
-              returnRate: returnRate,
-              market: marketInfo
-            });
+            // 2차: recommendation_daily_prices fallback
+            if (!currentPrice && s.id) {
+              try {
+                const { data: closingData } = await supabase
+                  .from('recommendation_daily_prices')
+                  .select('closing_price')
+                  .eq('recommendation_id', s.id)
+                  .order('tracking_date', { ascending: false })
+                  .limit(1);
+                if (closingData?.[0]?.closing_price) {
+                  currentPrice = closingData[0].closing_price;
+                }
+              } catch (e) { }
+            }
+
+            if (currentPrice > 0) {
+              const returnRate = ((currentPrice - s.recommended_price) / s.recommended_price) * 100;
+              morningResults.push({
+                stockName: stockName,
+                stockCode: s.stock_code,
+                recommendedPrice: s.recommended_price,
+                currentPrice: currentPrice,
+                returnRate: returnRate,
+                market: marketInfo
+              });
+            }
           }
+          console.log(`📊 D-1(${prevSaveDate}) 추천 성과: ${morningResults.length}개`);
+        } else {
+          console.log('⚠️ 이전 SAVE 데이터 없음 - 성과 섹션 건너뜀');
         }
       } catch (e) {
-        console.warn('⚠️ 오전 성과 조회 실패:', e.message);
+        console.warn('⚠️ D-1 성과 조회 실패:', e.message);
       }
 
       // 시장 심리 지수
@@ -1222,8 +1231,7 @@ module.exports = async (req, res) => {
         recommendation: { grade: s.recommendation_grade }
       }));
 
-      const recDate = top3ForAlert[0]?.recommendation_date || today;
-      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment, recommendDate: recDate });
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment });
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -1540,7 +1548,7 @@ module.exports = async (req, res) => {
 
       // 3. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment, recommendDate: latestSaveDate });
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment });
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {
