@@ -1438,6 +1438,9 @@ module.exports = async (req, res) => {
         if (yestStocks && yestStocks.length > 0) {
           const yestTop3 = selectAlertTop3(yestStocks).slice(0, 3);
 
+          // v3.33: 종목 정보 보완 (통합 함수)
+          await supplementStockInfo(yestTop3);
+
           for (const s of yestTop3) {
             let closingPrice = null;
             const MAX_RETRIES = 3;
@@ -1495,7 +1498,8 @@ module.exports = async (req, res) => {
               stockCode: s.stock_code,
               recommendPrice: s.recommended_price,
               closingPrice: closingPrice,
-              returnRate: returnRate
+              returnRate: returnRate,
+              market: s.market  // v3.33: 시장 태그
             });
           }
           console.log(`📊 어제 추천 성과 분석: ${morningResults.length}개 완료 (오늘 종가 기준)`);
