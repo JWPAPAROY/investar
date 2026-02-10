@@ -25,7 +25,7 @@
     },
     {
       "path": "/api/patterns",
-      "schedule": "20 7 * * *"
+      "schedule": "20 7 * * 1-5"
     },
     {
       "path": "/api/cron/save-daily-recommendations?mode=track&time=1",
