@@ -284,9 +284,9 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
     msg += formatSentimentLine(options.sentiment.kospi, options.sentiment.kosdaq);
   }
 
-  // ── 1. D-1 추천 종목의 당일 성과 ──
+  // ── 1. D-1 추천 종목의 오늘 성과 ──
   if (morningResults && morningResults.length > 0) {
-    msg += `📊 <b>D-1 추천 종목의 당일 성과</b>\n`;
+    msg += `📊 <b>D-1 추천 종목의 오늘 성과</b>\n`;
     let winCount = 0;
     let totalReturn = 0;
 
@@ -478,7 +478,7 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null) {
 
   dayResults.forEach((day, dayIdx) => {
     const dateShort = day.alertDate.slice(5).replace('-', '/');
-    const daysAgo = dayIdx === 0 ? 'D-Day' : `D-${dayIdx}`;
+    const daysAgo = dayIdx === 0 ? '오늘' : `D-${dayIdx}`;
     msg += `📅 ${daysAgo}(${dateShort}) 추천\n`;
 
     day.stocks.forEach((stock, i) => {
@@ -695,6 +695,30 @@ module.exports = async (req, res) => {
           });
         }
       }
+
+      // v3.33: DB 보완 실패 시 KIS API로 직접 종목명/시장 조회
+      const stillNeedsNames = top3.filter(s =>
+        !s.stock_name || s.stock_name === s.stock_code || !s.market
+      );
+      if (stillNeedsNames.length > 0) {
+        console.log(`🔍 ${stillNeedsNames.length}개 종목 API 종목명/시장 조회 중...`);
+        await Promise.all(stillNeedsNames.map(async s => {
+          try {
+            const info = await kisApi.getCurrentPrice(s.stock_code);
+            if (info) {
+              if (info.stockName && (!s.stock_name || s.stock_name === s.stock_code)) {
+                s.stock_name = info.stockName;
+                console.log(`  ✅ [${s.stock_code}] name=${info.stockName}`);
+              }
+              if (info.market && !s.market) {
+                s.market = info.market;
+                console.log(`  ✅ [${s.stock_code}] market=${info.market}`);
+              }
+            }
+          } catch (e) { }
+        }));
+      }
+
       // 로그: 보완 후 확인
       top3.forEach(s => console.log(`  📌 [${s.stock_name}] market=${s.market}`));
 
@@ -909,6 +933,24 @@ module.exports = async (req, res) => {
           }
         }
 
+        // v3.33: DB 보완 실패 시 KIS API로 직접 종목명/시장 조회
+        const stillNeedsNames = top3.filter(s =>
+          !s.stock_name || s.stock_name === s.stock_code || !s.market
+        );
+        if (stillNeedsNames.length > 0) {
+          await Promise.all(stillNeedsNames.map(async s => {
+            try {
+              const info = await kisApi.getCurrentPrice(s.stock_code);
+              if (info) {
+                if (info.stockName && (!s.stock_name || s.stock_name === s.stock_code)) {
+                  s.stock_name = info.stockName;
+                }
+                if (info.market && !s.market) s.market = info.market;
+              }
+            } catch (e) { }
+          }));
+        }
+
         const stocks = [];
         for (const stock of top3) {
           let cached = priceCache[stock.stock_code];
@@ -1113,6 +1155,29 @@ module.exports = async (req, res) => {
             }
           });
         }
+      }
+
+      // v3.33: DB 보완 실패 시 KIS API로 직접 종목명/시장 조회
+      const stillNeedsNames = top3ForAlert.filter(s =>
+        !s.stock_name || s.stock_name === s.stock_code || !s.market
+      );
+      if (stillNeedsNames.length > 0) {
+        console.log(`🔍 ${stillNeedsNames.length}개 종목 API 종목명/시장 조회 중...`);
+        await Promise.all(stillNeedsNames.map(async s => {
+          try {
+            const info = await kisApi.getCurrentPrice(s.stock_code);
+            if (info) {
+              if (info.stockName && (!s.stock_name || s.stock_name === s.stock_code)) {
+                s.stock_name = info.stockName;
+                console.log(`  ✅ [${s.stock_code}] name=${info.stockName}`);
+              }
+              if (info.market && !s.market) {
+                s.market = info.market;
+                console.log(`  ✅ [${s.stock_code}] market=${info.market}`);
+              }
+            }
+          } catch (e) { }
+        }));
       }
 
       // 오늘 아침 추천 성과 조회 (morningResults)
