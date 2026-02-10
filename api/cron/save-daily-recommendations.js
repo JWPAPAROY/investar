@@ -136,6 +136,22 @@ function formatMarketTag(market) {
 }
 
 /**
+ * v3.33: 종목명 표시용 유틸리티 (stock_name === stock_code 인 경우 걸러냄)
+ * @param {Object} stock - stock_name, stockName, stock_code, stockCode 등 필드 포함
+ * @returns {string} - 표시할 종목명
+ */
+function getDisplayName(stock) {
+  const code = stock.stock_code || stock.stockCode || '';
+  const candidates = [stock.stock_name, stock.stockName];
+  for (const name of candidates) {
+    if (name && name.trim() !== '' && name !== code && !name.startsWith('[')) {
+      return name;
+    }
+  }
+  return code || '미상장';
+}
+
+/**
  * 텔레그램 메시지 전송
  */
 async function sendTelegramMessage(message) {
@@ -301,7 +317,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
       totalReturn += r;
 
       const marketTag = formatMarketTag(stock.market);
-      const displayName = stock.stockName || stock.stock_name || stock.stockCode || stock.stock_code || '미상장';
+      const displayName = getDisplayName(stock);
       msg += `  ${medal} ${displayName} ${marketTag}: ${startPrice.toLocaleString()} → ${endPrice.toLocaleString()}원 (${returnStr}) ${emoji}\n`;
     });
 
@@ -327,7 +343,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
       const gradeDisplay = grade === '과열' ? '과열 ⚠️' : `${grade}등급`;
 
       const marketTag = formatMarketTag(stock.market);
-      const displayName = stock.stockName || stock.stock_name || stock.stockCode || stock.stock_code || '미상장';
+      const displayName = getDisplayName(stock);
       msg += `${medal} <b>${displayName}</b> ${marketTag} (${stock.totalScore || 0}점, ${gradeDisplay})\n`;
       msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
       msg += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
@@ -379,7 +395,7 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       const grade = stock.recommendation_grade || '?';
 
       const marketTag = formatMarketTag(stock.market);
-      const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
+      const displayName = getDisplayName(stock);
       message += `${medal} <b>${displayName}</b> ${marketTag} (${stock.stock_code})\n`;
       message += `   📊 ${(stock.total_score || 0).toFixed(0)}점 | ${grade}등급\n`;
       message += `   💰 현재가: ${price.toLocaleString()}원\n`;
@@ -426,7 +442,7 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
         totalCountAll++;
 
         const marketTag = formatMarketTag(stock.market);
-        const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
+        const displayName = getDisplayName(stock);
         message += `  ${i + 1}. ${displayName} ${marketTag} → ${returnStr} ${emoji}\n`;
       });
       message += `\n`;
@@ -502,19 +518,19 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null) {
         if (stock.current_price > 0) {
           const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
           const marketTag = formatMarketTag(stock.market);
-          const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
+          const displayName = getDisplayName(stock);
           msg += `${medal} <b>${displayName}</b> ${marketTag} (${gradeDisplay})\n`;
           msg += `   💰 ${recPrice} → ${stock.current_price.toLocaleString()}원 (${returnStr}) ${signal}\n`;
         } else {
           const marketTag = formatMarketTag(stock.market);
-          const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
+          const displayName = getDisplayName(stock);
           msg += `${medal} <b>${displayName}</b> ${marketTag} (${gradeDisplay})\n`;
           msg += `   💰 ${recPrice}원 → ⚠️ 조회실패\n`;
         }
       } else {
         // 이전 추천: 간결 표시
         const marketTag = formatMarketTag(stock.market);
-        const displayName = stock.stock_name || stock.stockName || stock.stock_code || '미상장';
+        const displayName = getDisplayName(stock);
         if (stock.current_price > 0) {
           const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
           msg += `  ${i + 1}. ${displayName} ${marketTag} → ${returnStr} ${signal}\n`;
