@@ -184,28 +184,32 @@ async function supplementStockInfo(stocks) {
       .order('recommendation_date', { ascending: false });
 
     if (prevData && prevData.length > 0) {
-      const infoMap = {};
+      // stock_name과 market을 별도로 추적
+      const nameMap = {};   // code → 유효한 종목명
+      const marketMap = {}; // code → 시장 구분
       prevData.forEach(d => {
-        if (!infoMap[d.stock_code]) {
-          // stock_name이 유효한 경우만
-          if (d.stock_name && d.stock_name !== d.stock_code && !d.stock_name.startsWith('[')) {
-            infoMap[d.stock_code] = d;
-          }
+        if (!nameMap[d.stock_code] && d.stock_name && d.stock_name !== d.stock_code && !d.stock_name.startsWith('[')) {
+          nameMap[d.stock_code] = d.stock_name;
+        }
+        if (!marketMap[d.stock_code] && d.market) {
+          marketMap[d.stock_code] = d.market;
         }
       });
 
       needsFix.forEach(s => {
         const code = s.stock_code || s.stockCode;
-        const prev = infoMap[code];
-        if (prev) {
-          if (prev.stock_name) {
-            s.stock_name = prev.stock_name;
-            if (s.stockName !== undefined) s.stockName = prev.stock_name;
-            console.log(`  📦 DB [${code}] → ${prev.stock_name}`);
-          }
-          if (prev.market && !s.market) {
-            s.market = prev.market;
-          }
+        // 종목명 보완
+        const prevName = nameMap[code];
+        const curName = s.stock_name || s.stockName || '';
+        if (prevName && (!curName || curName === code || curName.startsWith('['))) {
+          s.stock_name = prevName;
+          if (s.stockName !== undefined) s.stockName = prevName;
+          console.log(`  📦 DB [${code}] name → ${prevName}`);
+        }
+        // 시장 보완 (별도)
+        if (!s.market && marketMap[code]) {
+          s.market = marketMap[code];
+          console.log(`  📦 DB [${code}] market → ${marketMap[code]}`);
         }
       });
     }
