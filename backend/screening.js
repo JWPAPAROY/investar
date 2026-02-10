@@ -1447,7 +1447,7 @@ class StockScreener {
     console.log(`🔍 종합 TOP 스크리닝 시작 (100개 풀${limit ? `, 상위 ${limit}개 반환` : ', 전체 반환'})...\n`);
 
     // 종목 풀 생성 (KIS API 또는 fallback 하드코딩 리스트)
-    const { codes: finalStockList, marketMap } = await kisApi.getAllStockList(market);
+    const { codes: finalStockList, marketMap, nameMap: stockNameMap } = await kisApi.getAllStockList(market);
     console.log(`✅ 종목 풀: ${finalStockList.length}개 확보\n`);
 
     // KIS API 디버그 정보 가져오기
@@ -1474,6 +1474,13 @@ class StockScreener {
         // skipScoreFilter가 true면 점수 무시, false면 20점 이상만 (C등급 이상)
         if (analysis && (skipScoreFilter || analysis.totalScore >= 20)) {
           analysis.market = marketMap?.get(stockCode) || null;
+          // nameMap에서 종목명 보완 (getCurrentPrice에서 누락된 경우)
+          if (!analysis.stockName || analysis.stockName === stockCode || analysis.stockName.startsWith('[')) {
+            const poolName = stockNameMap?.get(stockCode);
+            if (poolName && poolName !== stockCode && !poolName.startsWith('[')) {
+              analysis.stockName = poolName;
+            }
+          }
           results.push(analysis);
           console.log(`✅ [${results.length}] ${analysis.stockName} (${analysis.stockCode}) - 점수: ${analysis.totalScore.toFixed(1)}`);
         }
