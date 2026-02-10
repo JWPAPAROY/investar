@@ -251,6 +251,32 @@ async function supplementStockInfo(stocks) {
     }
   }
 
+  // 3단계: 여전히 이름 없는 종목은 getStockName 전용 API 호출
+  const stillNoName = stocks.filter(s => {
+    const code = s.stock_code || s.stockCode || '';
+    const name = s.stock_name || s.stockName || '';
+    return !name || name === code || name.startsWith('[');
+  });
+
+  if (stillNoName.length > 0) {
+    console.log(`🔎 ${stillNoName.length}개 종목 getStockName 전용 조회 중...`);
+    for (const s of stillNoName) {
+      const code = s.stock_code || s.stockCode;
+      try {
+        const name = await kisApi.getStockName(code);
+        if (name && name !== code && !name.startsWith('[')) {
+          s.stock_name = name;
+          if (s.stockName !== undefined) s.stockName = name;
+          console.log(`  ✅ getStockName [${code}] → ${name}`);
+        } else {
+          console.warn(`  ❌ getStockName [${code}] → 유효한 이름 없음 (${name})`);
+        }
+      } catch (e) {
+        console.warn(`  ❌ getStockName [${code}] 실패: ${e.message}`);
+      }
+    }
+  }
+
   // 최종 결과 로그
   stocks.forEach(s => {
     const code = s.stock_code || s.stockCode;
