@@ -890,7 +890,8 @@ class KISApi {
   }
 
   /**
-   * 종목명 조회 전용 함수 (종목기본정보 API 사용)
+   * 종목명 조회 전용 함수 (상품기본조회 CTPF1002R 사용)
+   * v3.33: FHKST01010100에는 종목명 필드 없음 → CTPF1002R로 변경
    * @param {string} stockCode - 종목코드
    * @returns {Promise<string|null>} - 종목명 또는 null
    */
@@ -898,23 +899,25 @@ class KISApi {
     try {
       const token = await this.getAccessToken();
 
-      const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-price`, {
+      const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/search-stock-info`, {
         headers: {
           'Content-Type': 'application/json',
           'authorization': `Bearer ${token}`,
           'appkey': this.appKey,
           'appsecret': this.appSecret,
-          'tr_id': 'FHKST01010100'
+          'tr_id': 'CTPF1002R',
+          'custtype': 'P'
         },
         params: {
-          FID_COND_MRKT_DIV_CODE: 'J',
-          FID_INPUT_ISCD: stockCode
+          PRDT_TYPE_CD: '300',
+          PDNO: stockCode
         }
       });
 
       if (response.data.rt_cd === '0' && response.data.output) {
-        // v3.33: hts_kor_isnm 필드 사용 (HTS 한글 종목명), prdt_name은 fallback
-        const stockName = response.data.output.hts_kor_isnm || response.data.output.prdt_name;
+        const output = response.data.output;
+        const stockName = output.prdt_abrv_name || output.prdt_name || output.prdt_kor_name;
+        console.log(`✅ 종목명 조회 [${stockCode}] → ${stockName}`);
 
         // 캐시에 저장
         if (stockName && this.stockNameCache) {
