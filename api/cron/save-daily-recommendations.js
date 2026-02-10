@@ -217,36 +217,46 @@ async function supplementStockInfo(stocks) {
     console.warn('⚠️ DB 보완 실패:', e.message);
   }
 
-  // 2단계: 여전히 부족한 종목은 KIS API 호출
-  const stillNeeds = stocks.filter(s => {
+  // 2단계: 종목명이 부족한 종목은 getStockName 직접 호출 (CTPF1002R, 1 API콜/종목)
+  const needsName = stocks.filter(s => {
     const code = s.stock_code || s.stockCode || '';
     const name = s.stock_name || s.stockName || '';
-    return !name || name === code || name.startsWith('[') || !s.market;
+    return !name || name === code || name.startsWith('[');
   });
 
-  if (stillNeeds.length > 0) {
-    console.log(`🔍 ${stillNeeds.length}개 종목 KIS API 조회 중...`);
-    for (const s of stillNeeds) {
+  if (needsName.length > 0) {
+    console.log(`🔍 ${needsName.length}개 종목명 CTPF1002R 조회 중...`);
+    for (const s of needsName) {
+      const code = s.stock_code || s.stockCode;
+      try {
+        const name = await kisApi.getStockName(code);
+        if (name && name !== code && !name.startsWith('[')) {
+          s.stock_name = name;
+          if (s.stockName !== undefined) s.stockName = name;
+          console.log(`  ✅ 종목명 [${code}] → ${name}`);
+        } else {
+          console.warn(`  ❌ 종목명 [${code}] → 유효하지 않음: ${name}`);
+        }
+      } catch (e) {
+        console.warn(`  ❌ 종목명 [${code}] 실패: ${e.message}`);
+      }
+    }
+  }
+
+  // 3단계: 시장 정보가 부족한 종목은 getCurrentPrice로 시장만 조회
+  const needsMarket = stocks.filter(s => !s.market);
+  if (needsMarket.length > 0) {
+    console.log(`🔍 ${needsMarket.length}개 시장 정보 조회 중...`);
+    for (const s of needsMarket) {
       const code = s.stock_code || s.stockCode;
       try {
         const info = await kisApi.getCurrentPrice(code);
-        if (info) {
-          console.log(`  🔍 API [${code}] → stockName=${info.stockName}, market=${info.market}`);
-          const currentName = s.stock_name || s.stockName || '';
-          if (info.stockName && info.stockName !== code && !info.stockName.startsWith('[')) {
-            s.stock_name = info.stockName;
-            if (s.stockName !== undefined) s.stockName = info.stockName;
-            console.log(`  ✅ API [${code}] → ${info.stockName}`);
-          }
-          if (info.market && !s.market) {
-            s.market = info.market;
-            console.log(`  ✅ API [${code}] market → ${info.market}`);
-          }
-        } else {
-          console.warn(`  ❌ API [${code}] → null 반환`);
+        if (info?.market) {
+          s.market = info.market;
+          console.log(`  ✅ 시장 [${code}] → ${info.market}`);
         }
       } catch (e) {
-        console.warn(`  ❌ API [${code}] 실패: ${e.message}`);
+        console.warn(`  ❌ 시장 [${code}] 실패: ${e.message}`);
       }
     }
   }
@@ -408,9 +418,12 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
     msg += formatSentimentLine(options.sentiment.kospi, options.sentiment.kosdaq);
   }
 
-  // ── 1. D-1 추천 종목의 오늘 성과 ──
+  // ── 1. 이전 추천 종목의 당일 성과 ──
   if (morningResults && morningResults.length > 0) {
-    msg += `📊 <b>D-1 추천 종목의 오늘 성과</b>\n`;
+    const recDateLabel = options.recommendDate
+      ? options.recommendDate.slice(5).replace('-', '/')
+      : '이전';
+    msg += `📊 <b>${recDateLabel} 추천 종목의 당일 성과</b>\n`;
     let winCount = 0;
     let totalReturn = 0;
 
@@ -1209,7 +1222,8 @@ module.exports = async (req, res) => {
         recommendation: { grade: s.recommendation_grade }
       }));
 
-      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment });
+      const recDate = top3ForAlert[0]?.recommendation_date || today;
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment, recommendDate: recDate });
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -1526,7 +1540,7 @@ module.exports = async (req, res) => {
 
       // 3. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment });
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment, recommendDate: latestSaveDate });
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {
