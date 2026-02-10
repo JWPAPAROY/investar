@@ -136,6 +136,11 @@ class KISApi {
 
       // 캐싱된 종목명 우선 사용, 없으면 API 응답
       let cachedName = this.getCachedStockName(stockCode);
+      // v3.33 디버그: API 응답의 종목명 관련 필드 확인
+      const nameFields = Object.keys(output).filter(k =>
+        k.includes('name') || k.includes('isnm') || k.includes('prdt') || k.includes('kor')
+      );
+      console.log(`🔍 [${stockCode}] 종목명 필드 탐색:`, nameFields.map(k => `${k}=${output[k]}`).join(', '));
       // v3.33: hts_kor_isnm 필드 사용 (HTS 한글 종목명), prdt_name은 fallback
       let stockName = cachedName || output.hts_kor_isnm || output.prdt_name;
 
