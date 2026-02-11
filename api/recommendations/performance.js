@@ -588,11 +588,17 @@ module.exports = async (req, res) => {
         is_rising: stock.is_rising,
         whale_detected: stock.whale_detected || false,
         accumulation_detected: stock.accumulation_detected || false,
+        institution_buy_days: stock.institution_buy_days || 0,
+        foreign_buy_days: stock.foreign_buy_days || 0,
         defense_score: stock.defense_score || 0,
         defense_grade: stock.defense_grade || null,
         is_top3: stock.is_top3 || false,
         is_defense_top3: stock.is_defense_top3 || false,
-        days_since_recommendation: stock.days_since_recommendation
+        days_since_recommendation: stock.days_since_recommendation,
+        sell_signals: stock.sell_signals || null,
+        rise_analysis: stock.rise_analysis || null,
+        market_cap: stock.market_cap || 0,
+        recommendation_date: stock.recommendation_date
       });
     });
 

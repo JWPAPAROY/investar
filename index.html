@@ -2830,6 +2830,11 @@
                                     </div>
                                   </div>
                                 </div>
+                                {stock.is_top3 && (
+                                  <div className="w-full bg-orange-100 rounded-full px-3 py-1 text-center">
+                                    <span className="text-xs text-orange-700 font-bold">🏆 TOP 3</span>
+                                  </div>
+                                )}
                                 {stock.is_rising && (
                                   <div className="w-full bg-red-100 rounded-full px-3 py-1 text-center">
                                     <span className="text-xs text-red-700 font-bold">
