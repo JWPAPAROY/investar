@@ -415,10 +415,158 @@ function selectSaveTop3(stocks) {
 }
 
 /**
+ * v3.34: 방어 전략 TOP 3 선별 (SAVE용 - 스크리닝 결과 camelCase)
+ * 기관/외국인 수급 기반, 과매도 반등 종목
+ */
+function selectDefenseSaveTop3(stocks) {
+  if (!stocks || stocks.length === 0) return [];
+
+  const isEligible = (s) => {
+    // 기관 연속 매수일 계산
+    let instDays = 0, foreignDays = 0;
+    const flow = s.institutionalFlow;
+    if (flow) {
+      instDays = flow.institution?.consecutiveBuyDays || flow.institutionDays || 0;
+      foreignDays = flow.foreign?.consecutiveBuyDays || flow.foreignDays || 0;
+    }
+    const hasSmartMoney = instDays >= 3 || foreignDays >= 3;
+    const isNotCrashing = !s.crashCheck?.isCrashing;
+    const isNotOverheated = s.recommendation?.grade !== '과열';
+    const mcBillion = s.marketCap ? s.marketCap / 100000000 : 0;
+    const hasMinMarketCap = mcBillion >= 5000; // 5000억+
+    return hasSmartMoney && isNotCrashing && isNotOverheated && hasMinMarketCap;
+  };
+
+  const getDualBonus = (s) => {
+    const flow = s.institutionalFlow;
+    const instDays = flow?.institution?.consecutiveBuyDays || flow?.institutionDays || 0;
+    const foreignDays = flow?.foreign?.consecutiveBuyDays || flow?.foreignDays || 0;
+    if (instDays >= 2 && foreignDays >= 2) return true;
+    return false;
+  };
+
+  const top3 = [];
+
+  // 1순위: 쌍방수급 + 55-84점
+  const p1 = stocks.filter(s => isEligible(s) && s.defenseScore >= 55 && s.defenseScore < 85 && getDualBonus(s))
+    .sort((a, b) => b.defenseScore - a.defenseScore);
+  top3.push(...p1.slice(0, 3));
+
+  // 2순위: 55점+
+  if (top3.length < 3) {
+    const p2 = stocks.filter(s => isEligible(s) && s.defenseScore >= 55 && !top3.some(t => t.stockCode === s.stockCode))
+      .sort((a, b) => b.defenseScore - a.defenseScore);
+    top3.push(...p2.slice(0, 3 - top3.length));
+  }
+
+  // 3순위: 40점+
+  if (top3.length < 3) {
+    const p3 = stocks.filter(s => isEligible(s) && s.defenseScore >= 40 && !top3.some(t => t.stockCode === s.stockCode))
+      .sort((a, b) => b.defenseScore - a.defenseScore);
+    top3.push(...p3.slice(0, 3 - top3.length));
+  }
+
+  return top3;
+}
+
+/**
+ * v3.34: 방어 전략 TOP 3 선별 (ALERT용 - DB snake_case)
+ */
+function selectDefenseAlertTop3(stocks) {
+  if (!stocks || stocks.length === 0) return [];
+
+  const isEligible = (s) => {
+    const instDays = s.institution_buy_days || 0;
+    const foreignDays = s.foreign_buy_days || 0;
+    const hasSmartMoney = instDays >= 3 || foreignDays >= 3;
+    const isNotOverheated = s.recommendation_grade !== '과열';
+    const mcBillion = s.market_cap ? s.market_cap / 100000000 : 0;
+    const hasMinMarketCap = mcBillion >= 5000;
+    return hasSmartMoney && isNotOverheated && hasMinMarketCap;
+  };
+
+  const top3 = [];
+
+  // 1순위: 쌍방수급 + 55-84점
+  const p1 = stocks.filter(s => {
+    const instDays = s.institution_buy_days || 0;
+    const foreignDays = s.foreign_buy_days || 0;
+    return isEligible(s) && s.defense_score >= 55 && s.defense_score < 85 && instDays >= 2 && foreignDays >= 2;
+  }).sort((a, b) => b.defense_score - a.defense_score);
+  top3.push(...p1.slice(0, 3));
+
+  if (top3.length < 3) {
+    const p2 = stocks.filter(s => isEligible(s) && s.defense_score >= 55 && !top3.some(t => t.stock_code === s.stock_code))
+      .sort((a, b) => b.defense_score - a.defense_score);
+    top3.push(...p2.slice(0, 3 - top3.length));
+  }
+
+  if (top3.length < 3) {
+    const p3 = stocks.filter(s => isEligible(s) && s.defense_score >= 40 && !top3.some(t => t.stock_code === s.stock_code))
+      .sort((a, b) => b.defense_score - a.defense_score);
+    top3.push(...p3.slice(0, 3 - top3.length));
+  }
+
+  return top3;
+}
+
+/**
+ * v3.34: 시장 공포 상태인지 확인 (KOSPI + KOSDAQ 모두 fear)
+ */
+function isMarketFear(sentiment) {
+  if (!sentiment) return false;
+  const kGrade = sentiment.kospi?.grade;
+  const qGrade = sentiment.kosdaq?.grade;
+  return kGrade === 'fear' && qGrade === 'fear';
+}
+
+/**
+ * v3.34: 방어 TOP 3 텔레그램 메시지 포맷 (공통)
+ */
+function formatDefenseTop3Section(defenseTop3, mode = 'save') {
+  if (!defenseTop3 || defenseTop3.length === 0) return '';
+
+  let msg = `\n━━━━━━━━━━━━━━━━━━━━\n\n`;
+  msg += `🛡️ <b>방어 전략 TOP 3</b> (기관 수급 기반)\n\n`;
+
+  defenseTop3.forEach((stock, i) => {
+    const medal = ['🥇', '🥈', '🥉'][i];
+    const isSave = mode === 'save';
+    const price = isSave ? (stock.currentPrice || 0) : (stock.recommended_price || 0);
+    const score = isSave ? (stock.defenseScore || 0) : (stock.defense_score || 0);
+    const grade = isSave ? (stock.defenseGrade || 'D-D') : (stock.defense_grade || 'D-D');
+    const mc = isSave ? (stock.marketCap || 0) : (stock.market_cap || 0);
+    const mcBillion = mc / 100000000;
+
+    // 손절 계산 (시총별 차등)
+    const slWarning = mcBillion >= 50000 ? Math.floor(price * 0.96) : Math.floor(price * 0.97);
+    const slExit = mcBillion >= 50000 ? Math.floor(price * 0.94) : Math.floor(price * 0.95);
+    const slWarningPct = mcBillion >= 50000 ? '-4%' : '-3%';
+    const slExitPct = mcBillion >= 50000 ? '-6%' : '-5%';
+
+    const instDays = isSave
+      ? (stock.institutionalFlow?.institution?.consecutiveBuyDays || stock.institutionalFlow?.institutionDays || 0)
+      : (stock.institution_buy_days || 0);
+    const foreignDays = isSave
+      ? (stock.institutionalFlow?.foreign?.consecutiveBuyDays || stock.institutionalFlow?.foreignDays || 0)
+      : (stock.foreign_buy_days || 0);
+
+    const marketTag = formatMarketTag(stock.market);
+    const displayName = getDisplayName(stock);
+    msg += `${medal} <b>${displayName}</b> ${marketTag} (${grade}, ${score.toFixed ? score.toFixed(0) : score}점)\n`;
+    msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
+    msg += `   🛡️ 손절: ${slWarning.toLocaleString()}원(${slWarningPct}) / ${slExit.toLocaleString()}원(${slExitPct})\n`;
+    msg += `   📊 기관 ${instDays}일 연속매수 | 외국인 ${foreignDays}일\n\n`;
+  });
+
+  return msg;
+}
+
+/**
  * v3.27: SAVE 메시지 (오후 16:10)
  * 🌆 오늘의 결산 (오전 추천 성과 + 내일 TOP 3)
  */
-function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
+function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = []) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n`;
@@ -497,6 +645,11 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
     });
   }
 
+  // v3.34: 방어 TOP 3 (시장 공포 시에만)
+  if (defenseTop3 && defenseTop3.length > 0 && isMarketFear(options.sentiment)) {
+    msg += formatDefenseTop3Section(defenseTop3, 'save');
+  }
+
   return msg;
 }
 
@@ -504,7 +657,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}) {
  * v3.27: ALERT 메시지 (아침 08:30)
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
-function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null) {
+function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = []) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
@@ -588,6 +741,11 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       const winRateAll = (totalWinAll / totalCountAll * 100).toFixed(0);
       message += `📊 전체: 평균 ${avgReturnAll >= 0 ? '+' : ''}${avgReturnAll.toFixed(1)}% | 승률 ${winRateAll}% (${totalWinAll}/${totalCountAll})\n`;
     }
+  }
+
+  // v3.34: 방어 TOP 3 (시장 공포 시에만)
+  if (defenseTop3 && defenseTop3.length > 0 && isMarketFear(sentiment)) {
+    message += formatDefenseTop3Section(defenseTop3, 'alert');
   }
 
   return message;
@@ -803,9 +961,10 @@ module.exports = async (req, res) => {
         .eq('is_active', true)
         .order('total_score', { ascending: false });
 
-      // Step 2: TOP 3 선별 (SAVE와 동일한 selectAlertTop3 사용)
+      // Step 2: TOP 3 선별 (모멘텀 + 방어)
       const top3 = selectAlertTop3(savedStocks || []).slice(0, 3);
-      console.log(`✅ TOP 3 선정: ${top3.length}개`);
+      const defenseAlertTop3 = selectDefenseAlertTop3(savedStocks || []);
+      console.log(`✅ TOP 3 선정: ${top3.length}개, 방어 TOP 3: ${defenseAlertTop3.length}개`);
 
       // v3.33: 종목 정보 보완 (통합 함수)
       await supplementStockInfo(top3);
@@ -906,7 +1065,7 @@ module.exports = async (req, res) => {
       }
 
       // Step 5: 텔레그램 알림 전송
-      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment);
+      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3);
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -1248,7 +1407,9 @@ module.exports = async (req, res) => {
         recommendation: { grade: s.recommendation_grade }
       }));
 
-      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment });
+      // v3.34: 방어 TOP 3도 cached 경로에서 선별
+      const defenseAlertTop3 = selectDefenseAlertTop3(existingData);
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, defenseAlertTop3);
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -1380,6 +1541,10 @@ module.exports = async (req, res) => {
         momentum_score: stock.radarScore?.momentumScore?.totalScore || 0,
         trend_score: stock.radarScore?.trendScore?.totalScore || 0,
 
+        // v3.34: 방어 전략
+        defense_score: stock.defenseScore || 0,
+        defense_grade: stock.defenseGrade || 'D-D',
+
         is_active: true
       };
     });
@@ -1448,9 +1613,11 @@ module.exports = async (req, res) => {
     // v3.25: save 시점에 텔레그램 알림 (고래 상세 정보 포함)
     let tgSent = false;
     try {
-      // 1. 내일 TOP 3 선정
+      // 1. 내일 TOP 3 선정 (모멘텀 + 방어)
       const saveTop3 = selectSaveTop3(stocks);
+      const defenseTop3 = selectDefenseSaveTop3(stocks);
       console.log(`📱 TOP 3 후보: ${saveTop3.length}개 - ${saveTop3.map(s => s.stockName + '(' + s.totalScore + ')').join(', ')}`);
+      console.log(`🛡️ 방어 TOP 3: ${defenseTop3.length}개 - ${defenseTop3.map(s => s.stockName + '(' + s.defenseScore + ')').join(', ')}`);
 
       // 2. 전 거래일 추천 종목의 당일 성과 분석 (오늘 종가 기준)
       // v3.31: 주말/휴일에도 정상 동작하도록 가장 최근 SAVE 날짜 조회 (ALERT 모드와 동일)
@@ -1565,7 +1732,7 @@ module.exports = async (req, res) => {
 
       // 3. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment });
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment }, defenseTop3);
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {

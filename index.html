@@ -114,6 +114,7 @@
       const [activeTab, setActiveTab] = useState('screening'); // screening, performance, dna
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
+      const [strategyFilter, setStrategyFilter] = useState('momentum'); // v3.34: momentum, defense, all
 
       // 🆕 v3.12.4: 카테고리별 데이터 캐싱
       const [cachedData, setCachedData] = useState({
@@ -489,6 +490,30 @@
                   </div>
                 )}
 
+                {/* v3.34: 전략 필터 토글 */}
+                {lastUpdate && recommendations.length > 0 && (
+                  <div className="flex justify-center gap-2 mb-4">
+                    {[
+                      { key: 'momentum', label: '🔴 모멘텀', desc: '상승 모멘텀' },
+                      { key: 'defense', label: '🛡️ 방어', desc: '하락 방어' },
+                      { key: 'all', label: '📊 전체', desc: '모두 표시' }
+                    ].map(s => (
+                      <button
+                        key={s.key}
+                        onClick={() => setStrategyFilter(s.key)}
+                        className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
+                          strategyFilter === s.key
+                            ? s.key === 'momentum' ? 'bg-red-500 text-white' : s.key === 'defense' ? 'bg-blue-500 text-white' : 'bg-gray-700 text-white'
+                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                        }`}
+                        title={s.desc}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* 🆕 TOP 3 추천 종목 섹션 (조회 후에만 표시) */}
                 {lastUpdate && (
                   <div className="mb-8 bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-6">
@@ -651,12 +676,17 @@
                   <EmptyState category={selectedCategory} />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
-                    {recommendations.map((stock, index) => (
+                    {[...recommendations]
+                      .sort((a, b) => strategyFilter === 'defense'
+                        ? (b.defenseScore || 0) - (a.defenseScore || 0)
+                        : b.totalScore - a.totalScore)
+                      .map((stock, index) => (
                       <RecommendationCard
                         key={stock.stockCode}
                         stock={stock}
                         rank={index + 1}
                         onClick={() => fetchStockDetail(stock.stockCode)}
+                        strategyFilter={strategyFilter}
                       />
                     ))}
                   </div>
@@ -734,8 +764,9 @@
     }
 
     // 추천 종목 카드
-    function RecommendationCard({ stock, rank, onClick }) {
-      const gradeClass = `grade-${stock.recommendation.grade}`;
+    function RecommendationCard({ stock, rank, onClick, strategyFilter }) {
+      const isDefense = strategyFilter === 'defense';
+      const gradeClass = isDefense ? 'grade-defense' : `grade-${stock.recommendation.grade}`;
       const isPositive = stock.changeRate >= 0;
 
       // 거래량 비율 계산
@@ -765,10 +796,10 @@
           onClick={onClick}
         >
           {/* 등급 배지 */}
-          <div className={`${gradeClass} px-4 py-3 flex justify-between items-center`}>
+          <div className={`${isDefense ? 'bg-gradient-to-r from-blue-500 to-blue-700' : gradeClass} px-4 py-3 flex justify-between items-center`}>
             <span className="text-white font-bold text-lg">#{rank}</span>
-            <span className="text-white font-bold text-2xl">{stock.recommendation.grade}</span>
-            <span className="text-white text-sm">점수: {stock.totalScore.toFixed(2)}</span>
+            <span className="text-white font-bold text-2xl">{isDefense ? (stock.defenseGrade || 'D-D') : stock.recommendation.grade}</span>
+            <span className="text-white text-sm">{isDefense ? `방어: ${(stock.defenseScore || 0).toFixed(0)}` : `점수: ${stock.totalScore.toFixed(2)}`}</span>
           </div>
 
           {/* 종목 정보 */}
@@ -1941,6 +1972,94 @@
                       <span className="text-red-700"> ❌ 시장 상황에 따라 성과가 예상보다 낮을 수 있습니다.</span>
                     )}
                   </p>
+                </div>
+              </div>
+            ) : null;
+          })()}
+
+          {/* v3.34: 방어 전략 성과 */}
+          {(() => {
+            const defenseStocks = trackerData.stocks ? trackerData.stocks.filter(stock => {
+              const isRecent = recent3Dates.includes(stock.recommendation_date);
+              const hasSmartMoney = (stock.institution_buy_days >= 3 || stock.foreign_buy_days >= 3);
+              const hasMinMc = stock.market_cap ? (stock.market_cap / 100000000) >= 5000 : false;
+              const isNotOverheated = stock.recommendation_grade !== '과열';
+              return isRecent && hasSmartMoney && hasMinMc && isNotOverheated && stock.defense_score >= 40;
+            }) : [];
+
+            // recent3Dates is from the TOP3 section above - need to recalculate if outside scope
+            const defUniDates = trackerData.stocks
+              ? [...new Set(trackerData.stocks.map(s => s.recommendation_date))].sort().reverse()
+              : [];
+            const defRecent3 = defUniDates.slice(0, 3);
+            const defFiltered = trackerData.stocks ? trackerData.stocks.filter(stock => {
+              const isRecent = defRecent3.includes(stock.recommendation_date);
+              const hasSmartMoney = (stock.institution_buy_days >= 3 || stock.foreign_buy_days >= 3);
+              const hasMinMc = stock.market_cap ? (stock.market_cap / 100000000) >= 5000 : false;
+              const isNotOverheated = stock.recommendation_grade !== '과열';
+              return isRecent && hasSmartMoney && hasMinMc && isNotOverheated && (stock.defense_score || 0) >= 40;
+            }) : [];
+
+            const defWinCount = defFiltered.filter(s => s.is_winning).length;
+            const defWinRate = defFiltered.length > 0 ? (defWinCount / defFiltered.length * 100) : 0;
+            const defAvgReturn = defFiltered.length > 0
+              ? defFiltered.reduce((sum, s) => sum + s.current_return, 0) / defFiltered.length : 0;
+
+            return defFiltered.length > 0 ? (
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-6 mb-8">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <span className="text-3xl">🛡️</span>
+                    <div>
+                      <h3 className="text-2xl font-bold text-blue-800">방어 전략 성과</h3>
+                      <p className="text-sm text-blue-600 mt-1">
+                        기관/외국인 수급 기반 과매도 반등 전략 (최근 3일)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="bg-blue-600 text-white px-4 py-2 rounded-full font-bold text-lg">
+                    {defFiltered.length}개
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <div className="text-sm text-gray-600 mb-1">승률</div>
+                    <div className={`text-2xl font-bold ${defWinRate >= 60 ? 'text-green-600' : defWinRate >= 40 ? 'text-orange-600' : 'text-red-600'}`}>
+                      {defWinRate.toFixed(1)}%
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <div className="text-sm text-gray-600 mb-1">평균 수익률</div>
+                    <div className={`text-2xl font-bold ${defAvgReturn > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {defAvgReturn > 0 ? '+' : ''}{defAvgReturn.toFixed(2)}%
+                    </div>
+                  </div>
+                  <div className="bg-white rounded-lg p-4 shadow">
+                    <div className="text-sm text-gray-600 mb-1">전적</div>
+                    <div className="text-2xl font-bold text-blue-600">
+                      {defWinCount}승 {defFiltered.length - defWinCount}패
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  {defFiltered
+                    .sort((a, b) => (b.defense_score || 0) - (a.defense_score || 0))
+                    .slice(0, 5)
+                    .map((stock, index) => (
+                      <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between bg-white rounded-lg px-4 py-2 shadow-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">{stock.defense_grade || 'D-D'}</span>
+                          <span className="font-semibold text-gray-800">{stock.stock_name}</span>
+                          <span className="text-xs text-gray-500">방어 {(stock.defense_score || 0).toFixed(0)}점</span>
+                          <span className="text-xs text-gray-400">기관{stock.institution_buy_days || 0}일 외인{stock.foreign_buy_days || 0}일</span>
+                        </div>
+                        <span className={`font-bold ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
+                          {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(2)}%
+                        </span>
+                      </div>
+                    ))}
                 </div>
               </div>
             ) : null;

@@ -668,7 +668,7 @@ function analyzeAdvanced(chartData, marketCap = 0) {
       drain: { detected: false, signal: '없음' },
       gradualAccumulation: { detected: false, signal: '없음' },
       smartMoney: { detected: false, signal: '없음' },
-      bottomFormation: { detected: false, signal: '없음' },
+      bottomFormation: detectBottomFormation(chartData), // v3.34: 방어 전략용 재활성화
       breakoutPrep: { detected: false, signal: '없음' }
     },
     totalScore: Math.round(totalScore),
