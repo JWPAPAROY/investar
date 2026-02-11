@@ -156,6 +156,17 @@ module.exports = async (req, res) => {
       }
     }
 
+    // === Phase 2.5: 종목명 누락 종목도 실시간 조회 대상에 추가 ===
+    const nameMissingRecs = recommendations.filter(rec => {
+      const name = rec.stock_name || '';
+      return !name || name === rec.stock_code || name.startsWith('[');
+    });
+    for (const rec of nameMissingRecs) {
+      if (!recsNeedingRealtime.some(r => r.stock_code === rec.stock_code)) {
+        recsNeedingRealtime.push(rec);
+      }
+    }
+
     // === Phase 3: 실시간 가격 병렬 조회 (배치 5개씩 + 딜레이 + 재시도) ===
     const realtimePrices = {}; // stock_code → { currentPrice, stockName }
     const RT_BATCH_SIZE = 5;
@@ -216,6 +227,25 @@ module.exports = async (req, res) => {
       console.warn(`⚠️ 실시간 가격 최종 실패: ${remainingCodes.length}개 (${remainingCodes.join(', ')})`);
     }
     console.log(`✅ 실시간 가격 조회 완료: ${Object.keys(realtimePrices).length}/${uniqueCodes.length}개`);
+
+    // === Phase 3.5: 종목명 누락 DB 일괄 수정 ===
+    const nameUpdates = [];
+    for (const rec of recommendations) {
+      const curName = rec.stock_name || '';
+      const rtData = realtimePrices[rec.stock_code];
+      if (rtData?.stockName && rtData.stockName !== rec.stock_code && !rtData.stockName.startsWith('[')) {
+        if (!curName || curName === rec.stock_code || curName.startsWith('[')) {
+          nameUpdates.push({ id: rec.id, stock_name: rtData.stockName });
+          rec.stock_name = rtData.stockName; // 현재 응답에도 반영
+        }
+      }
+    }
+    if (nameUpdates.length > 0) {
+      console.log(`📝 종목명 DB 수정: ${nameUpdates.length}개`);
+      for (const upd of nameUpdates) {
+        await supabase.from('screening_recommendations').update({ stock_name: upd.stock_name }).eq('id', upd.id);
+      }
+    }
 
     // === Phase 4: 각 추천 종목에 가격/수익률 매핑 ===
     const stocksWithPerformance = [];
