@@ -144,10 +144,12 @@ module.exports = async (req, res) => {
       const recDate = new Date(rec.recommendation_date);
       const daysSince = Math.floor((new Date() - recDate) / (1000 * 60 * 60 * 24));
 
-      const needsRealTimePrice =
+      // daily_prices에 오늘 데이터가 이미 있으면 실시간 조회 불필요
+      const hasTodayPrice = latestPriceDate === todayDateString;
+      const needsRealTimePrice = !hasTodayPrice && (
         daysSince === 0 ||
-        priceData.length === 0 ||
-        latestPriceDate !== todayDateString;
+        priceData.length === 0
+      );
 
       if (needsRealTimePrice) {
         recsNeedingRealtime.push(rec);
