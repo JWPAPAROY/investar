@@ -846,17 +846,8 @@ module.exports = async (req, res) => {
           const prevTop3 = selectAlertTop3(prevStocks || []).slice(0, 3);
           if (prevTop3.length === 0) continue;
 
-          // v3.32: 과거 추천 종목 시장 정보 보완
-          if (prevTop3.some(s => !s.market)) {
-            await Promise.all(prevTop3.map(async s => {
-              if (!s.market) {
-                try {
-                  const info = await kisApi.getCurrentPrice(s.stock_code);
-                  if (info?.market) s.market = info.market;
-                } catch (e) { }
-              }
-            }));
-          }
+          // v3.33: 과거 추천 종목 정보 보완 (종목명 + 시장)
+          await supplementStockInfo(prevTop3);
 
           const dayStocks = [];
           for (const stock of prevTop3) {
