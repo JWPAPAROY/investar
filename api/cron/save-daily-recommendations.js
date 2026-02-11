@@ -513,12 +513,13 @@ function selectDefenseAlertTop3(stocks) {
 /**
  * v3.34: 시장 공포 상태인지 확인 (KOSPI + KOSDAQ 모두 fear)
  */
-function isMarketFear(sentiment) {
+function isMarketDefensive(sentiment) {
   if (!sentiment) return false;
   const kGrade = sentiment.kospi?.grade;
   const qGrade = sentiment.kosdaq?.grade;
-  // v3.34.1: 한쪽이라도 공포면 방어 전략 표시 (양쪽 공포는 너무 늦음)
-  return kGrade === 'fear' || qGrade === 'fear';
+  const bearish = ['fear', 'anxiety']; // 공포 + 불안
+  // v3.34.2: 한쪽이라도 불안 이하면 방어 전략 표시 (공포까지 기다리면 너무 늦음)
+  return bearish.includes(kGrade) || bearish.includes(qGrade);
 }
 
 /**
@@ -647,7 +648,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
   }
 
   // v3.34: 방어 TOP 3 (시장 공포 시에만)
-  if (defenseTop3 && defenseTop3.length > 0 && isMarketFear(options.sentiment)) {
+  if (defenseTop3 && defenseTop3.length > 0 && isMarketDefensive(options.sentiment)) {
     msg += formatDefenseTop3Section(defenseTop3, 'save');
   }
 
@@ -745,7 +746,7 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
   }
 
   // v3.34: 방어 TOP 3 (시장 공포 시에만)
-  if (defenseTop3 && defenseTop3.length > 0 && isMarketFear(sentiment)) {
+  if (defenseTop3 && defenseTop3.length > 0 && isMarketDefensive(sentiment)) {
     message += formatDefenseTop3Section(defenseTop3, 'alert');
   }
 
