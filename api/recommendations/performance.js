@@ -586,6 +586,8 @@ module.exports = async (req, res) => {
         consecutive_rise_days: stock.consecutive_rise_days,
         is_winning: stock.is_winning,
         is_rising: stock.is_rising,
+        whale_detected: stock.whale_detected || false,
+        accumulation_detected: stock.accumulation_detected || false,
         defense_score: stock.defense_score || 0,
         defense_grade: stock.defense_grade || null,
         is_top3: stock.is_top3 || false,
