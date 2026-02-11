@@ -517,7 +517,8 @@ function isMarketFear(sentiment) {
   if (!sentiment) return false;
   const kGrade = sentiment.kospi?.grade;
   const qGrade = sentiment.kosdaq?.grade;
-  return kGrade === 'fear' && qGrade === 'fear';
+  // v3.34.1: 한쪽이라도 공포면 방어 전략 표시 (양쪽 공포는 너무 늦음)
+  return kGrade === 'fear' || qGrade === 'fear';
 }
 
 /**

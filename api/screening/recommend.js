@@ -30,6 +30,7 @@ module.exports = async function handler(req, res) {
       count: result.stocks.length,
       recommendations: result.stocks,
       top3: result.top3 || [],  // 🆕 TOP 3 추천 종목
+      defenseTop3: result.defenseTop3 || [],  // v3.34: 방어 TOP 3
       metadata: result.metadata,
       timestamp: new Date().toISOString()
     };

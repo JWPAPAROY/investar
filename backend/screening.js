@@ -1740,15 +1740,18 @@ class StockScreener {
 
     // TOP 3 선정 (전체 결과에서 선정)
     const top3 = this.selectTop3(results);
+    const defenseTop3 = this.selectDefenseTop3(results);
 
     return {
       stocks: finalResults,
       top3: top3,  // 🆕 TOP 3 추천 종목
+      defenseTop3: defenseTop3,  // v3.34: 방어 TOP 3
       metadata: {
         totalAnalyzed: analyzed,
         totalFound: results.length,
         returned: finalResults.length,
         top3Count: top3.length,  // 🆕 TOP 3 개수
+        defenseTop3Count: defenseTop3.length,
         poolSize: finalStockList.length,
         debug: {
           finalStockListSample: finalStockList.slice(0, 10),
@@ -1940,6 +1943,77 @@ class StockScreener {
         console.log(`  ${i + 1}. ${stock.stockName} (${stock.totalScore}점, ${stock.recommendation.grade}등급) - ${stock.top3Meta.strategy} [예상 승률 ${stock.top3Meta.expectedWinRate}%]`);
       });
     }
+
+    return top3;
+  }
+
+  /**
+   * v3.34: 방어 전략 TOP 3 선별
+   * 기관/외국인 수급 기반 과매도 반등 종목 선별
+   */
+  selectDefenseTop3(allStocks) {
+    console.log(`\n🛡️ 방어 TOP 3 선정 시작...`);
+
+    const isEligible = (s) => {
+      const flow = s.institutionalFlow;
+      const instDays = flow?.institution?.consecutiveBuyDays || flow?.institutionDays || 0;
+      const foreignDays = flow?.foreign?.consecutiveBuyDays || flow?.foreignDays || 0;
+      const hasSmartMoney = instDays >= 3 || foreignDays >= 3;
+      const isNotCrashing = !s.crashCheck?.isCrashing;
+      const isNotOverheated = s.recommendation?.grade !== '과열';
+      const mcBillion = s.marketCap ? s.marketCap / 100000000 : 0;
+      const hasMinMarketCap = mcBillion >= 5000;
+      return hasSmartMoney && isNotCrashing && isNotOverheated && hasMinMarketCap;
+    };
+
+    const getDualBonus = (s) => {
+      const flow = s.institutionalFlow;
+      const instDays = flow?.institution?.consecutiveBuyDays || flow?.institutionDays || 0;
+      const foreignDays = flow?.foreign?.consecutiveBuyDays || flow?.foreignDays || 0;
+      return instDays >= 2 && foreignDays >= 2;
+    };
+
+    const addMeta = (stock, priority) => {
+      const currentPrice = stock.currentPrice || 0;
+      const mcBillion = stock.marketCap ? stock.marketCap / 100000000 : 0;
+      const isLargeCap = mcBillion >= 50000; // 5조+
+      return {
+        ...stock,
+        defenseTop3Meta: {
+          priority,
+          stopLoss: {
+            caution: Math.floor(currentPrice * (isLargeCap ? 0.96 : 0.97)),
+            cut: Math.floor(currentPrice * (isLargeCap ? 0.94 : 0.95))
+          }
+        }
+      };
+    };
+
+    const top3 = [];
+
+    // 1순위: 쌍방수급 + 55-84점
+    const p1 = allStocks.filter(s => isEligible(s) && s.defenseScore >= 55 && s.defenseScore < 85 && getDualBonus(s))
+      .sort((a, b) => b.defenseScore - a.defenseScore).map(s => addMeta(s, 1));
+    top3.push(...p1.slice(0, 3));
+
+    // 2순위: 55점+
+    if (top3.length < 3) {
+      const p2 = allStocks.filter(s => isEligible(s) && s.defenseScore >= 55 && !top3.some(t => t.stockCode === s.stockCode))
+        .sort((a, b) => b.defenseScore - a.defenseScore).map(s => addMeta(s, 2));
+      top3.push(...p2.slice(0, 3 - top3.length));
+    }
+
+    // 3순위: 40점+
+    if (top3.length < 3) {
+      const p3 = allStocks.filter(s => isEligible(s) && s.defenseScore >= 40 && !top3.some(t => t.stockCode === s.stockCode))
+        .sort((a, b) => b.defenseScore - a.defenseScore).map(s => addMeta(s, 3));
+      top3.push(...p3.slice(0, 3 - top3.length));
+    }
+
+    console.log(`🛡️ 방어 TOP 3 선정 완료: ${top3.length}개`);
+    top3.forEach((s, i) => {
+      console.log(`  ${i + 1}. ${s.stockName} (방어 ${s.defenseScore}점, ${s.defenseGrade}) P${s.defenseTop3Meta.priority}`);
+    });
 
     return top3;
   }

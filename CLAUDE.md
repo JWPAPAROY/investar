@@ -484,7 +484,7 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 | 2순위 | 55점+ |
 | 3순위 | 40점+ |
 
-**텔레그램 표시 조건**: KOSPI + KOSDAQ **모두 공포**일 때만 방어 TOP 3 추가 표시
+**텔레그램 표시 조건**: KOSPI 또는 KOSDAQ **한쪽이라도 공포**일 때 방어 TOP 3 추가 표시
 
 ### 방어 손절 기준
 
