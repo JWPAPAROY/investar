@@ -585,7 +585,10 @@ module.exports = async (req, res) => {
         daily_prices: stock.daily_prices,
         consecutive_rise_days: stock.consecutive_rise_days,
         is_winning: stock.is_winning,
-        is_rising: stock.is_rising
+        is_rising: stock.is_rising,
+        defense_score: stock.defense_score || 0,
+        defense_grade: stock.defense_grade || null,
+        days_since_recommendation: stock.days_since_recommendation
       });
     });
 
