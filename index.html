@@ -1808,14 +1808,20 @@
           </div>
 
           {(() => {
-            // 🆕 TOP 3 조건에 맞는 종목 필터링
+            // 🆕 TOP 3 조건에 맞는 종목 필터링 (최근 3일치만 - 텔레그램 추적과 싱크)
+            const uniqueDates = trackerData.stocks
+              ? [...new Set(trackerData.stocks.map(s => s.recommendation_date))].sort().reverse()
+              : [];
+            const recent3Dates = uniqueDates.slice(0, 3);
+
             const top3Stocks = trackerData.stocks ? trackerData.stocks.filter(stock => {
+              const isRecent = recent3Dates.includes(stock.recommendation_date);
               const isWhale = stock.whale_detected;
               const isNotComposite = !stock.accumulation_detected;
               const isGoldenZone = stock.total_score >= 50 && stock.total_score < 80;
               const isNotOverheated = stock.recommendation_grade !== '과열';
 
-              return isWhale && isNotComposite && isGoldenZone && isNotOverheated;
+              return isRecent && isWhale && isNotComposite && isGoldenZone && isNotOverheated;
             }) : [];
 
             // TOP 3 통계 계산
