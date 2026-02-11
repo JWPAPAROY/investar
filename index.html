@@ -1860,8 +1860,9 @@
               const isNotComposite = !stock.accumulation_detected;
               const isGoldenZone = stock.total_score >= 50 && stock.total_score < 80;
               const isNotOverheated = stock.recommendation_grade !== '과열';
+              const isNotDayZero = (stock.days_since_recommendation || 0) > 0; // D-0 제외 (수익률 항상 0%)
 
-              return isRecent && isWhale && isNotComposite && isGoldenZone && isNotOverheated;
+              return isRecent && isWhale && isNotComposite && isGoldenZone && isNotOverheated && isNotDayZero;
             }) : [];
 
             // TOP 3 통계 계산
@@ -1997,7 +1998,8 @@
               const hasSmartMoney = (stock.institution_buy_days >= 3 || stock.foreign_buy_days >= 3);
               const hasMinMc = stock.market_cap ? (stock.market_cap / 100000000) >= 5000 : false;
               const isNotOverheated = stock.recommendation_grade !== '과열';
-              return isRecent && hasSmartMoney && hasMinMc && isNotOverheated && (stock.defense_score || 0) >= 40;
+              const isNotDayZero = (stock.days_since_recommendation || 0) > 0;
+              return isRecent && hasSmartMoney && hasMinMc && isNotOverheated && isNotDayZero && (stock.defense_score || 0) >= 40;
             }) : [];
 
             const defWinCount = defFiltered.filter(s => s.is_winning).length;
