@@ -142,8 +142,10 @@ module.exports = async (req, res) => {
     // KST 기준 장 운영 시간 체크
     const now = new Date();
     const kstHour = (now.getUTCHours() + 9) % 24;
+    const kstMin = now.getUTCMinutes();
     const kstDay = now.getUTCDay();
-    const isMarketHours = kstHour >= 9 && kstHour < 16 && kstDay >= 1 && kstDay <= 5;
+    // 장중: 09:00~15:30 (15:30 이후는 종가 확정 대기 → getDailyChart만 사용)
+    const isMarketHours = kstHour >= 9 && (kstHour < 15 || (kstHour === 15 && kstMin < 30)) && kstDay >= 1 && kstDay <= 5;
 
     console.log(`활성 추천: ${activeRecs.length}개 (장${isMarketHours ? ' 운영중' : ' 마감'})`);
 

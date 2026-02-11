@@ -12,12 +12,12 @@
   ],
   "crons": [
     {
-      "path": "/api/recommendations/update-prices",
-      "schedule": "40 6 * * 1-5"
-    },
-    {
       "path": "/api/cron/save-daily-recommendations?mode=save",
       "schedule": "50 6 * * 1-5"
+    },
+    {
+      "path": "/api/recommendations/update-prices",
+      "schedule": "5 7 * * 1-5"
     },
     {
       "path": "/api/cron/save-daily-recommendations?mode=alert",
