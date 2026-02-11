@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.34
+- **버전**: 3.35
 - **최종 업데이트**: 2026-02-11
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
@@ -21,7 +21,7 @@ investar/
 ├── api/                          # Vercel Serverless Functions
 │   ├── screening/
 │   │   ├── recommend.js         # 종합집계 API
-│   │   └── [category].js       # whale, accumulation
+│   │   └── [category].js       # 카테고리별 스크리닝 (레거시)
 │   ├── patterns/
 │   │   └── index.js             # 성공 패턴 분석 + 수집
 │   ├── recommendations/
@@ -499,9 +499,7 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 ### 스크리닝
 ```
-GET /api/screening/recommend?market=ALL&limit=10   # 종합집계
-GET /api/screening/whale?market=KOSPI&limit=5      # 고래 감지
-GET /api/screening/accumulation?market=ALL&limit=5  # 조용한 매집
+GET /api/screening/recommend?market=ALL&limit=10   # 종합집계 (모멘텀+방어 통합)
 ```
 
 ### 성과 추적
@@ -613,12 +611,18 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ## 📝 변경 이력
 
+### v3.35 (2026-02-11)
+- **고래 감지 탭 제거**: 모멘텀 스코어링이 고래 감지를 이미 포함하므로 중복 탭 제거
+- `CategoryFilter` 컴포넌트, `selectedCategory` 상태, `handleCategoryChange` 제거
+- `fetchRecommendations` 카테고리 파라미터 제거 (항상 종합집계 API만 호출)
+- 데이터 캐싱 구조 단순화 (카테고리별 → 단일 캐시)
+
 ### v3.34 (2026-02-11)
 - **방어 전략 병렬 운영**: 기존 모멘텀 전략과 별도로 하락장/조정기 대비 방어 전략 스코어링 추가
 - `calculateDefenseScore()`, `getDefenseRecommendation()` — screening.js
 - `detectBottomFormation()` 재활성화 — advancedIndicators.js
-- `selectDefenseSaveTop3()`, `selectDefenseAlertTop3()`, `isMarketFear()` — save-daily-recommendations.js
-- 텔레그램: KOSPI+KOSDAQ 모두 공포일 때만 방어 TOP 3 추가 표시
+- `selectDefenseSaveTop3()`, `selectDefenseAlertTop3()`, `isMarketDefensive()` — save-daily-recommendations.js
+- 텔레그램: KOSPI 또는 KOSDAQ 한쪽이라도 불안 이하일 때 방어 TOP 3 추가 표시
 - Supabase: `defense_score`, `defense_grade` 컬럼 추가
 - 프론트엔드: 종합집계 전략 필터(모멘텀/방어/전체), 성과 점검 방어 전략 성과 섹션
 - TOP 3 성과 추적 기간 7일 → 3일 (텔레그램 싱크)

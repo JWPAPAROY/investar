@@ -109,7 +109,6 @@
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
       const [selectedStock, setSelectedStock] = useState(null);
-      const [selectedCategory, setSelectedCategory] = useState('all');
       const [lastUpdate, setLastUpdate] = useState(null);
       const [activeTab, setActiveTab] = useState('screening'); // screening, performance, dna
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
@@ -117,11 +116,8 @@
       const [defenseTop3Recommendations, setDefenseTop3Recommendations] = useState([]); // v3.34: 방어 TOP 3
       const [strategyFilter, setStrategyFilter] = useState('momentum'); // v3.34: momentum, defense, all
 
-      // 🆕 v3.12.4: 카테고리별 데이터 캐싱
-      const [cachedData, setCachedData] = useState({
-        all: null,
-        whale: null
-      });
+      // 데이터 캐싱
+      const [cachedData, setCachedData] = useState(null);
 
       // 성과 검증 데이터 상태 (캐싱용)
       const [trackerData, setTrackerData] = useState(null);
@@ -166,15 +162,12 @@
       };
 
       // 추천 종목 불러오기
-      const fetchRecommendations = async (category = 'all') => {
+      const fetchRecommendations = async () => {
         try {
           setLoading(true);
           setError(null);
 
-          // limit 제거 - 전체 종목 표시
-          const url = category === 'all'
-            ? `${API_BASE_URL}/screening/recommend`
-            : `${API_BASE_URL}/screening/${category}`;
+          const url = `${API_BASE_URL}/screening/recommend`;
 
           const response = await fetch(url);
           const result = await response.json();
@@ -189,17 +182,14 @@
             setScreeningMetadata(result.metadata || null);
             setLastUpdate(new Date());
 
-            // 🆕 v3.12.4: 캐시에 저장 (탭 전환 시 재사용)
-            setCachedData(prev => ({
-              ...prev,
-              [category]: {
-                recommendations: stocks,
-                top3: result.top3 || [],
-                defenseTop3: result.defenseTop3 || [],
-                metadata: result.metadata || null,
-                timestamp: new Date()
-              }
-            }));
+            // 캐시에 저장
+            setCachedData({
+              recommendations: stocks,
+              top3: result.top3 || [],
+              defenseTop3: result.defenseTop3 || [],
+              metadata: result.metadata || null,
+              timestamp: new Date()
+            });
 
             // ⭐ v3.10.3: 프론트엔드 자동 저장 제거 (Cron만 저장)
             // Cron Job(16:10 KST)이 장마감 종가 기준으로만 저장 → 백테스트 정확도 향상
@@ -344,26 +334,6 @@
         }
       };
 
-      // 카테고리 변경 (v3.12.4: 캐싱 적용)
-      const handleCategoryChange = (category) => {
-        setSelectedCategory(category);
-
-        // 이미 조회한 카테고리면 캐시에서 가져옴
-        const cached = cachedData[category];
-        if (cached) {
-          console.log(`✅ 캐시에서 ${category} 데이터 로드 (조회 시각: ${cached.timestamp.toLocaleTimeString()})`);
-          setRecommendations(cached.recommendations);
-          setTop3Recommendations(cached.top3);
-          setDefenseTop3Recommendations(cached.defenseTop3 || []);
-          setScreeningMetadata(cached.metadata);
-          setLastUpdate(cached.timestamp);
-        } else {
-          // 처음 조회하는 카테고리만 API 호출
-          console.log(`🌐 ${category} API 호출 (첫 조회)`);
-          fetchRecommendations(category);
-        }
-      };
-
       // 초기 로드 제거 (수동 버튼 클릭으로만 실행)
       // useEffect(() => {
       //   fetchRecommendations();
@@ -384,10 +354,8 @@
                 <button
                   onClick={() => {
                     if (activeTab === 'screening') {
-                      // 🆕 v3.12.4: 캐시 초기화 후 재조회
-                      console.log(`🔄 ${selectedCategory} 강제 재조회 (캐시 무시)`);
-                      setCachedData(prev => ({ ...prev, [selectedCategory]: null }));
-                      fetchRecommendations(selectedCategory);
+                      setCachedData(null);
+                      fetchRecommendations();
                     } else {
                       window.location.reload();
                     }
@@ -671,18 +639,11 @@
                   );
                 })()}
 
-                {/* 카테고리 필터 */}
-                <CategoryFilter
-                  selected={selectedCategory}
-                  onChange={handleCategoryChange}
-                  loading={loading}
-                />
-
                 {/* 추천 종목 그리드 */}
                 {loading && recommendations.length === 0 ? (
                   <LoadingScreen />
                 ) : recommendations.length === 0 ? (
-                  <EmptyState category={selectedCategory} />
+                  <EmptyState />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
                     {[...recommendations]
@@ -721,53 +682,6 @@
               />
             )}
           </main>
-        </div>
-      );
-    }
-
-    // 카테고리 필터
-    function CategoryFilter({ selected, onChange, loading }) {
-      const categories = [
-        {
-          id: 'all',
-          name: '🏆 종합집계',
-          icon: '🏆',
-          desc: '모든 지표를 종합하여 점수가 높은 종목 집계'
-        },
-        {
-          id: 'whale',
-          name: '🐋 고래 감지',
-          icon: '🐋',
-          desc: '거래량 1.5~2.5배(시총별) + 가격 3% 이상 = 세력 매수 신호'
-        }
-      ];
-
-      return (
-        <div className="bg-white rounded-xl shadow-lg p-4">
-          <div className="flex flex-wrap gap-3 justify-center">
-            {categories.map(cat => (
-              <div key={cat.id} className="relative group">
-                <button
-                  onClick={() => onChange(cat.id)}
-                  disabled={loading}
-                  className={`px-6 py-3 rounded-lg font-semibold transition-all ${selected === cat.id
-                    ? 'bg-indigo-600 text-white shadow-lg scale-105'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                >
-                  <span className="text-xl mr-2">{cat.icon}</span>
-                  {cat.name}
-                </button>
-                {/* 툴팁 */}
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10 shadow-xl">
-                  {cat.desc}
-                  <div className="absolute top-full left-1/2 transform -translate-x-1/2 -mt-1">
-                    <div className="border-4 border-transparent border-t-gray-900"></div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       );
     }
@@ -973,12 +887,7 @@
     }
 
     // 빈 상태 화면
-    function EmptyState({ category }) {
-      const categoryNames = {
-        'all': '종합집계',
-        'whale': '고래 감지'
-      };
-
+    function EmptyState() {
       return (
         <div className="text-center py-20">
           <div className="text-6xl mb-4">🚀</div>
