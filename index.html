@@ -2162,7 +2162,7 @@
           )}
 
           {/* 공통 추천 종목 (2회 이상 추천) */}
-          {trackerData.commonStocks && trackerData.commonStocks.length > 0 && (
+          {perfStrategy === 'momentum' && trackerData.commonStocks && trackerData.commonStocks.length > 0 && (
             <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-300 rounded-xl shadow-lg p-6">
               <h3 className="text-2xl font-bold mb-4 text-purple-900 flex items-center gap-2">
                 🔄 공통 추천 종목
@@ -2228,7 +2228,7 @@
           )}
 
           {/* 등급별 성과 */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
+          {perfStrategy === 'momentum' && <div className="bg-white rounded-xl shadow-lg p-6">
             <h3 className="text-2xl font-bold mb-4">📊 등급별 성과</h3>
 
             {/* 등급 기준 설명 (v3.26 Radar Scoring System) */}
@@ -2393,10 +2393,10 @@
                 </tbody>
               </table>
             </div>
-          </div>
+          </div>}
 
           {/* 🔥 연속 급등주 (2일 이상 연속 상승) */}
-          {trackerData.risingStocks && trackerData.risingStocks.length > 0 && (
+          {perfStrategy === 'momentum' && trackerData.risingStocks && trackerData.risingStocks.length > 0 && (
             <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-300 rounded-xl shadow-lg p-6">
               <h3 className="text-2xl font-bold mb-4 text-red-900 flex items-center gap-2">
                 🔥 연속 급등주
@@ -2500,7 +2500,7 @@
           )}
 
           {/* 🆕 성공 패턴 분석 v2 - 지표별 통계 기반 */}
-          <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-300 rounded-xl shadow-lg p-6">
+          {perfStrategy === 'momentum' && <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-300 rounded-xl shadow-lg p-6">
             <h3 className="text-2xl font-bold mb-4 text-purple-900 flex items-center gap-2">
               📊 성공 패턴 분석
               <span className="text-sm font-normal text-purple-700">(+10% 수익 달성 종목 기준)</span>
@@ -2683,7 +2683,7 @@
                 </div>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* 카테고리별 성과 */}
           {perfStrategy === 'momentum' && <div className="bg-white rounded-xl shadow-lg p-6">
