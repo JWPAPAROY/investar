@@ -1400,13 +1400,12 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 2: 저장 구간(50-89점) 필터링
+    // Step 2: 저장 구간(50점+) 필터링 — v3.35: 상한 제거 (90점+ TOP3도 저장)
     const filteredStocks = stocks.filter(stock => {
-      const score = stock.totalScore;
-      return score >= 50 && score < 90;
+      return stock.totalScore >= 50;
     });
 
-    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (저장 구간 50-89)`);
+    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (저장 구간 50점+)`);
 
     if (filteredStocks.length === 0) {
       return res.status(200).json({

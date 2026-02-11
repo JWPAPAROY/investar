@@ -548,7 +548,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 - `overall_performance` (뷰): 전체 성과 요약
 
 ### 저장 기준
-- B등급(50점) 이상 ~ S등급(89점) 이하 저장
+- B등급(50점) 이상 전체 저장
 - Golden Zones 감지 종목도 예외 저장
 
 ### 실시간 성과 조회
