@@ -502,7 +502,7 @@
                               <span className="text-3xl">🏆</span>
                               <div>
                                 <h3 className="text-2xl font-bold text-orange-800">모멘텀 TOP 3</h3>
-                                <p className="text-sm text-orange-600 mt-1">매수고래 + 황금구간 50-89점 우선 선별</p>
+                                <p className="text-sm text-orange-600 mt-1">매수고래 + 비과열 → 점수 내림차순</p>
                               </div>
                             </div>
                             {top3Recommendations.length > 0 && (
@@ -527,14 +527,7 @@
                                       <div className="flex justify-between items-center"><span className="text-gray-600">추천 등급</span><span className="text-xs text-orange-700 font-semibold">{stock.recommendation.text}</span></div>
                                     </div>
                                     {stock.top3Meta && (
-                                      <div className="mt-3 space-y-2">
-                                        <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-2">
-                                          <div className="text-xs font-semibold text-green-800 mb-1">📊 {stock.top3Meta.strategy}</div>
-                                          <div className="flex justify-between text-xs">
-                                            <div><span className="text-gray-600">승률 </span><span className="font-bold text-green-700">{stock.top3Meta.expectedWinRate}%</span></div>
-                                            <div><span className="text-gray-600">수익 </span><span className="font-bold text-blue-700">+{stock.top3Meta.expectedAvgReturn}%</span></div>
-                                          </div>
-                                        </div>
+                                      <div className="mt-3">
                                         <div className="bg-red-50 border border-red-200 rounded-lg p-2">
                                           <div className="flex justify-between items-center text-xs">
                                             <span className="text-red-800 font-semibold">🚨 권장 손절가</span>
@@ -1784,13 +1777,16 @@
 
             const top3Stocks = trackerData.stocks ? trackerData.stocks.filter(stock => {
               const isRecent = recent3Dates.includes(stock.recommendation_date);
-              const isWhale = stock.whale_detected;
-              const isNotComposite = !stock.accumulation_detected;
-              const isGoldenZone = stock.total_score >= 50 && stock.total_score < 80;
-              const isNotOverheated = stock.recommendation_grade !== '과열';
-              const isNotDayZero = (stock.days_since_recommendation || 0) > 0; // D-0 제외 (수익률 항상 0%)
+              const isNotDayZero = (stock.days_since_recommendation || 0) > 0;
 
-              return isRecent && isWhale && isNotComposite && isGoldenZone && isNotOverheated && isNotDayZero;
+              // v3.35: DB에 저장된 is_top3 플래그 우선 사용 (텔레그램과 100% 동일)
+              if (stock.is_top3) return isRecent && isNotDayZero;
+
+              // is_top3 미지원 과거 데이터 폴백: 텔레그램 선별 로직과 동일한 조건
+              const isWhale = stock.whale_detected;
+              const isEligibleScore = stock.total_score >= 40;
+              const isNotOverheated = stock.recommendation_grade !== '과열';
+              return isRecent && isWhale && isEligibleScore && isNotOverheated && isNotDayZero;
             }) : [];
 
             // TOP 3 통계 계산
@@ -1811,7 +1807,7 @@
                     <div>
                       <h3 className="text-2xl font-bold text-orange-800">TOP 3 전략 성과</h3>
                       <p className="text-sm text-orange-600 mt-1">
-                        고래 감지 (1순위 50-79점 / 2순위 70점+) 전략 실전 성과
+                        매수고래 + 비과열 → 점수 내림차순 실전 성과
                       </p>
                     </div>
                   </div>
@@ -1823,11 +1819,11 @@
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
                   <div className="bg-white rounded-lg p-4 shadow">
                     <div className="text-sm text-gray-600 mb-1">승률</div>
-                    <div className={`text-2xl font-bold ${top3WinRate >= 76.9 ? 'text-green-600' : top3WinRate >= 60 ? 'text-orange-600' : 'text-red-600'}`}>
+                    <div className={`text-2xl font-bold ${top3WinRate >= 70 ? 'text-green-600' : top3WinRate >= 50 ? 'text-orange-600' : 'text-red-600'}`}>
                       {top3WinRate.toFixed(1)}%
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
-                      예상: 76.9% {top3WinRate >= 76.9 ? '✅' : top3WinRate >= 60 ? '⚠️' : '❌'}
+                      {top3WinCount}승 {top3Stocks.length - top3WinCount}패
                     </div>
                   </div>
 
@@ -1836,18 +1832,12 @@
                     <div className={`text-2xl font-bold ${top3AvgReturn > 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {top3AvgReturn > 0 ? '+' : ''}{top3AvgReturn.toFixed(2)}%
                     </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      예상: +27.02% {top3AvgReturn >= 27 ? '✅' : top3AvgReturn >= 0 ? '⚠️' : '❌'}
-                    </div>
                   </div>
 
                   <div className="bg-white rounded-lg p-4 shadow">
                     <div className="text-sm text-gray-600 mb-1">최고 수익</div>
                     <div className="text-2xl font-bold text-purple-600">
                       +{top3MaxReturn.toFixed(2)}%
-                    </div>
-                    <div className="text-xs text-gray-500 mt-1">
-                      {top3WinCount}승 {top3Stocks.length - top3WinCount}패
                     </div>
                   </div>
 
@@ -1900,14 +1890,14 @@
 
                 <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                   <p className="text-sm text-gray-700">
-                    <strong className="text-orange-700">💡 전략 검증:</strong> 백테스트로 검증된
-                    <strong className="text-orange-700"> 고래 감지 (1순위 50-79점 / 2순위 70점+)</strong> 전략의 실전 성과입니다.
-                    {top3WinRate >= 76.9 && top3AvgReturn >= 27 ? (
-                      <span className="text-green-700"> ✅ 예상 성과를 달성하고 있습니다!</span>
-                    ) : top3WinRate >= 60 || top3AvgReturn >= 0 ? (
-                      <span className="text-orange-700"> ⚠️ 예상보다 낮지만 양호한 성과입니다.</span>
+                    <strong className="text-orange-700">💡 TOP 3 전략:</strong>
+                    <strong className="text-orange-700"> 매수고래 감지 + 비과열 → 점수 내림차순</strong> 선별의 실전 성과입니다.
+                    {top3WinRate >= 70 && top3AvgReturn > 0 ? (
+                      <span className="text-green-700"> ✅ 우수한 성과를 보이고 있습니다!</span>
+                    ) : top3AvgReturn >= 0 ? (
+                      <span className="text-orange-700"> ⚠️ 양호한 성과입니다.</span>
                     ) : (
-                      <span className="text-red-700"> ❌ 시장 상황에 따라 성과가 예상보다 낮을 수 있습니다.</span>
+                      <span className="text-red-700"> ❌ 시장 상황에 따라 성과가 부진할 수 있습니다.</span>
                     )}
                   </p>
                 </div>

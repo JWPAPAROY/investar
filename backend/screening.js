@@ -1838,109 +1838,39 @@ class StockScreener {
     console.log(`\n🔍 TOP 3 선정 시작...`);
     console.log(`  전체 종목: ${allStocks.length}개`);
 
-    const top3 = [];
-
-    // 고래 감지 종목 필터링
-    const whaleStocks = allStocks.filter(s =>
-      s.advancedAnalysis?.indicators?.whale?.length > 0
-    );
-    console.log(`  └─ 고래 감지: ${whaleStocks.length}개`);
-
-    // 과열 종목 확인
-    const overheatedWhales = whaleStocks.filter(s =>
-      s.recommendation?.grade === '과열'
-    );
-    if (overheatedWhales.length > 0) {
-      console.log(`  └─ 고래 중 과열: ${overheatedWhales.length}개 (제외됨)`);
-    }
-
-    // 기본 필터: 과열 제외 (복합신호는 이미 screenAllStocks에서 제외됨)
-    const isEligible = (stock) => {
-      const isOverheated = stock.recommendation?.grade === '과열';
-      // v3.24: 매수고래만 TOP 3 후보 (매도고래 제외)
+    // v3.35: 매수고래 + 비과열 → 점수 내림차순 TOP 3
+    const eligible = allStocks.filter(stock => {
       const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-
+      const isOverheated = stock.recommendation?.grade === '과열';
       return hasBuyWhale && !isOverheated;
-    };
+    });
 
-    const eligibleCount = allStocks.filter(isEligible).length;
-    console.log(`  └─ TOP 3 후보: ${eligibleCount}개`);
+    console.log(`  └─ TOP 3 후보 (매수고래+비과열): ${eligible.length}개`);
 
-    // 전략 메타데이터 추가 함수
-    // 🆕 v3.14: 2순위 전략 업데이트 (60점→70점, 대박구간)
-    const addStrategyMeta = (stock, priority) => {
-      const strategies = {
-        1: { name: '황금구간(50-89점)', winRate: 76.9, avgReturn: 27.02 },
-        2: { name: '대박구간(70점+)', winRate: 50.0, avgReturn: 66.23 },
-        3: { name: '고래 단독', winRate: 64.7, avgReturn: 20.31 }
-      };
-
-      const strategy = strategies[priority];
-
-      // 손절가 계산 (현재가 기준)
-      const currentPrice = stock.currentPrice || 0;
-      const stopLoss = {
-        loss5: Math.floor(currentPrice * 0.95),
-        loss7: Math.floor(currentPrice * 0.93),
-        loss10: Math.floor(currentPrice * 0.90)
-      };
-
-      return {
-        ...stock,
-        top3Meta: {
-          priority: priority,
-          strategy: strategy.name,
-          expectedWinRate: strategy.winRate,
-          expectedAvgReturn: strategy.avgReturn,
-          stopLoss: stopLoss
-        }
-      };
-    };
-
-    // 1순위: 고래 + 황금구간(50-89점) — v3.25: 상한 79→89 (S등급 +13.33% 실적 반영)
-    console.log(`\n  📍 1순위 선정 (고래 + 황금구간 50-89점)...`);
-    const priority1 = allStocks
-      .filter(s => isEligible(s) && s.totalScore >= 50 && s.totalScore < 90)
+    const top3 = eligible
       .sort((a, b) => b.totalScore - a.totalScore)
-      .map(s => addStrategyMeta(s, 1));
-
-    console.log(`     후보: ${priority1.length}개 | 선정: ${Math.min(priority1.length, 3)}개`);
-    top3.push(...priority1.slice(0, 3));
-
-    // 3개 미만이면 2순위에서 충원
-    // 🆕 v3.14: 60점 → 70점 상향 (60-69점 혼재구간 제외)
-    // 백테스트: 60-69점 승률 35.3%, 평균 -1.03% (역전 현상)
-    if (top3.length < 3) {
-      console.log(`\n  📍 2순위 선정 (고래 + 70점 이상)...`);
-      const priority2 = allStocks
-        .filter(s => isEligible(s) && s.totalScore >= 70 && !top3.some(t => t.stockCode === s.stockCode))
-        .sort((a, b) => b.totalScore - a.totalScore)
-        .map(s => addStrategyMeta(s, 2));
-
-      console.log(`     후보: ${priority2.length}개 | 선정: ${Math.min(priority2.length, 3 - top3.length)}개`);
-      top3.push(...priority2.slice(0, 3 - top3.length));
-    }
-
-    // 여전히 3개 미만이면 3순위(고래 단독, 40점 이상)에서 충원
-    if (top3.length < 3) {
-      console.log(`\n  📍 3순위 선정 (고래 단독 + 40점 이상)...`);
-      const priority3 = allStocks
-        .filter(s => isEligible(s) && s.totalScore >= 40 && !top3.some(t => t.stockCode === s.stockCode))
-        .sort((a, b) => b.totalScore - a.totalScore)
-        .map(s => addStrategyMeta(s, 3));
-
-      console.log(`     후보: ${priority3.length}개 | 선정: ${Math.min(priority3.length, 3 - top3.length)}개`);
-      top3.push(...priority3.slice(0, 3 - top3.length));
-    }
+      .slice(0, 3)
+      .map((stock, i) => {
+        const currentPrice = stock.currentPrice || 0;
+        return {
+          ...stock,
+          top3Meta: {
+            rank: i + 1,
+            stopLoss: {
+              loss5: Math.floor(currentPrice * 0.95),
+              loss7: Math.floor(currentPrice * 0.93),
+              loss10: Math.floor(currentPrice * 0.90)
+            }
+          }
+        };
+      });
 
     console.log(`\n🏆 TOP 3 선정 완료: ${top3.length}개`);
-
     if (top3.length === 0) {
-      console.log(`  ⚠️ TOP 3 선정 실패 - 조건을 만족하는 종목이 없습니다.`);
-      console.log(`  원인: 고래 감지 종목 부족 또는 모두 과열/낮은 점수`);
+      console.log(`  ⚠️ TOP 3 선정 실패 - 매수고래 감지 종목 없음`);
     } else {
       top3.forEach((stock, i) => {
-        console.log(`  ${i + 1}. ${stock.stockName} (${stock.totalScore}점, ${stock.recommendation.grade}등급) - ${stock.top3Meta.strategy} [예상 승률 ${stock.top3Meta.expectedWinRate}%]`);
+        console.log(`  ${i + 1}. ${stock.stockName} (${stock.totalScore}점, ${stock.recommendation.grade}등급)`);
       });
     }
 

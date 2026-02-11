@@ -333,33 +333,11 @@ async function sendTelegramMessage(message) {
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  const isEligible = (s) => s.whale_detected && s.recommendation_grade !== '과열';
-
-  const top3 = [];
-
-  // 1순위: 고래 + 황금구간(50-89점) — v3.25: 상한 확대 (S등급 실적 반영)
-  const priority1 = stocks
-    .filter(s => isEligible(s) && s.total_score >= 50 && s.total_score < 90)
-    .sort((a, b) => b.total_score - a.total_score);
-  top3.push(...priority1.slice(0, 3));
-
-  // 2순위: 고래 + 70점+
-  if (top3.length < 3) {
-    const priority2 = stocks
-      .filter(s => isEligible(s) && s.total_score >= 70 && !top3.some(t => t.stock_code === s.stock_code))
-      .sort((a, b) => b.total_score - a.total_score);
-    top3.push(...priority2.slice(0, 3 - top3.length));
-  }
-
-  // 3순위: 고래 + 40점+
-  if (top3.length < 3) {
-    const priority3 = stocks
-      .filter(s => isEligible(s) && s.total_score >= 40 && !top3.some(t => t.stock_code === s.stock_code))
-      .sort((a, b) => b.total_score - a.total_score);
-    top3.push(...priority3.slice(0, 3 - top3.length));
-  }
-
-  return top3;
+  // v3.35: 매수고래 + 비과열 → 점수 내림차순 TOP 3
+  return stocks
+    .filter(s => s.whale_detected && s.recommendation_grade !== '과열')
+    .sort((a, b) => b.total_score - a.total_score)
+    .slice(0, 3);
 }
 
 /**
@@ -387,31 +365,15 @@ function selectWhaleStocks(stocks, top3) {
 function selectSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  const isEligible = (s) => {
-    const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-    const isOverheated = s.recommendation?.grade === '과열';
-    return hasBuyWhale && !isOverheated;
-  };
-
-  const top3 = [];
-
-  // 1순위: 고래 + 황금구간(50-89점)
-  const p1 = stocks.filter(s => isEligible(s) && s.totalScore >= 50 && s.totalScore < 90)
-    .sort((a, b) => b.totalScore - a.totalScore);
-  top3.push(...p1.slice(0, 3));
-
-  if (top3.length < 3) {
-    const p2 = stocks.filter(s => isEligible(s) && s.totalScore >= 70 && !top3.some(t => t.stockCode === s.stockCode))
-      .sort((a, b) => b.totalScore - a.totalScore);
-    top3.push(...p2.slice(0, 3 - top3.length));
-  }
-  if (top3.length < 3) {
-    const p3 = stocks.filter(s => isEligible(s) && s.totalScore >= 40 && !top3.some(t => t.stockCode === s.stockCode))
-      .sort((a, b) => b.totalScore - a.totalScore);
-    top3.push(...p3.slice(0, 3 - top3.length));
-  }
-
-  return top3;
+  // v3.35: 매수고래 + 비과열 → 점수 내림차순 TOP 3
+  return stocks
+    .filter(s => {
+      const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+      const isOverheated = s.recommendation?.grade === '과열';
+      return hasBuyWhale && !isOverheated;
+    })
+    .sort((a, b) => b.totalScore - a.totalScore)
+    .slice(0, 3);
 }
 
 /**
@@ -1547,9 +1509,19 @@ module.exports = async (req, res) => {
         defense_score: stock.defenseScore || 0,
         defense_grade: stock.defenseGrade || 'D-D',
 
-        is_active: true
+        is_active: true,
+        is_top3: false,
+        is_defense_top3: false
       };
     });
+
+    // v3.35: TOP3 선별 후 DB 저장 전에 마킹
+    const saveTop3Codes = selectSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
+    const defSaveTop3Codes = selectDefenseSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
+    for (const rec of recommendations) {
+      if (saveTop3Codes.includes(rec.stock_code)) rec.is_top3 = true;
+      if (defSaveTop3Codes.includes(rec.stock_code)) rec.is_defense_top3 = true;
+    }
 
     // 장중 수동 결산 시 DB 저장 건너뜀
     let data = recommendations; // skipDbSave 시 recommendations를 data로 사용

@@ -588,6 +588,8 @@ module.exports = async (req, res) => {
         is_rising: stock.is_rising,
         defense_score: stock.defense_score || 0,
         defense_grade: stock.defense_grade || null,
+        is_top3: stock.is_top3 || false,
+        is_defense_top3: stock.is_defense_top3 || false,
         days_since_recommendation: stock.days_since_recommendation
       });
     });
