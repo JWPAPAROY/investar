@@ -1778,15 +1778,7 @@
             const top3Stocks = trackerData.stocks ? trackerData.stocks.filter(stock => {
               const isRecent = recent3Dates.includes(stock.recommendation_date);
               const isNotDayZero = (stock.days_since_recommendation || 0) > 0;
-
-              // v3.35: DB에 저장된 is_top3 플래그 우선 사용 (텔레그램과 100% 동일)
-              if (stock.is_top3) return isRecent && isNotDayZero;
-
-              // is_top3 미지원 과거 데이터 폴백: 텔레그램 선별 로직과 동일한 조건
-              const isWhale = stock.whale_detected;
-              const isEligibleScore = stock.total_score >= 40;
-              const isNotOverheated = stock.recommendation_grade !== '과열';
-              return isRecent && isWhale && isEligibleScore && isNotOverheated && isNotDayZero;
+              return stock.is_top3 && isRecent && isNotDayZero;
             }) : [];
 
             // TOP 3 통계 계산
