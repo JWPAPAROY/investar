@@ -1522,12 +1522,16 @@ module.exports = async (req, res) => {
     const saveTop3Codes = selectSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
     const defSaveTop3Codes = selectDefenseSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
 
-    // v3.36: v2 TOP3 선별 (totalScoreV2 기준, 동일 필터)
+    // v3.37: v2 TOP3 선별 (Supply 기반 필터 — 기관/외국인 수급 + v2 총점)
     const v2Top3Codes = stocks
       .filter(s => {
-        const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
         const isOverheated = s.recommendation?.grade === '과열';
-        return hasBuyWhale && !isOverheated;
+        if (isOverheated) return false;
+        // v2 핵심: 기관 OR 외국인 1일 이상 매수, 또는 매수고래 존재
+        const instDays = s.institutionalFlow?.institutionDays || 0;
+        const foreignDays = s.institutionalFlow?.foreignDays || 0;
+        const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+        return (instDays >= 1 || foreignDays >= 1 || hasBuyWhale);
       })
       .sort((a, b) => (b.totalScoreV2 || 0) - (a.totalScoreV2 || 0))
       .slice(0, 3)

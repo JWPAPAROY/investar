@@ -1074,69 +1074,114 @@ class StockScreener {
       totalScore = isNaN(totalScore) ? 0 : parseFloat(Math.min(Math.max(totalScore, 0), 100).toFixed(2));
 
       // ========================================
-      // v3.36: 스코어링 v2 병렬 계산 (비교 검증용)
-      // Base(0-20) + Whale(0/15/30) + Momentum(0-35) + Trend(0-15) + SignalAdj
-      // - Base: 연속상승 제거, cap 20
-      // - Momentum: 단기거래량모멘텀(0-15) + 연속상승(0-15) + 기관진입(0-5), cap 35
-      // - Trend: 장기거래량가속(0-15) 유지 (기존 analyzeVolumeAcceleration)
+      // v3.37: 데이터 기반 v2 스코어링 (상관관계 분석 결과 반영)
+      // Base(0-15) + Whale(0/15/30) + Supply(0-25) + Momentum(0-20) + Trend(0-10) + SignalAdj
+      //
+      // 상관관계 기반 배점:
+      //   기관+외국인 합산 r=+0.21 → Supply(0-25) 신설
+      //   연속 상승일 r=+0.12 → Momentum 핵심 (0-12)
+      //   거래량 비율 1.0-1.5x 최적 → Base 거래량 스윗스팟 반영
+      //   RSI 50-70 최적 → Momentum RSI존 보너스
+      //   거래량 가속 r=-0.10 → Trend 축소 (0-10)
       // ========================================
       const v2 = (() => {
-        // v2 Base Score (0-20): 연속상승 제거
+        // ── v2 Base Score (0-15): 종목 품질 ──
         let v2Base = 0;
+
+        // 거래량 비율 (0-6): 스윗스팟 1.0-1.5x (승률 68.8%, 수익 +20.57%)
         if (volumeAnalysis.current.volumeMA20) {
           const vr = volumeAnalysis.current.volume / volumeAnalysis.current.volumeMA20;
-          if (vr >= 1.0 && vr < 2.0) v2Base += 8;
-          else if (vr >= 2.0 && vr < 3.0) v2Base += 5;
-          else if (vr >= 3.0 && vr < 5.0) v2Base += 2;
+          if (vr >= 1.0 && vr <= 1.5) v2Base += 6;       // 스윗스팟 (최고 수익)
+          else if (vr > 1.5 && vr < 2.0) v2Base += 4;
+          else if (vr >= 2.0 && vr < 3.0) v2Base += 2;
+          else if (vr >= 0.8 && vr < 1.0) v2Base += 1;
+          // vr >= 3.0 or < 0.8 → 0점
         }
+
+        // VPD (0-5): 핵심 컨셉 유지
         if (volumePriceDivergence && volumePriceDivergence.divergence > 0) {
           const div = volumePriceDivergence.divergence;
-          if (div >= 3.0) v2Base += 7;
-          else if (div >= 2.0) v2Base += 5;
-          else if (div >= 1.0) v2Base += 4;
-          else if (div >= 0.5) v2Base += 2;
-          else if (div > 0) v2Base += 1;
+          if (div >= 3.0) v2Base += 5;
+          else if (div >= 2.0) v2Base += 4;
+          else if (div >= 1.0) v2Base += 3;
+          else if (div >= 0.5) v2Base += 1;
         }
+
+        // 시총 보정 (-3 ~ +4): 축소
         if (currentData.marketCap) {
           const mc = currentData.marketCap / 100000000;
-          if (mc < 1000) v2Base -= 5;
-          else if (mc < 3000) v2Base -= 2;
-          else if (mc >= 10000) v2Base += 7;
-          else if (mc >= 5000) v2Base += 5;
-          else if (mc >= 3000) v2Base += 2;
+          if (mc < 1000) v2Base -= 3;
+          else if (mc < 3000) v2Base -= 1;
+          else if (mc >= 10000) v2Base += 4;
+          else if (mc >= 5000) v2Base += 3;
+          else if (mc >= 3000) v2Base += 1;
         }
-        if (chartData && currentData.currentPrice) {
-          const hi = Math.max(...chartData.slice(0, 30).map(d => d.high));
-          const dd = ((hi - currentData.currentPrice) / hi) * 100;
-          if (dd >= 20) v2Base -= 3;
-          else if (dd >= 15) v2Base -= 2;
-          else if (dd >= 10) v2Base -= 1;
-        }
-        v2Base = Math.min(Math.max(v2Base, 0), 20);
 
-        // v2 Momentum Score (0-35): 단기거래량(0-15) + 연속상승(0-15) + 기관진입(0-5)
-        const shortTermVol = this.analyzeShortTermVolumeMomentum(chartData);
-        let v2Rise = 0;
+        v2Base = Math.min(Math.max(v2Base, 0), 15);
+
+        // ── v2 Supply Score (0-25): 기관/외국인 수급 (r=+0.21, 최강 알파) ──
+        let v2Supply = 0;
+        const instDays = institutionalFlow?.institutionDays || 0;
+        const foreignDays = institutionalFlow?.foreignDays || 0;
+
+        // 기관 연속 매수일 (0-10): r=+0.15
+        if (instDays >= 5) v2Supply += 10;
+        else if (instDays >= 4) v2Supply += 8;
+        else if (instDays >= 3) v2Supply += 6;    // 3일+: 승률 82.8%, 수익 +12.91%
+        else if (instDays >= 2) v2Supply += 3;
+        else if (instDays >= 1) v2Supply += 1;
+
+        // 외국인 연속 매수일 (0-8): r=+0.21
+        if (foreignDays >= 5) v2Supply += 8;
+        else if (foreignDays >= 4) v2Supply += 6;
+        else if (foreignDays >= 3) v2Supply += 5;  // 3일+: 승률 83.3%, 수익 +12.93%
+        else if (foreignDays >= 2) v2Supply += 3;
+        else if (foreignDays >= 1) v2Supply += 1;
+
+        // 쌍방 수급 보너스 (0-7): 동반매수 시 승률 94.7%, 수익 +15.67%
+        if (instDays >= 3 && foreignDays >= 3) v2Supply += 7;
+        else if (instDays >= 2 && foreignDays >= 2) v2Supply += 5;  // 핵심 조건
+        else if ((instDays >= 3 && foreignDays >= 1) || (foreignDays >= 3 && instDays >= 1)) v2Supply += 3;
+
+        v2Supply = Math.min(v2Supply, 25);
+
+        // ── v2 Momentum Score (0-20): 단기 모멘텀 ──
+        let v2Mom = 0;
+
+        // 연속 상승일 (0-12): r=+0.12, 3일 승률 82.4%, 수익 +15.59%
         if (chartData && chartData.length >= 5) {
           let cnt = 0;
           for (let i = 0; i < Math.min(5, chartData.length - 1); i++) {
             if (chartData[i].close > chartData[i + 1].close) cnt++;
             else break;
           }
-          if (cnt >= 4) v2Rise = 15;
-          else if (cnt >= 3) v2Rise = 10;
-          else if (cnt >= 2) v2Rise = 5;
+          if (cnt >= 4) v2Mom += 12;
+          else if (cnt >= 3) v2Mom += 9;
+          else if (cnt >= 2) v2Mom += 5;
+          else if (cnt >= 1) v2Mom += 2;
         }
-        const v2Inst = momentumScore.institutionalEntry?.score || 0;
-        let v2Mom = shortTermVol.score + v2Rise + Math.min(v2Inst, 5);
-        // 당일 급등 페널티 동일 적용 (d0DailyPenalty는 이미 계산됨)
-        v2Mom = Math.max(0, Math.min(v2Mom + d0DailyPenalty.penalty, 35));
 
-        // v2 Trend Score (0-15): 기존 장기 거래량 가속도 유지
-        const v2Trend = trendScore.totalScore;
+        // RSI 존 보너스 (0-5): RSI 50-70 구간 승률 63.4%, 수익 +7.58%
+        const rsiVal = overheatingV2?.rsi || 50;
+        if (rsiVal >= 50 && rsiVal <= 70) v2Mom += 5;
+        else if (rsiVal >= 40 && rsiVal < 50) v2Mom += 3;
+        else if (rsiVal > 70 && rsiVal <= 80) v2Mom += 2;
+        // RSI < 40 or > 80 → 0점
 
-        // v2 합산
-        let v2Raw = v2Base + whaleBonus + v2Mom + v2Trend;
+        // 기관 진입 가속 (0-3): 축소 (Supply에서 주로 반영)
+        const v2InstEntry = momentumScore.institutionalEntry?.score || 0;
+        v2Mom += Math.min(Math.max(v2InstEntry, 0), 3);
+
+        // 당일 급등 페널티
+        v2Mom = Math.max(0, Math.min(v2Mom + d0DailyPenalty.penalty, 20));
+
+        // ── v2 Trend Score (0-10): 장기 추세 (r=-0.10이므로 축소) ──
+        // 기존 15점 → 10점 캡
+        const v2Trend = Math.min(trendScore.totalScore, 10);
+
+        // ── v2 합산 ──
+        let v2Raw = v2Base + whaleBonus + v2Supply + v2Mom + v2Trend;
+
         // SignalAdj 동일 적용
         if (advancedAnalysis?.indicators?.escape?.signal?.includes('윗꼬리 과다')) v2Raw -= 10;
         if (advancedAnalysis?.indicators?.escape?.detected) v2Raw += 5;
@@ -1149,10 +1194,11 @@ class StockScreener {
           breakdown: {
             base: v2Base,
             whale: whaleBonus,
+            supply: v2Supply,
+            supplyDetail: { instDays, foreignDays, dualBonus: (instDays >= 2 && foreignDays >= 2) },
             momentum: v2Mom,
-            momentumDetail: { shortTermVol: shortTermVol.score, consecutiveRise: v2Rise, institutional: Math.min(v2Inst, 5), dailyPenalty: d0DailyPenalty.penalty },
-            trend: v2Trend,
-            shortTermVolDetail: shortTermVol
+            momentumDetail: { consecutiveRise: v2Mom - Math.min(Math.max(v2InstEntry, 0), 3) - (rsiVal >= 50 && rsiVal <= 70 ? 5 : rsiVal >= 40 && rsiVal < 50 ? 3 : rsiVal > 70 && rsiVal <= 80 ? 2 : 0), rsiZone: rsiVal, instEntry: Math.min(Math.max(v2InstEntry, 0), 3), dailyPenalty: d0DailyPenalty.penalty },
+            trend: v2Trend
           }
         };
       })();
