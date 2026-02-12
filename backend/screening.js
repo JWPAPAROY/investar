@@ -161,6 +161,42 @@ class StockScreener {
   }
 
   /**
+   * v3.36: 단기 거래량 모멘텀 (0-15점)
+   * 최근 3일 평균 vs 이전 7일 평균 비교
+   * analyzeVolumeAcceleration(30일 장기)과 다른 시간축
+   */
+  analyzeShortTermVolumeMomentum(chartData) {
+    if (!chartData || chartData.length < 10) {
+      return { score: 0, ratio: 0, trend: 'insufficient_data' };
+    }
+
+    const recent3 = chartData.slice(0, 3);
+    const prev7 = chartData.slice(3, 10);
+
+    const avgRecent = recent3.reduce((sum, d) => sum + d.volume, 0) / recent3.length;
+    const avgPrev = prev7.reduce((sum, d) => sum + d.volume, 0) / prev7.length;
+
+    if (avgPrev === 0) return { score: 0, ratio: 0, trend: 'no_volume' };
+
+    const ratio = avgRecent / avgPrev;
+
+    let score = 0;
+    let trend = 'flat';
+
+    if (ratio > 2.0) { score = 15; trend = 'strong_surge'; }
+    else if (ratio > 1.5) { score = 11; trend = 'moderate_surge'; }
+    else if (ratio > 1.2) { score = 7; trend = 'mild_surge'; }
+    else if (ratio > 1.0) { score = 4; trend = 'slight_increase'; }
+
+    return {
+      score,
+      ratio: parseFloat(ratio.toFixed(2)),
+      trend,
+      details: { avgRecent: Math.round(avgRecent), avgPrev: Math.round(avgPrev) }
+    };
+  }
+
+  /**
    * 기관/외국인 장기 매집 (Institutional Accumulation) 분석 (0-5점)
    * investorData에서 장기 매수 패턴 감지
    */
@@ -924,23 +960,8 @@ class StockScreener {
 
       // 신규 지표 추가
       const institutionalFlow = advancedIndicators.checkInstitutionalFlow(investorData);
-      const breakoutConfirmation = advancedIndicators.detectBreakoutConfirmation(
-        chartData,
-        currentData.currentPrice,
-        currentData.volume
-      );
-      const anomaly = advancedIndicators.detectAnomaly(chartData);
+      // breakoutConfirmation: 점수 미반영 + 프론트엔드 미사용 → 제거 (v3.36)
       const riskAdjusted = advancedIndicators.calculateRiskAdjustedScore(chartData);
-
-      // 신호 강도 개선: Confluence + Freshness
-      const additionalIndicators = {
-        institutionalFlow,
-        breakoutConfirmation,
-        anomaly,
-        riskAdjusted
-      };
-      const confluence = advancedIndicators.calculateConfluenceScore(advancedAnalysis, additionalIndicators);
-      const freshness = advancedIndicators.calculateSignalFreshness(chartData, advancedAnalysis, additionalIndicators);
 
       // 필터링 강화: 작전주, 유동성, 과거급등
       const manipulation = advancedIndicators.detectManipulation(chartData, currentData.marketCap);
@@ -1053,6 +1074,90 @@ class StockScreener {
       totalScore = isNaN(totalScore) ? 0 : parseFloat(Math.min(Math.max(totalScore, 0), 100).toFixed(2));
 
       // ========================================
+      // v3.36: 스코어링 v2 병렬 계산 (비교 검증용)
+      // Base(0-20) + Whale(0/15/30) + Momentum(0-35) + Trend(0-15) + SignalAdj
+      // - Base: 연속상승 제거, cap 20
+      // - Momentum: 단기거래량모멘텀(0-15) + 연속상승(0-15) + 기관진입(0-5), cap 35
+      // - Trend: 장기거래량가속(0-15) 유지 (기존 analyzeVolumeAcceleration)
+      // ========================================
+      const v2 = (() => {
+        // v2 Base Score (0-20): 연속상승 제거
+        let v2Base = 0;
+        if (volumeAnalysis.current.volumeMA20) {
+          const vr = volumeAnalysis.current.volume / volumeAnalysis.current.volumeMA20;
+          if (vr >= 1.0 && vr < 2.0) v2Base += 8;
+          else if (vr >= 2.0 && vr < 3.0) v2Base += 5;
+          else if (vr >= 3.0 && vr < 5.0) v2Base += 2;
+        }
+        if (volumePriceDivergence && volumePriceDivergence.divergence > 0) {
+          const div = volumePriceDivergence.divergence;
+          if (div >= 3.0) v2Base += 7;
+          else if (div >= 2.0) v2Base += 5;
+          else if (div >= 1.0) v2Base += 4;
+          else if (div >= 0.5) v2Base += 2;
+          else if (div > 0) v2Base += 1;
+        }
+        if (currentData.marketCap) {
+          const mc = currentData.marketCap / 100000000;
+          if (mc < 1000) v2Base -= 5;
+          else if (mc < 3000) v2Base -= 2;
+          else if (mc >= 10000) v2Base += 7;
+          else if (mc >= 5000) v2Base += 5;
+          else if (mc >= 3000) v2Base += 2;
+        }
+        if (chartData && currentData.currentPrice) {
+          const hi = Math.max(...chartData.slice(0, 30).map(d => d.high));
+          const dd = ((hi - currentData.currentPrice) / hi) * 100;
+          if (dd >= 20) v2Base -= 3;
+          else if (dd >= 15) v2Base -= 2;
+          else if (dd >= 10) v2Base -= 1;
+        }
+        v2Base = Math.min(Math.max(v2Base, 0), 20);
+
+        // v2 Momentum Score (0-35): 단기거래량(0-15) + 연속상승(0-15) + 기관진입(0-5)
+        const shortTermVol = this.analyzeShortTermVolumeMomentum(chartData);
+        let v2Rise = 0;
+        if (chartData && chartData.length >= 5) {
+          let cnt = 0;
+          for (let i = 0; i < Math.min(5, chartData.length - 1); i++) {
+            if (chartData[i].close > chartData[i + 1].close) cnt++;
+            else break;
+          }
+          if (cnt >= 4) v2Rise = 15;
+          else if (cnt >= 3) v2Rise = 10;
+          else if (cnt >= 2) v2Rise = 5;
+        }
+        const v2Inst = momentumScore.institutionalEntry?.score || 0;
+        let v2Mom = shortTermVol.score + v2Rise + Math.min(v2Inst, 5);
+        // 당일 급등 페널티 동일 적용 (d0DailyPenalty는 이미 계산됨)
+        v2Mom = Math.max(0, Math.min(v2Mom + d0DailyPenalty.penalty, 35));
+
+        // v2 Trend Score (0-15): 기존 장기 거래량 가속도 유지
+        const v2Trend = trendScore.totalScore;
+
+        // v2 합산
+        let v2Raw = v2Base + whaleBonus + v2Mom + v2Trend;
+        // SignalAdj 동일 적용
+        if (advancedAnalysis?.indicators?.escape?.signal?.includes('윗꼬리 과다')) v2Raw -= 10;
+        if (advancedAnalysis?.indicators?.escape?.detected) v2Raw += 5;
+        if (sellWhalePenalty) v2Raw += sellWhalePenalty;
+
+        const v2Total = isNaN(v2Raw) ? 0 : parseFloat(Math.min(Math.max(v2Raw, 0), 100).toFixed(2));
+
+        return {
+          totalScore: v2Total,
+          breakdown: {
+            base: v2Base,
+            whale: whaleBonus,
+            momentum: v2Mom,
+            momentumDetail: { shortTermVol: shortTermVol.score, consecutiveRise: v2Rise, institutional: Math.min(v2Inst, 5), dailyPenalty: d0DailyPenalty.penalty },
+            trend: v2Trend,
+            shortTermVolDetail: shortTermVol
+          }
+        };
+      })();
+
+      // ========================================
       // 가점/감점 상세 내역 (스코어 카드) v3.10.0
       // ========================================
       const scoreBreakdown = {
@@ -1152,11 +1257,7 @@ class StockScreener {
         volumeAnalysis,
         advancedAnalysis,
         institutionalFlow, // 신규: 기관/외국인 수급
-        breakoutConfirmation, // 신규: 돌파 확인
-        anomaly, // 신규: 이상 탐지
-        riskAdjusted, // 신규: 위험조정 점수
-        confluence, // 신규: Confluence 합류점
-        freshness, // 신규: 신호 신선도
+        riskAdjusted, // 위험조정 점수 (방어 전략에서 사용)
         manipulation, // 신규: 작전주 필터
         liquidity, // 신규: 유동성 필터
         previousSurge, // 신규: 과거급등 필터
@@ -1178,7 +1279,10 @@ class StockScreener {
         // v3.34: 방어 전략
         defenseScore: defenseResult.totalScore,
         defenseGrade: defenseResult.grade,
-        defenseBreakdown: defenseResult.breakdown
+        defenseBreakdown: defenseResult.breakdown,
+        // v3.36: 스코어링 v2 병렬 비교
+        totalScoreV2: v2.totalScore,
+        scoreV2Breakdown: v2.breakdown
       };
     } catch (error) {
       console.error(`❌ 종목 분석 실패 [${stockCode}]:`, error.message);

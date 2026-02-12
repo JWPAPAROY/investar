@@ -1508,18 +1508,35 @@ module.exports = async (req, res) => {
         defense_score: stock.defenseScore || 0,
         defense_grade: stock.defenseGrade || 'D-D',
 
+        // v3.36: 스코어링 v2 병렬 비교
+        total_score_v2: stock.totalScoreV2 || 0,
+
         is_active: true,
         is_top3: false,
-        is_defense_top3: false
+        is_defense_top3: false,
+        is_top3_v2: false
       };
     });
 
     // v3.35: TOP3 선별 후 DB 저장 전에 마킹
     const saveTop3Codes = selectSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
     const defSaveTop3Codes = selectDefenseSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
+
+    // v3.36: v2 TOP3 선별 (totalScoreV2 기준, 동일 필터)
+    const v2Top3Codes = stocks
+      .filter(s => {
+        const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+        const isOverheated = s.recommendation?.grade === '과열';
+        return hasBuyWhale && !isOverheated;
+      })
+      .sort((a, b) => (b.totalScoreV2 || 0) - (a.totalScoreV2 || 0))
+      .slice(0, 3)
+      .map(s => s.stockCode);
+
     for (const rec of recommendations) {
       if (saveTop3Codes.includes(rec.stock_code)) rec.is_top3 = true;
       if (defSaveTop3Codes.includes(rec.stock_code)) rec.is_defense_top3 = true;
+      if (v2Top3Codes.includes(rec.stock_code)) rec.is_top3_v2 = true;
     }
 
     // 장중 수동 결산 시 DB 저장 건너뜀
