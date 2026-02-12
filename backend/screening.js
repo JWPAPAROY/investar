@@ -1990,8 +1990,8 @@ class StockScreener {
 
     const isEligible = (s) => {
       const flow = s.institutionalFlow;
-      const instDays = flow?.institution?.consecutiveBuyDays || flow?.institutionDays || 0;
-      const foreignDays = flow?.foreign?.consecutiveBuyDays || flow?.foreignDays || 0;
+      const instDays = flow?.institutionDays || 0;
+      const foreignDays = flow?.foreignDays || 0;
       const hasSmartMoney = instDays >= 3 || foreignDays >= 3;
       const isNotCrashing = !s.crashCheck?.isCrashing;
       const isNotOverheated = s.recommendation?.grade !== '과열';
@@ -2002,8 +2002,8 @@ class StockScreener {
 
     const getDualBonus = (s) => {
       const flow = s.institutionalFlow;
-      const instDays = flow?.institution?.consecutiveBuyDays || flow?.institutionDays || 0;
-      const foreignDays = flow?.foreign?.consecutiveBuyDays || flow?.foreignDays || 0;
+      const instDays = flow?.institutionDays || 0;
+      const foreignDays = flow?.foreignDays || 0;
       return instDays >= 2 && foreignDays >= 2;
     };
 

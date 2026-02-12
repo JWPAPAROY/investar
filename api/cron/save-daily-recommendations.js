@@ -509,10 +509,10 @@ function formatDefenseTop3Section(defenseTop3, mode = 'save') {
     const slExitPct = mcBillion >= 50000 ? '-6%' : '-5%';
 
     const instDays = isSave
-      ? (stock.institutionalFlow?.institution?.consecutiveBuyDays || stock.institutionalFlow?.institutionDays || 0)
+      ? (stock.institutionalFlow?.institutionDays || 0)
       : (stock.institution_buy_days || 0);
     const foreignDays = isSave
-      ? (stock.institutionalFlow?.foreign?.consecutiveBuyDays || stock.institutionalFlow?.foreignDays || 0)
+      ? (stock.institutionalFlow?.foreignDays || 0)
       : (stock.foreign_buy_days || 0);
 
     const marketTag = formatMarketTag(stock.market);
@@ -1488,8 +1488,8 @@ module.exports = async (req, res) => {
         // ========================================
         // 수급 기준 지표 (v3.30)
         // ========================================
-        institution_buy_days: stock.institutionalFlow?.institution?.consecutiveBuyDays || 0,
-        foreign_buy_days: stock.institutionalFlow?.foreign?.consecutiveBuyDays || 0,
+        institution_buy_days: stock.institutionalFlow?.institutionDays || 0,
+        foreign_buy_days: stock.institutionalFlow?.foreignDays || 0,
 
         // ========================================
         // 복합 지표 (v3.30)
