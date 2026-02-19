@@ -25,29 +25,47 @@ module.exports = async function handler(req, res) {
   console.log(`🔍 종목 분석: ${uniqueCodes.length}개 [${uniqueCodes.join(', ')}]`);
 
   try {
-    // Supabase에서 종목명 일괄 사전 조회
+    const kisApi = require('../../backend/kisApi');
+
+    // 1단계: 종목명 사전 확보 (스크리닝 탭과 동일 방식)
+    // 거래대금 랭킹 KOSPI+KOSDAQ → ~100개 종목명 캐싱 (2 API calls)
     const nameMap = new Map();
     try {
-      const { data: knownNames } = await supabase
-        .from('screening_recommendations')
-        .select('stock_code, stock_name')
-        .in('stock_code', uniqueCodes)
-        .not('stock_name', 'like', '[%')
-        .order('recommended_date', { ascending: false });
-      knownNames?.forEach(r => {
-        if (!nameMap.has(r.stock_code) && r.stock_name) {
-          nameMap.set(r.stock_code, r.stock_name);
-        }
+      const [kospiRank, kosdaqRank] = await Promise.all([
+        kisApi.getTradingValueRank('KOSPI', 50).catch(() => []),
+        kisApi.getTradingValueRank('KOSDAQ', 50).catch(() => [])
+      ]);
+      [...kospiRank, ...kosdaqRank].forEach(item => {
+        if (item.code && item.name) nameMap.set(item.code, item.name);
       });
-      console.log(`📋 Supabase 종목명 사전조회: ${nameMap.size}/${uniqueCodes.length}개 확보`);
+      console.log(`📋 랭킹 API 종목명 확보: ${nameMap.size}개`);
     } catch (e) {
-      console.warn('⚠️ Supabase 종목명 사전조회 실패:', e.message);
+      console.warn('⚠️ 랭킹 API 종목명 조회 실패:', e.message);
     }
 
+    // 랭킹에 없는 종목은 Supabase에서 보완
+    const missingCodes = uniqueCodes.filter(c => !nameMap.has(c));
+    if (missingCodes.length > 0) {
+      try {
+        const { data: dbNames } = await supabase
+          .from('screening_recommendations')
+          .select('stock_code, stock_name')
+          .in('stock_code', missingCodes)
+          .not('stock_name', 'like', '[%')
+          .order('recommended_date', { ascending: false });
+        dbNames?.forEach(r => {
+          if (!nameMap.has(r.stock_code) && r.stock_name) {
+            nameMap.set(r.stock_code, r.stock_name);
+          }
+        });
+        console.log(`📋 Supabase 보완: +${dbNames?.length || 0}개 → 총 ${nameMap.size}개`);
+      } catch (e) { /* ignore */ }
+    }
+
+    // 2단계: 종목 순차 분석
     const results = [];
     const errors = [];
 
-    // 순차 처리 - 하나의 프로세스에서 Rate Limiter 공유
     for (const code of uniqueCodes) {
       try {
         let result = await screener.analyzeStock(code);
@@ -60,10 +78,10 @@ module.exports = async function handler(req, res) {
         }
 
         if (result) {
-          // 종목명이 누락되면 Supabase에서 보완
+          // 종목명 보완
           if (!result.stockName || result.stockName.startsWith('[')) {
-            const dbName = nameMap.get(code);
-            if (dbName) result.stockName = dbName;
+            const name = nameMap.get(code);
+            if (name) result.stockName = name;
           }
           results.push(result);
         } else {
