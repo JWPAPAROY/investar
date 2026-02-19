@@ -943,12 +943,20 @@ class StockScreener {
       // 현재가, 일봉, 투자자 데이터 가져오기
       const [currentData, chartData, investorData] = await Promise.all([
         kisApi.getCurrentPrice(stockCode),
-        kisApi.getDailyChart(stockCode, 30),
+        kisApi.getDailyChart(stockCode, 30).catch(async (e) => {
+          console.warn(`⚠️ 차트 데이터 1차 실패 [${stockCode}]: ${e.message}, 300ms 후 재시도...`);
+          await new Promise(r => setTimeout(r, 300));
+          return kisApi.getDailyChart(stockCode, 30).catch(e2 => {
+            console.error(`❌ 차트 데이터 2차 실패 [${stockCode}]: ${e2.message}`);
+            return null;
+          });
+        }),
         kisApi.getInvestorData(stockCode, 5).catch(e => { console.warn(`⚠️ 투자자 데이터 실패 [${stockCode}]: ${e.message}`); return null; })
       ]);
 
-      // getCurrentPrice가 null 반환하면 스킵
-      if (!currentData) {
+      // getCurrentPrice 또는 chartData가 없으면 스킵
+      if (!currentData || !chartData || chartData.length === 0) {
+        console.warn(`⚠️ 필수 데이터 부족 [${stockCode}]: currentData=${!!currentData}, chartData=${chartData?.length || 0}건`);
         return null;
       }
 
