@@ -2323,9 +2323,13 @@
                 </thead>
                 <tbody>
                   {Object.entries(trackerData.statistics?.byGrade || {}).map(([grade, gstats]) => {
+                    // stock_code 기준 중복 제거 (최신 추천만 표시)
+                    const seen = new Set();
                     const gradeStocks = trackerData.stocks
                       .filter(s => s.recommendation_grade === grade)
-                      .sort((a, b) => b.total_score - a.total_score); // 점수 내림차순 정렬
+                      .sort((a, b) => new Date(b.recommendation_date) - new Date(a.recommendation_date))
+                      .filter(s => { if (seen.has(s.stock_code)) return false; seen.add(s.stock_code); return true; })
+                      .sort((a, b) => b.total_score - a.total_score);
                     const isExpanded = expandedGrades[grade] || false;
 
                     return (
@@ -2362,7 +2366,7 @@
                             <td colSpan="5" className="px-4 py-4 bg-gray-50">
                               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                                 {gradeStocks.map(stock => (
-                                  <div key={stock.stock_code} className="bg-white rounded-lg p-3 border shadow-sm hover:shadow-md transition">
+                                  <div key={`${stock.stock_code}-${stock.recommendation_date}`} className="bg-white rounded-lg p-3 border shadow-sm hover:shadow-md transition">
                                     <div className="flex justify-between items-start mb-2">
                                       <div>
                                         <div className="font-bold text-sm">{stock.stock_name}</div>
@@ -2593,16 +2597,16 @@
                         )}
                       </div>
                       {/* 비대칭 비율 */}
+                      {patternAnalysis.analysis.volumeIndicators.asymmetricRatio && (
                       <div className="p-3 bg-blue-50 rounded">
                         <div className="font-semibold text-blue-900 mb-2">비대칭 비율 (상승/하락일)</div>
-                        {patternAnalysis.analysis.volumeIndicators.asymmetricRatio && (
                           <div className="space-y-1 text-xs">
                             <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.avg}</span></div>
                             <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-blue-700">{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.median}</span></div>
                             <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.min}~{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.max}</span></div>
                           </div>
-                        )}
                       </div>
+                      )}
                       {/* 고래 감지 */}
                       <div className="p-3 bg-indigo-50 rounded">
                         <div className="font-semibold text-indigo-900 mb-2">🐋 고래 감지</div>
@@ -2624,38 +2628,38 @@
                     <summary className="font-bold text-purple-800 cursor-pointer mb-3">💹 시세 기준 지표</summary>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
                       {/* RSI */}
+                      {patternAnalysis.analysis.priceIndicators.rsi && (
                       <div className="p-3 bg-green-50 rounded">
                         <div className="font-semibold text-green-900 mb-2">RSI (14일)</div>
-                        {patternAnalysis.analysis.priceIndicators.rsi && (
                           <div className="space-y-1 text-xs">
                             <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.priceIndicators.rsi.avg}</span></div>
                             <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-green-700">{patternAnalysis.analysis.priceIndicators.rsi.median}</span></div>
                             <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.priceIndicators.rsi.min}~{patternAnalysis.analysis.priceIndicators.rsi.max}</span></div>
                           </div>
-                        )}
                       </div>
+                      )}
                       {/* MFI */}
+                      {patternAnalysis.analysis.priceIndicators.mfi && (
                       <div className="p-3 bg-teal-50 rounded">
                         <div className="font-semibold text-teal-900 mb-2">MFI (14일)</div>
-                        {patternAnalysis.analysis.priceIndicators.mfi && (
                           <div className="space-y-1 text-xs">
                             <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.priceIndicators.mfi.avg}</span></div>
                             <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-teal-700">{patternAnalysis.analysis.priceIndicators.mfi.median}</span></div>
                             <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.priceIndicators.mfi.min}~{patternAnalysis.analysis.priceIndicators.mfi.max}</span></div>
                           </div>
-                        )}
                       </div>
+                      )}
                       {/* 이격도 */}
+                      {patternAnalysis.analysis.priceIndicators.disparity && (
                       <div className="p-3 bg-yellow-50 rounded">
                         <div className="font-semibold text-yellow-900 mb-2">이격도 (20일)</div>
-                        {patternAnalysis.analysis.priceIndicators.disparity && (
                           <div className="space-y-1 text-xs">
                             <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.priceIndicators.disparity.avg}%</span></div>
                             <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-yellow-700">{patternAnalysis.analysis.priceIndicators.disparity.median}%</span></div>
                             <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.priceIndicators.disparity.min}~{patternAnalysis.analysis.priceIndicators.disparity.max}%</span></div>
                           </div>
-                        )}
                       </div>
+                      )}
                     </div>
                   </details>
                 )}

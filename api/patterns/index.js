@@ -175,10 +175,57 @@ async function collectSuccessPatterns(req, res) {
 
   console.log(`\n📊 수집 완료: ${successPatterns.length}개 새 패턴`);
 
+  // 4. 기존 패턴 중 null 지표 백필 (v3.30 이전 수집분)
+  let backfilled = 0;
+  try {
+    const { data: nullPatterns } = await supabase
+      .from('success_patterns')
+      .select('id, recommendation_id')
+      .is('rsi', null);
+
+    if (nullPatterns && nullPatterns.length > 0) {
+      const recIds = nullPatterns.map(p => p.recommendation_id);
+      const { data: recs } = await supabase
+        .from('screening_recommendations')
+        .select('id, asymmetric_ratio, asymmetric_signal, rsi, mfi, disparity, vwap_divergence, escape_velocity, escape_closing_strength, upper_shadow_ratio, institution_buy_days, foreign_buy_days')
+        .in('id', recIds);
+
+      if (recs) {
+        const recMap = new Map(recs.map(r => [r.id, r]));
+        for (const pat of nullPatterns) {
+          const src = recMap.get(pat.recommendation_id);
+          if (src && (src.rsi !== null || src.asymmetric_ratio !== null || src.disparity !== null)) {
+            const updates = {};
+            if (src.asymmetric_ratio !== null) updates.asymmetric_ratio = src.asymmetric_ratio;
+            if (src.asymmetric_signal !== null) updates.asymmetric_signal = src.asymmetric_signal;
+            if (src.rsi !== null) updates.rsi = src.rsi;
+            if (src.mfi !== null) updates.mfi = src.mfi;
+            if (src.disparity !== null) updates.disparity = src.disparity;
+            if (src.vwap_divergence !== null) updates.vwap_divergence = src.vwap_divergence;
+            if (src.escape_velocity !== null) updates.escape_velocity = src.escape_velocity;
+            if (src.escape_closing_strength !== null) updates.escape_closing_strength = src.escape_closing_strength;
+            if (src.upper_shadow_ratio !== null) updates.upper_shadow_ratio = src.upper_shadow_ratio;
+            if (src.institution_buy_days !== null) updates.institution_buy_days = src.institution_buy_days;
+            if (src.foreign_buy_days !== null) updates.foreign_buy_days = src.foreign_buy_days;
+
+            if (Object.keys(updates).length > 0) {
+              await supabase.from('success_patterns').update(updates).eq('id', pat.id);
+              backfilled++;
+            }
+          }
+        }
+        if (backfilled > 0) console.log(`🔄 백필 완료: ${backfilled}개 패턴 지표 업데이트`);
+      }
+    }
+  } catch (e) {
+    console.warn('⚠️ 백필 실패:', e.message);
+  }
+
   return res.status(200).json({
     success: true,
-    message: `${successPatterns.length}개 성공 패턴 수집 완료`,
+    message: `${successPatterns.length}개 성공 패턴 수집 완료${backfilled > 0 ? `, ${backfilled}개 백필` : ''}`,
     collected: successPatterns.length,
+    backfilled,
     patterns: successPatterns.map(p => ({
       stock_name: p.stock_name,
       max_return: p.max_return,
@@ -420,20 +467,60 @@ async function getPatternAnalysis(req, res) {
       : '고래 미감지 종목도 성공 가능'
   });
 
+  // 이격도 인사이트
+  if (analysis.priceIndicators.disparity?.median) {
+    const disp = analysis.priceIndicators.disparity;
+    insights.push({
+      indicator: '이격도(20일)',
+      current: '115↑ 과열 기준',
+      finding: `성공 종목 중앙값: ${disp.median} (범위: ${disp.min}~${disp.max})`,
+      suggestion: disp.median < 110
+        ? '성공 종목 대부분 이격도 110 미만 - 과열 전 진입이 유리'
+        : disp.median > 115
+          ? '고이격도 종목도 성공 가능 - 기준 완화 검토'
+          : '현재 과열 기준(115) 적절'
+    });
+  }
+
+  // 거래량 가속도 인사이트
+  if (analysis.volumeIndicators.volumeAcceleration) {
+    const va = analysis.volumeIndicators.volumeAcceleration;
+    const total = patterns.length;
+    const accelRate = ((va.strong_acceleration + va.acceleration) / total * 100).toFixed(1);
+    insights.push({
+      indicator: '거래량 가속도',
+      current: '가속 시 Momentum 가점',
+      finding: `성공 종목 중 ${accelRate}%가 가속 패턴 (강한: ${va.strong_acceleration}개, 일반: ${va.acceleration}개)`,
+      suggestion: parseFloat(accelRate) > 60
+        ? '거래량 가속이 성공과 높은 상관관계'
+        : '가속 없이도 성공 가능 - 다른 지표와 병행 판단'
+    });
+  }
+
   analysis.insights = insights;
 
-  // 5. 최근 패턴 목록 (상위 20개)
-  const recentPatterns = patterns.slice(0, 20).map(p => ({
-    stock_name: p.stock_name,
-    success_date: p.success_date,
-    max_return: p.max_return,
-    days_to_success: p.days_to_success,
-    recommendation_grade: p.recommendation_grade,
-    total_score: p.total_score,
-    volume_ratio: p.volume_ratio,
-    mfi: p.mfi,
-    whale_detected: p.whale_detected
-  }));
+  // 5. 최근 패턴 목록 (stock_code 기준 중복 제거, 최신 성공만 상위 20개)
+  const seenCodes = new Set();
+  const recentPatterns = patterns
+    .filter(p => {
+      const code = p.stock_code || p.stock_name;
+      if (seenCodes.has(code)) return false;
+      seenCodes.add(code);
+      return true;
+    })
+    .slice(0, 20)
+    .map(p => ({
+      stock_name: p.stock_name,
+      stock_code: p.stock_code,
+      success_date: p.success_date,
+      max_return: p.max_return,
+      days_to_success: p.days_to_success,
+      recommendation_grade: p.recommendation_grade,
+      total_score: p.total_score,
+      volume_ratio: p.volume_ratio,
+      mfi: p.mfi,
+      whale_detected: p.whale_detected
+    }));
 
   console.log(`📊 패턴 분석 완료: ${patterns.length}개 패턴, ${insights.length}개 인사이트`);
 
