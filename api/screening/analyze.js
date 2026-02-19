@@ -25,6 +25,25 @@ module.exports = async function handler(req, res) {
   console.log(`🔍 종목 분석: ${uniqueCodes.length}개 [${uniqueCodes.join(', ')}]`);
 
   try {
+    // Supabase에서 종목명 일괄 사전 조회
+    const nameMap = new Map();
+    try {
+      const { data: knownNames } = await supabase
+        .from('screening_recommendations')
+        .select('stock_code, stock_name')
+        .in('stock_code', uniqueCodes)
+        .not('stock_name', 'like', '[%')
+        .order('recommended_date', { ascending: false });
+      knownNames?.forEach(r => {
+        if (!nameMap.has(r.stock_code) && r.stock_name) {
+          nameMap.set(r.stock_code, r.stock_name);
+        }
+      });
+      console.log(`📋 Supabase 종목명 사전조회: ${nameMap.size}/${uniqueCodes.length}개 확보`);
+    } catch (e) {
+      console.warn('⚠️ Supabase 종목명 사전조회 실패:', e.message);
+    }
+
     const results = [];
     const errors = [];
 
@@ -41,20 +60,10 @@ module.exports = async function handler(req, res) {
         }
 
         if (result) {
-          // 종목명 Supabase fallback
+          // 종목명이 누락되면 Supabase에서 보완
           if (!result.stockName || result.stockName.startsWith('[')) {
-            try {
-              const { data: prev } = await supabase
-                .from('screening_recommendations')
-                .select('stock_name')
-                .eq('stock_code', code)
-                .not('stock_name', 'like', '[%')
-                .order('recommended_date', { ascending: false })
-                .limit(1);
-              if (prev && prev.length > 0 && prev[0].stock_name) {
-                result.stockName = prev[0].stock_name;
-              }
-            } catch (e) { /* ignore */ }
+            const dbName = nameMap.get(code);
+            if (dbName) result.stockName = dbName;
           }
           results.push(result);
         } else {
