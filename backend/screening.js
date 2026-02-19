@@ -1216,14 +1216,14 @@ class StockScreener {
           trend: '0-15점 (거래량 점진 증가 추세)'
         },
 
-        // 1. 기본 점수 (0-25점) v3.23
+        // 1. 기본 점수 (0-25점) v3.23 → v3.39: 서브 점수 포함
         baseScore: parseFloat(baseScore.toFixed(2)),
         baseComponents: {
-          volumeRatio: '거래량 비율 (0-8점, 1-2x 최고)',
-          vpdRaw: 'VPD raw (0-7점)',
-          marketCapBonus: '시총 보정 (-5~+7점)',
-          drawdownPenalty: '되돌림 페널티 (-3~0점)',
-          consecutiveRiseBonus: '연속상승 보너스 (0-5점)'
+          volumeRatio: { name: '거래량 비율 (0-8)', score: this._baseDetail?.volumeRatio || 0 },
+          vpd: { name: 'VPD (0-7)', score: this._baseDetail?.vpd || 0 },
+          marketCap: { name: '시총 보정 (-5~+7)', score: this._baseDetail?.marketCap || 0 },
+          drawdown: { name: '되돌림 (-3~0)', score: this._baseDetail?.drawdown || 0 },
+          consecutiveRise: { name: '연속상승 (0-5)', score: this._baseDetail?.consecutiveRise || 0 }
         },
 
         // 2. 고래 감지 보너스 (0/15/30점) v3.25
@@ -1351,6 +1351,8 @@ class StockScreener {
    */
   calculateTotalScore(volumeAnalysis, advancedAnalysis, trendScore = null, chartData = null, currentPrice = null, volumePriceDivergence = null, trendAnalysis = null, marketCap = null) {
     let baseScore = 0;
+    // v3.39: 개별 서브 컴포넌트 점수 기록
+    let volumeRatioScore = 0, vpdScore = 0, marketCapScore = 0, drawdownScore = 0, riseScore = 0;
 
     // ========================================
     // v3.23: 데이터 기반 Base Score 강화
@@ -1362,32 +1364,34 @@ class StockScreener {
     // 데이터: 1-2x 승률 78.9%/+21.77%, 5x+ 승률 55.9%/+3.21%
     if (volumeAnalysis.current.volumeMA20) {
       const volumeRatio = volumeAnalysis.current.volume / volumeAnalysis.current.volumeMA20;
-      if (volumeRatio >= 1.0 && volumeRatio < 2.0) baseScore += 8;       // 황금구간
-      else if (volumeRatio >= 2.0 && volumeRatio < 3.0) baseScore += 5;  // 적정 증가
-      else if (volumeRatio >= 3.0 && volumeRatio < 5.0) baseScore += 2;  // 과다 시작
-      // 5x+ 또는 1x 미만: 0점
+      if (volumeRatio >= 1.0 && volumeRatio < 2.0) volumeRatioScore = 8;       // 황금구간
+      else if (volumeRatio >= 2.0 && volumeRatio < 3.0) volumeRatioScore = 5;  // 적정 증가
+      else if (volumeRatio >= 3.0 && volumeRatio < 5.0) volumeRatioScore = 2;  // 과다 시작
+      baseScore += volumeRatioScore;
     }
 
     // 2. VPD raw (0-7점) v3.23: 5→7 확대 (유일한 VPD 반영 위치)
     // "거래량 폭발 + 가격 미반영" 현재 상태를 점수화
     if (volumePriceDivergence && volumePriceDivergence.divergence > 0) {
       const div = volumePriceDivergence.divergence;
-      if (div >= 3.0) baseScore += 7;
-      else if (div >= 2.0) baseScore += 5;
-      else if (div >= 1.0) baseScore += 4;
-      else if (div >= 0.5) baseScore += 2;
-      else if (div > 0) baseScore += 1;
+      if (div >= 3.0) vpdScore = 7;
+      else if (div >= 2.0) vpdScore = 5;
+      else if (div >= 1.0) vpdScore = 4;
+      else if (div >= 0.5) vpdScore = 2;
+      else if (div > 0) vpdScore = 1;
+      baseScore += vpdScore;
     }
 
     // 3. 시총 보정 (-5 ~ +7점) v3.23: 대형주 보너스 확대
     // 데이터: 소형주(<1000억) 승률 11.1%/-2.88%, 대형주(5000억+) 70%/+11.44%
     if (marketCap) {
       const mcBillion = marketCap / 100000000; // 억 단위
-      if (mcBillion < 1000) baseScore -= 5;          // 소형주 강한 페널티
-      else if (mcBillion < 3000) baseScore -= 2;     // 중소형주 페널티
-      else if (mcBillion >= 10000) baseScore += 7;   // 대형주 강한 보너스
-      else if (mcBillion >= 5000) baseScore += 5;    // 중대형주 보너스
-      else if (mcBillion >= 3000) baseScore += 2;    // 중형주 약한 보너스
+      if (mcBillion < 1000) marketCapScore = -5;
+      else if (mcBillion < 3000) marketCapScore = -2;
+      else if (mcBillion >= 10000) marketCapScore = 7;
+      else if (mcBillion >= 5000) marketCapScore = 5;
+      else if (mcBillion >= 3000) marketCapScore = 2;
+      baseScore += marketCapScore;
     }
 
     // 4. 고점 대비 되돌림 페널티 (-3~0점)
@@ -1395,9 +1399,10 @@ class StockScreener {
       const recentHigh = Math.max(...chartData.slice(0, 30).map(d => d.high));
       const drawdownPercent = ((recentHigh - currentPrice) / recentHigh) * 100;
 
-      if (drawdownPercent >= 20) baseScore -= 3;      // 20% 이상 되돌림
-      else if (drawdownPercent >= 15) baseScore -= 2; // 15% 이상 되돌림
-      else if (drawdownPercent >= 10) baseScore -= 1; // 10% 이상 되돌림
+      if (drawdownPercent >= 20) drawdownScore = -3;
+      else if (drawdownPercent >= 15) drawdownScore = -2;
+      else if (drawdownPercent >= 10) drawdownScore = -1;
+      baseScore += drawdownScore;
     }
 
     // 5. 연속 상승일 보너스 (0-5점) 🆕 v3.23
@@ -1410,12 +1415,16 @@ class StockScreener {
           break;
         }
       }
-      if (consecutiveRise >= 4) baseScore += 5;
-      else if (consecutiveRise >= 3) baseScore += 3;
-      else if (consecutiveRise >= 2) baseScore += 1;
+      if (consecutiveRise >= 4) riseScore = 5;
+      else if (consecutiveRise >= 3) riseScore = 3;
+      else if (consecutiveRise >= 2) riseScore = 1;
+      baseScore += riseScore;
     }
 
-    return Math.min(Math.max(baseScore, 0), 25); // v3.23: 최대 25점
+    const finalBase = Math.min(Math.max(baseScore, 0), 25);
+    // v3.39: 서브 컴포넌트를 _baseDetail에 저장 (scoreBreakdown에서 참조)
+    this._baseDetail = { volumeRatio: volumeRatioScore, vpd: vpdScore, marketCap: marketCapScore, drawdown: drawdownScore, consecutiveRise: riseScore };
+    return finalBase;
   }
 
   // ========================================

@@ -1018,6 +1018,25 @@
                     </div>
                   )}
 
+                  {/* Base 상세 */}
+                  {stock.scoreBreakdown.baseComponents && typeof stock.scoreBreakdown.baseComponents.volumeRatio === 'object' && (
+                    <div className="mb-4">
+                      <h4 className="font-bold text-blue-700 mb-2 text-sm">Base 상세</h4>
+                      <div className="space-y-2">
+                        {Object.entries(stock.scoreBreakdown.baseComponents).map(([key, comp]) => (
+                          <div key={key} className="bg-white p-3 rounded-lg border border-gray-200">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-semibold text-gray-800">{comp.name}</span>
+                              <span className={`font-bold ${comp.score > 0 ? 'text-blue-700' : comp.score < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                                {comp.score > 0 ? '+' : ''}{comp.score}점
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Momentum 상세 */}
                   {stock.scoreBreakdown.momentumComponents && (
                     <div className="mb-4">
