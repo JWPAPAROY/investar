@@ -27,17 +27,25 @@ module.exports = async function handler(req, res) {
   try {
     const kisApi = require('../../backend/kisApi');
 
-    // 1단계: 종목명 사전 확보 (스크리닝 탭과 동일 방식)
-    // 거래대금 랭킹 KOSPI+KOSDAQ → ~100개 종목명 캐싱 (2 API calls)
+    // 1단계: 종목명 사전 확보 (스크리닝 탭과 동일 — 4종 랭킹 × 2시장 = 8 API calls)
     const nameMap = new Map();
     try {
-      const [kospiRank, kosdaqRank] = await Promise.all([
+      const rankResults = await Promise.all([
+        kisApi.getVolumeSurgeRank('KOSPI', 50).catch(() => []),
+        kisApi.getVolumeSurgeRank('KOSDAQ', 50).catch(() => []),
         kisApi.getTradingValueRank('KOSPI', 50).catch(() => []),
-        kisApi.getTradingValueRank('KOSDAQ', 50).catch(() => [])
+        kisApi.getTradingValueRank('KOSDAQ', 50).catch(() => []),
+        kisApi.getPriceChangeRank('KOSPI', 50).catch(() => []),
+        kisApi.getPriceChangeRank('KOSDAQ', 50).catch(() => []),
+        kisApi.getVolumeRank('KOSPI', 50).catch(() => []),
+        kisApi.getVolumeRank('KOSDAQ', 50).catch(() => [])
       ]);
-      [...kospiRank, ...kosdaqRank].forEach(item => {
+      rankResults.flat().forEach(item => {
         if (item.code && item.name) nameMap.set(item.code, item.name);
       });
+      // kisApi 내부 캐시도 채워서 getCurrentPrice()에서 바로 사용
+      if (!kisApi.stockNameCache) kisApi.stockNameCache = new Map();
+      nameMap.forEach((name, code) => kisApi.stockNameCache.set(code, name));
       console.log(`📋 랭킹 API 종목명 확보: ${nameMap.size}개`);
     } catch (e) {
       console.warn('⚠️ 랭킹 API 종목명 조회 실패:', e.message);
