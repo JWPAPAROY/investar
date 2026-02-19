@@ -333,11 +333,26 @@ async function sendTelegramMessage(message) {
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.35: 매수고래 + 비과열 → 점수 내림차순 TOP 3
-  return stocks
-    .filter(s => s.whale_detected && s.recommendation_grade !== '과열')
-    .sort((a, b) => b.total_score - a.total_score)
-    .slice(0, 3);
+  // v3.38: 스윗스팟 우선순위 TOP3 (50-69점 승률 72%, 70-79점 승률 47%)
+  const eligible = stocks.filter(s => s.whale_detected && s.recommendation_grade !== '과열');
+  const top3 = [];
+
+  const addFromRange = (lo, hi) => {
+    const pool = eligible
+      .filter(s => s.total_score >= lo && s.total_score <= hi && !top3.some(t => t.stock_code === s.stock_code))
+      .sort((a, b) => b.total_score - a.total_score);
+    for (const s of pool) {
+      if (top3.length >= 3) break;
+      top3.push(s);
+    }
+  };
+
+  addFromRange(50, 69);   // 1순위: 스윗스팟
+  addFromRange(80, 89);   // 2순위
+  addFromRange(90, 100);  // 3순위
+  addFromRange(70, 79);   // 4순위: 최후 보충
+
+  return top3;
 }
 
 /**
@@ -365,15 +380,30 @@ function selectWhaleStocks(stocks, top3) {
 function selectSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.35: 매수고래 + 비과열 → 점수 내림차순 TOP 3
-  return stocks
-    .filter(s => {
-      const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-      const isOverheated = s.recommendation?.grade === '과열';
-      return hasBuyWhale && !isOverheated;
-    })
-    .sort((a, b) => b.totalScore - a.totalScore)
-    .slice(0, 3);
+  // v3.38: 스윗스팟 우선순위 TOP3 (save용 camelCase)
+  const eligible = stocks.filter(s => {
+    const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+    const isOverheated = s.recommendation?.grade === '과열';
+    return hasBuyWhale && !isOverheated;
+  });
+  const top3 = [];
+
+  const addFromRange = (lo, hi) => {
+    const pool = eligible
+      .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
+      .sort((a, b) => b.totalScore - a.totalScore);
+    for (const s of pool) {
+      if (top3.length >= 3) break;
+      top3.push(s);
+    }
+  };
+
+  addFromRange(50, 69);   // 1순위: 스윗스팟
+  addFromRange(80, 89);   // 2순위
+  addFromRange(90, 100);  // 3순위
+  addFromRange(70, 79);   // 4순위: 최후 보충
+
+  return top3;
 }
 
 /**
