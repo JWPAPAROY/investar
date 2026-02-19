@@ -3274,60 +3274,87 @@
     }
 
     // DNA 추출 컴포넌트
-    // 단일 종목 분석 컴포넌트
+    // 종목 분석 컴포넌트 (복수 종목 지원)
     function StockAnalysis({ apiBaseUrl }) {
-      const [stockCode, setStockCode] = useState('');
-      const [result, setResult] = useState(null);
+      const [inputText, setInputText] = useState('');
+      const [results, setResults] = useState([]);
       const [loading, setLoading] = useState(false);
+      const [progress, setProgress] = useState({ current: 0, total: 0, currentName: '' });
       const [error, setError] = useState(null);
       const [selectedStock, setSelectedStock] = useState(null);
 
-      const analyzeStock = async () => {
-        const code = stockCode.trim();
-        if (!/^\d{6}$/.test(code)) {
-          setError('6자리 종목코드를 입력해주세요 (예: 005930)');
+      const analyzeStocks = async () => {
+        // 쉼표/공백/줄바꿈으로 분리 → 6자리 숫자만 추출
+        const codes = inputText.match(/\d{6}/g);
+        if (!codes || codes.length === 0) {
+          setError('6자리 종목코드를 입력해주세요 (예: 005930, 128940)');
           return;
         }
+        const uniqueCodes = [...new Set(codes)];
+
         try {
           setLoading(true);
           setError(null);
-          setResult(null);
-          const response = await fetch(`${apiBaseUrl}/screening/analyze?code=${code}`);
-          const data = await response.json();
-          if (!data.success) throw new Error(data.error);
-          setResult(data.data);
-        } catch (err) {
-          setError(err.message);
+          setResults([]);
+          setProgress({ current: 0, total: uniqueCodes.length, currentName: '' });
+
+          const analyzed = [];
+          const errors = [];
+
+          for (let i = 0; i < uniqueCodes.length; i++) {
+            const code = uniqueCodes[i];
+            setProgress({ current: i + 1, total: uniqueCodes.length, currentName: code });
+            try {
+              const response = await fetch(`${apiBaseUrl}/screening/analyze?code=${code}`);
+              const data = await response.json();
+              if (data.success) {
+                analyzed.push(data.data);
+              } else {
+                errors.push(`${code}: ${data.error}`);
+              }
+            } catch (err) {
+              errors.push(`${code}: ${err.message}`);
+            }
+          }
+
+          setResults(analyzed.sort((a, b) => b.totalScore - a.totalScore));
+          if (errors.length > 0) {
+            setError(`일부 종목 분석 실패:\n${errors.join('\n')}`);
+          }
         } finally {
           setLoading(false);
         }
       };
 
       const handleKeyDown = (e) => {
-        if (e.key === 'Enter') analyzeStock();
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          analyzeStocks();
+        }
       };
+
+      const hasValidCode = inputText.match(/\d{6}/);
 
       return (
         <div className="space-y-6">
           {/* 입력 영역 */}
           <div className="bg-white rounded-xl shadow-lg p-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">🔎 종목 분석</h2>
-            <p className="text-gray-600 text-sm mb-4">종목코드를 입력하면 스크리닝 엔진으로 분석합니다.</p>
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">🔎 종목 분석</h2>
+            <p className="text-gray-600 text-sm mb-4">종목코드를 입력하면 스크리닝 엔진으로 분석합니다. 쉼표로 여러 종목을 한번에 분석할 수 있습니다.</p>
             <div className="flex gap-3">
               <input
                 type="text"
-                value={stockCode}
-                onChange={(e) => setStockCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="종목코드 6자리 (예: 005930)"
+                placeholder="005930, 128940, 035720"
                 className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none text-lg font-mono"
-                maxLength={6}
               />
               <button
-                onClick={analyzeStock}
-                disabled={loading || stockCode.length !== 6}
-                className={`px-8 py-3 rounded-lg font-bold text-white transition-all ${
-                  loading || stockCode.length !== 6
+                onClick={analyzeStocks}
+                disabled={loading || !hasValidCode}
+                className={`px-8 py-3 rounded-lg font-bold text-white transition-all whitespace-nowrap ${
+                  loading || !hasValidCode
                     ? 'bg-gray-400 cursor-not-allowed'
                     : 'bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg'
                 }`}
@@ -3339,7 +3366,7 @@
 
           {/* 에러 */}
           {error && (
-            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 px-4 py-3 rounded shadow">
+            <div className="bg-red-100 border-l-4 border-red-500 text-red-700 px-4 py-3 rounded shadow whitespace-pre-line">
               {error}
             </div>
           )}
@@ -3348,74 +3375,44 @@
           {loading && (
             <div className="text-center py-12">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-indigo-600 border-t-transparent"></div>
-              <p className="mt-4 text-gray-600">종목 분석 중... (약 5~10초 소요)</p>
+              <p className="mt-4 text-gray-600">
+                종목 분석 중... ({progress.current}/{progress.total}) {progress.currentName}
+              </p>
+              {progress.total > 1 && (
+                <div className="w-64 mx-auto mt-3 bg-gray-200 rounded-full h-2">
+                  <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${(progress.current / progress.total) * 100}%` }}></div>
+                </div>
+              )}
             </div>
           )}
 
-          {/* 결과 */}
-          {result && (
-            <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-              {/* 종목 헤더 */}
-              <div className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6">
-                <div className="flex justify-between items-start">
+          {/* 결과 - RecommendationCard 재사용 */}
+          {results.length > 0 && (
+            <>
+              <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+                <div className="flex items-center justify-center gap-6 text-sm">
                   <div>
-                    <h3 className="text-3xl font-bold">{result.stockName}</h3>
-                    <p className="text-indigo-200 mt-1">{result.stockCode}</p>
+                    <span className="text-gray-600">분석 완료:</span>
+                    <span className="font-bold text-blue-900 ml-1">{results.length}개</span>
                   </div>
-                  <div className={`grade-${result.recommendation?.grade} w-20 h-20 rounded-full flex items-center justify-center`}>
-                    <span className="text-white text-4xl font-bold">{result.recommendation?.grade || '?'}</span>
-                  </div>
-                </div>
-                <div className="mt-4 flex items-baseline gap-4">
-                  <span className="text-4xl font-bold">{result.currentPrice?.toLocaleString()}원</span>
-                  <span className={`text-xl font-semibold ${result.changeRate >= 0 ? 'text-red-300' : 'text-blue-300'}`}>
-                    {result.changeRate >= 0 ? '▲' : '▼'} {Math.abs(result.changeRate || 0).toFixed(2)}%
-                  </span>
-                </div>
-                <div className="mt-3 flex gap-4 text-lg">
-                  <span className="bg-white bg-opacity-20 px-4 py-1 rounded-full font-bold">{result.totalScore}점</span>
-                  <span className="bg-white bg-opacity-20 px-4 py-1 rounded-full">{result.recommendation?.text}</span>
-                </div>
-              </div>
-
-              {/* 상세 보기 버튼 */}
-              <div className="p-6">
-                <button
-                  onClick={() => setSelectedStock(result)}
-                  className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl font-bold text-lg hover:from-indigo-600 hover:to-purple-600 transition-all shadow-md hover:shadow-lg"
-                >
-                  📊 상세 분석 보기
-                </button>
-
-                {/* 점수 요약 */}
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mt-6">
-                  <div className="bg-blue-50 p-3 rounded-lg text-center">
-                    <p className="text-xs text-gray-600">Base</p>
-                    <p className="text-xl font-bold text-blue-700">{result.scoreBreakdown?.baseScore ?? '?'}</p>
-                  </div>
-                  <div className="bg-purple-50 p-3 rounded-lg text-center">
-                    <p className="text-xs text-gray-600">Whale</p>
-                    <p className="text-xl font-bold text-purple-700">{result.radarScore?.whaleBonus ?? 0}</p>
-                  </div>
-                  <div className="bg-green-50 p-3 rounded-lg text-center">
-                    <p className="text-xs text-gray-600">Momentum</p>
-                    <p className="text-xl font-bold text-green-700">{result.scoreBreakdown?.momentumScore ?? '?'}</p>
-                  </div>
-                  <div className="bg-orange-50 p-3 rounded-lg text-center">
-                    <p className="text-xs text-gray-600">Trend</p>
-                    <p className="text-xl font-bold text-orange-700">{result.scoreBreakdown?.trendScore ?? '?'}</p>
-                  </div>
-                  <div className="bg-red-50 p-3 rounded-lg text-center">
-                    <p className="text-xs text-gray-600">Signal</p>
-                    {(() => {
-                      const adj = result.scoreBreakdown?.signalAdjustments || {};
-                      const t = (adj.escapeVelocityBonus || 0) + (adj.upperShadowPenalty || 0) + (adj.sellWhalePenalty || 0);
-                      return <p className={`text-xl font-bold ${t > 0 ? 'text-green-700' : t < 0 ? 'text-red-700' : 'text-gray-400'}`}>{t > 0 ? '+' : ''}{t}</p>;
-                    })()}
+                  <div className="text-gray-400">|</div>
+                  <div>
+                    <span className="text-gray-600">점수순 정렬</span>
                   </div>
                 </div>
               </div>
-            </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {results.map((stock, index) => (
+                  <RecommendationCard
+                    key={stock.stockCode}
+                    stock={stock}
+                    rank={index + 1}
+                    onClick={() => setSelectedStock(stock)}
+                    strategyFilter="momentum"
+                  />
+                ))}
+              </div>
+            </>
           )}
 
           {/* 상세 모달 */}
