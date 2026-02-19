@@ -3279,7 +3279,6 @@
       const [inputText, setInputText] = useState('');
       const [results, setResults] = useState([]);
       const [loading, setLoading] = useState(false);
-      const [progress, setProgress] = useState({ current: 0, total: 0, currentName: '' });
       const [error, setError] = useState(null);
       const [selectedStock, setSelectedStock] = useState(null);
 
@@ -3291,36 +3290,30 @@
           return;
         }
         const uniqueCodes = [...new Set(codes)];
+        if (uniqueCodes.length > 15) {
+          setError('최대 15개까지 분석 가능합니다.');
+          return;
+        }
 
         try {
           setLoading(true);
           setError(null);
           setResults([]);
-          setProgress({ current: 0, total: uniqueCodes.length, currentName: '' });
 
-          const analyzed = [];
-          const errors = [];
+          // 한 번의 API 호출로 모든 종목 분석 (Rate Limiter 공유)
+          const response = await fetch(`${apiBaseUrl}/screening/analyze?codes=${uniqueCodes.join(',')}`);
+          const data = await response.json();
 
-          for (let i = 0; i < uniqueCodes.length; i++) {
-            const code = uniqueCodes[i];
-            setProgress({ current: i + 1, total: uniqueCodes.length, currentName: code });
-            try {
-              const response = await fetch(`${apiBaseUrl}/screening/analyze?code=${code}`);
-              const data = await response.json();
-              if (data.success) {
-                analyzed.push(data.data);
-              } else {
-                errors.push(`${code}: ${data.error}`);
-              }
-            } catch (err) {
-              errors.push(`${code}: ${err.message}`);
+          if (data.success) {
+            setResults((data.data || []).sort((a, b) => b.totalScore - a.totalScore));
+            if (data.errors && data.errors.length > 0) {
+              setError(`일부 종목 분석 실패:\n${data.errors.map(e => `${e.code}: ${e.error}`).join('\n')}`);
             }
+          } else {
+            setError(data.error || '분석에 실패했습니다.');
           }
-
-          setResults(analyzed.sort((a, b) => b.totalScore - a.totalScore));
-          if (errors.length > 0) {
-            setError(`일부 종목 분석 실패:\n${errors.join('\n')}`);
-          }
+        } catch (err) {
+          setError(`요청 실패: ${err.message}`);
         } finally {
           setLoading(false);
         }
@@ -3376,13 +3369,8 @@
             <div className="text-center py-12">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-indigo-600 border-t-transparent"></div>
               <p className="mt-4 text-gray-600">
-                종목 분석 중... ({progress.current}/{progress.total}) {progress.currentName}
+                종목 분석 중... (종목당 ~3초)
               </p>
-              {progress.total > 1 && (
-                <div className="w-64 mx-auto mt-3 bg-gray-200 rounded-full h-2">
-                  <div className="bg-indigo-600 h-2 rounded-full transition-all" style={{ width: `${(progress.current / progress.total) * 100}%` }}></div>
-                </div>
-              )}
             </div>
           )}
 
