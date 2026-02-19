@@ -943,131 +943,86 @@
                 </div>
               </div>
 
-              {/* v3.18.1 Dual-Track Scoring 정보 */}
-              {(stock.radarScore || stock.scoreBreakdown) && (
-                <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-300 rounded-xl p-6">
-                  <h3 className="text-xl font-bold mb-4">🎯 v3.26 Radar Scoring System</h3>
+              {/* 과열 감지 v2 정보 */}
+              {stock.overheatingV2 && stock.overheatingV2.overheated && (
+                <div className="p-4 bg-red-100 border-2 border-red-400 rounded-xl">
+                  <h4 className="font-bold text-red-800 mb-2">⚠️ 과열 감지</h4>
+                  <div className="flex gap-4 text-sm">
+                    <span>RSI(14): <b className={stock.overheatingV2.rsi > 80 ? 'text-red-700' : ''}>{stock.overheatingV2.rsi}</b></span>
+                    <span>이격도(20일): <b className={stock.overheatingV2.disparity > 115 ? 'text-red-700' : ''}>{stock.overheatingV2.disparity}</b></span>
+                  </div>
+                </div>
+              )}
 
-                  {/* Scoring Track 표시 */}
-                  {stock.scoreBreakdown && stock.scoreBreakdown.scoringTrack && (
-                    <div className="mb-4 p-3 bg-white rounded-lg border-2 border-purple-200">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold text-purple-900">📌 사용된 스코어링 트랙:</span>
-                        <span className="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700">{stock.scoreBreakdown.scoringTrack}</span>
-                      </div>
+              {/* 점수 상세 분석 - v3.39 전체 컴포넌트 표시 */}
+              {stock.scoreBreakdown && (
+                <div className="bg-gradient-to-br from-green-50 to-teal-50 border-2 border-green-300 rounded-xl p-6">
+                  <h3 className="text-xl font-bold mb-4">📊 점수 상세 분석</h3>
+                  <p className="text-sm text-gray-600 mb-4">{stock.scoreBreakdown.formula}</p>
+
+                  {/* 전체 점수 구성 - 5칸 */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                    <div className="bg-white p-3 rounded-lg border border-blue-200">
+                      <p className="text-gray-600 text-xs mb-1">Base (0-25)</p>
+                      <p className="text-2xl font-bold text-blue-600">{stock.scoreBreakdown.baseScore}</p>
                     </div>
-                  )}
-
-                  {/* Radar Scoring 정보 */}
-                  {stock.radarScore && (
-                    <div className="mb-4 p-4 bg-gradient-to-r from-blue-100 to-cyan-100 border-2 border-blue-400 rounded-lg">
-                      <h4 className="font-bold text-blue-800 mb-3 flex items-center gap-2">
-                        <span>📡 Radar Scoring</span>
-                        <span className="px-2 py-1 bg-blue-500 text-white text-xs rounded-full">{stock.totalScore}점 / 100점</span>
-                      </h4>
-                      <div className="grid grid-cols-4 gap-2 text-sm">
-                        <div className="bg-white p-2 rounded border border-blue-200">
-                          <div className="text-xs text-gray-600">Base</div>
-                          <div className="text-lg font-bold text-blue-700">{stock.radarScore.baseScore}</div>
-                          <div className="text-xs text-gray-500">/ 25점</div>
-                        </div>
-                        <div className="bg-white p-2 rounded border border-purple-200">
-                          <div className="text-xs text-gray-600">Whale</div>
-                          <div className="text-lg font-bold text-purple-700">{stock.radarScore.whaleBonus}</div>
-                          <div className="text-xs text-gray-500">(0/15/30)</div>
-                        </div>
-                        <div className="bg-white p-2 rounded border border-green-200">
-                          <div className="text-xs text-gray-600">Momentum</div>
-                          <div className="text-lg font-bold text-green-700">{stock.radarScore.momentumScore.totalScore}</div>
-                          <div className="text-xs text-gray-500">/ 30점</div>
-                        </div>
-                        <div className="bg-white p-2 rounded border border-orange-200">
-                          <div className="text-xs text-gray-600">Trend</div>
-                          <div className="text-lg font-bold text-orange-700">{stock.radarScore.trendScore.totalScore}</div>
-                          <div className="text-xs text-gray-500">/ 15점</div>
-                        </div>
-                      </div>
-                      {/* Signal Adjustments 표시 */}
-                      {stock.scoreBreakdown?.signalAdjustments && (
-                        (() => {
-                          const adj = stock.scoreBreakdown.signalAdjustments;
-                          const items = [];
-                          if (adj.escapeVelocityBonus) items.push({ label: '🚀 탈출 속도', value: `+${adj.escapeVelocityBonus}`, color: 'text-green-700' });
-                          if (adj.upperShadowPenalty) items.push({ label: '⚠️ 윗꼬리 과다', value: `${adj.upperShadowPenalty}`, color: 'text-red-700' });
-                          if (adj.sellWhalePenalty) items.push({ label: '🐳 매도고래', value: `${adj.sellWhalePenalty}`, color: 'text-red-700' });
-                          return items.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-2 text-xs">
-                              <span className="text-gray-600 font-semibold">Signal Adj:</span>
-                              {items.map((item, i) => (
-                                <span key={i} className={`${item.color} font-bold`}>{item.label} {item.value}점</span>
-                              ))}
+                    <div className="bg-white p-3 rounded-lg border border-purple-200">
+                      <p className="text-gray-600 text-xs mb-1">Whale (0/15/30)</p>
+                      <p className="text-2xl font-bold text-purple-600">{stock.radarScore?.whaleBonus ?? '?'}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {stock.radarScore?.whaleBonus === 30 ? '확인됨' : stock.radarScore?.whaleBonus === 15 ? '미확인' : '미감지'}
+                      </p>
+                    </div>
+                    <div className="bg-white p-3 rounded-lg border border-green-200">
+                      <p className="text-gray-600 text-xs mb-1">Momentum (0-30)</p>
+                      <p className="text-2xl font-bold text-green-600">{stock.scoreBreakdown.momentumScore}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-lg border border-orange-200">
+                      <p className="text-gray-600 text-xs mb-1">Trend (0-15)</p>
+                      <p className="text-2xl font-bold text-orange-600">{stock.scoreBreakdown.trendScore}</p>
+                    </div>
+                    <div className="bg-white p-3 rounded-lg border border-red-200">
+                      <p className="text-gray-600 text-xs mb-1">Signal Adj</p>
+                      {(() => {
+                        const adj = stock.scoreBreakdown.signalAdjustments || {};
+                        const total = (adj.escapeVelocityBonus || 0) + (adj.upperShadowPenalty || 0) + (adj.sellWhalePenalty || 0);
+                        return (
+                          <React.Fragment>
+                            <p className={`text-2xl font-bold ${total > 0 ? 'text-green-600' : total < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                              {total > 0 ? '+' : ''}{total}
+                            </p>
+                            <div className="text-xs text-gray-500 mt-1 space-y-0.5">
+                              {adj.escapeVelocityBonus ? <div>탈출속도 +{adj.escapeVelocityBonus}</div> : null}
+                              {adj.upperShadowPenalty ? <div>윗꼬리 {adj.upperShadowPenalty}</div> : null}
+                              {adj.sellWhalePenalty ? <div>매도고래 {adj.sellWhalePenalty}</div> : null}
                             </div>
-                          ) : null;
-                        })()
+                          </React.Fragment>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
+                  {/* Whale 상세 — 확인 조건 표시 */}
+                  {stock.radarScore?.whaleBonus > 0 && (
+                    <div className="mb-4 p-3 bg-white rounded-lg border border-purple-200">
+                      <h4 className="font-bold text-purple-700 mb-2 text-sm">
+                        {stock.radarScore.whaleBonus === 30 ? '🐋 확인된 고래 (+30)' : '🐋 미확인 고래 (+15)'}
+                      </h4>
+                      {stock.radarScore.whaleBonus === 30 && (
+                        <div className="text-xs text-gray-600 space-y-1">
+                          {stock.advancedAnalysis?.indicators?.escape?.detected && <div>- 탈출 속도 달성</div>}
+                          {stock.advancedAnalysis?.indicators?.asymmetric?.signal?.includes('강한 매수세') && <div>- 비대칭 매수세 (ratio {'>'} 1.5)</div>}
+                          {stock.momentumScore?.volumeAcceleration?.trend?.includes('acceleration') && <div>- 거래량 가속 패턴</div>}
+                        </div>
                       )}
                     </div>
                   )}
 
-                  {/*과열 감지 v2 정보 */}
-                  {stock.overheatingV2 && stock.overheatingV2.overheated && (
-                    <div className="p-4 bg-red-100 border-2 border-red-400 rounded-lg">
-                      <h4 className="font-bold text-red-800 mb-2 flex items-center gap-2">
-                        <span>⚠️과열 감지 (v3.26)</span>
-                      </h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-gray-700">RSI(14):</span>
-                          <span className={`font-bold ${stock.overheatingV2.rsi > 80 ? 'text-red-700' : 'text-gray-700'}`}>
-                            {stock.overheatingV2.rsi} {stock.overheatingV2.rsi > 80 ? '⚠️과열' : ''}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-gray-700">이격도(20일):</span>
-                          <span className={`font-bold ${stock.overheatingV2.disparity > 115 ? 'text-red-700' : 'text-gray-700'}`}>
-                            {stock.overheatingV2.disparity} {stock.overheatingV2.disparity > 115 ? '⚠️과열' : ''}
-                          </span>
-                        </div>
-                        <div className="mt-2 p-2 bg-white rounded border border-red-200">
-                          <div className="text-xs font-semibold text-red-700">{stock.overheatingV2.reason}</div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* 점수 상세 분석 (scoreBreakdown) - v1.1 변화율 시스템 */}
-              {stock.scoreBreakdown && (
-                <div className="bg-gradient-to-br from-green-50 to-teal-50 border-2 border-green-300 rounded-xl p-6">
-                  <h3 className="text-xl font-bold mb-4">📊 점수 상세 분석 (Radar Scoring 상세)</h3>
-                  <p className="text-sm text-gray-600 mb-4">{stock.scoreBreakdown.formula}</p>
-
-                  {/* 점수 체계 요약 */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                    <div className="bg-white p-4 rounded-lg border border-gray-200">
-                      <p className="text-gray-600 text-sm mb-1">기본 점수</p>
-                      <p className="text-2xl font-bold text-blue-600">{stock.scoreBreakdown.baseScore}점</p>
-                      <p className="text-xs text-gray-500 mt-1">{stock.scoreBreakdown.structure.base}</p>
-                    </div>
-
-                    <div className="bg-white p-4 rounded-lg border border-gray-200">
-                      <p className="text-gray-600 text-sm mb-1">변화율 점수 ⭐</p>
-                      <p className="text-2xl font-bold text-green-600">{stock.scoreBreakdown.momentumScore}점</p>
-                      <p className="text-xs text-gray-500 mt-1">{stock.scoreBreakdown.structure.momentum}</p>
-                    </div>
-
-                    <div className="bg-white p-4 rounded-lg border border-gray-200">
-                      <p className="text-gray-600 text-sm mb-1">추세 점수</p>
-                      <p className="text-2xl font-bold text-purple-600">{stock.scoreBreakdown.trendScore}점</p>
-                      <p className="text-xs text-gray-500 mt-1">{stock.scoreBreakdown.structure.trend}</p>
-                    </div>
-                  </div>
-
-                  {/* 변화율 점수 상세 */}
+                  {/* Momentum 상세 */}
                   {stock.scoreBreakdown.momentumComponents && (
                     <div className="mb-4">
-                      <h4 className="font-bold text-green-700 mb-2 flex items-center gap-2">
-                        <span>⭐ 변화율 점수 상세</span>
+                      <h4 className="font-bold text-green-700 mb-2 text-sm flex items-center gap-2">
+                        <span>Momentum 상세</span>
                         <span className="text-xs font-normal text-gray-600">(D-5일 → D-0일 변화)</span>
                       </h4>
                       <div className="space-y-2">
@@ -1078,29 +1033,33 @@
                               <span className="font-bold text-green-700">{comp.score}점</span>
                             </div>
                             <p className="text-xs text-gray-600">{comp.details}</p>
-                            <p className="text-xs text-gray-500 mt-1">추세: {comp.trend}</p>
                           </div>
                         ))}
+                        {stock.momentumScore?.dailyRisePenalty != null && stock.momentumScore.dailyRisePenalty !== 0 && (
+                          <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm font-semibold text-red-800">당일 급등 페널티</span>
+                              <span className="font-bold text-red-700">{stock.momentumScore.dailyRisePenalty}점</span>
+                            </div>
+                            <p className="text-xs text-red-600">등락률 {stock.changeRate >= 0 ? '+' : ''}{stock.changeRate?.toFixed(1)}%</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   )}
 
-                  {/* 추세 점수 상세 */}
+                  {/* Trend 상세 */}
                   {stock.scoreBreakdown.trendComponents && (
                     <div className="mb-4">
-                      <h4 className="font-bold text-purple-700 mb-2">📈 추세 점수 상세 (30일)</h4>
+                      <h4 className="font-bold text-orange-700 mb-2 text-sm">Trend 상세 (30일)</h4>
                       <div className="space-y-2">
                         {Object.entries(stock.scoreBreakdown.trendComponents).map(([key, comp]) => (
                           <div key={key} className="bg-white p-3 rounded-lg border border-gray-200">
                             <div className="flex justify-between items-center mb-1">
                               <span className="text-sm font-semibold text-gray-800">{comp.name}</span>
-                              <span className="font-bold text-purple-700">{comp.score}점</span>
+                              <span className="font-bold text-orange-700">{comp.score}점</span>
                             </div>
-                            <p className="text-xs text-gray-500">
-                              {comp.trend && `추세: ${comp.trend}`}
-                              {comp.strength && ` / 강도: ${comp.strength}`}
-                              {comp.days !== undefined && ` / ${comp.days}일`}
-                            </p>
+                            <p className="text-xs text-gray-500">{comp.trend && `추세: ${comp.trend}`}</p>
                           </div>
                         ))}
                       </div>
@@ -1113,11 +1072,19 @@
                       <span className="font-bold text-lg">최종 점수</span>
                       <span className="text-3xl font-bold text-indigo-600">{stock.scoreBreakdown.finalScore}점</span>
                     </div>
-                    <div className="text-xs text-gray-600 mt-2 text-right">
-                      = 기본 {stock.scoreBreakdown.baseScore}점
-                      + 변화율 {stock.scoreBreakdown.momentumScore}점
-                      + 추세 {stock.scoreBreakdown.trendScore}점
-                    </div>
+                    {(() => {
+                      const adj = stock.scoreBreakdown.signalAdjustments || {};
+                      const signalTotal = (adj.escapeVelocityBonus || 0) + (adj.upperShadowPenalty || 0) + (adj.sellWhalePenalty || 0);
+                      return (
+                        <div className="text-xs text-gray-600 mt-2 text-right">
+                          = Base {stock.scoreBreakdown.baseScore}
+                          + Whale {stock.radarScore?.whaleBonus ?? '?'}
+                          + Momentum {stock.scoreBreakdown.momentumScore}
+                          + Trend {stock.scoreBreakdown.trendScore}
+                          {signalTotal !== 0 && ` + Signal ${signalTotal > 0 ? '+' : ''}${signalTotal}`}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               )}
