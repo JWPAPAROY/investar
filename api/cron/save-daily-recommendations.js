@@ -334,12 +334,12 @@ function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
   // v3.38: 스윗스팟 우선순위 TOP3 (50-69점 승률 72%, 70-79점 승률 47%)
-  // v3.39: 당일 급등/극단 과열 종목 제외 (이격도 140+, 등락률 ±20%)
+  // v3.39: 당일 급등/극단 과열 종목 제외 (이격도 150+, 등락률 ±25%)
   const eligible = stocks.filter(s =>
     s.whale_detected &&
     s.recommendation_grade !== '과열' &&
-    Math.abs(s.change_rate || 0) < 20 &&
-    (s.disparity || 100) < 140
+    Math.abs(s.change_rate || 0) < 25 &&
+    (s.disparity || 100) < 150
   );
   const top3 = [];
 
@@ -387,13 +387,13 @@ function selectSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
   // v3.38: 스윗스팟 우선순위 TOP3 (save용 camelCase)
-  // v3.39: 당일 급등/극단 과열 종목 제외
+  // v3.39: 당일 급등/극단 과열 종목 제외 (이격도 150+, 등락률 ±25%)
   const eligible = stocks.filter(s => {
     const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
     const isOverheated = s.recommendation?.grade === '과열';
     const disparity = s.overheatingV2?.disparity || 100;
     const changeRate = Math.abs(s.changeRate || 0);
-    return hasBuyWhale && !isOverheated && changeRate < 20 && disparity < 140;
+    return hasBuyWhale && !isOverheated && changeRate < 25 && disparity < 150;
   });
   const top3 = [];
 
