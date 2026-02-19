@@ -3428,37 +3428,21 @@
       const [autoRecommendations, setAutoRecommendations] = useState([]);
       const [fetchLoading, setFetchLoading] = useState(false);
 
-      // Auto-fetch recommendations if not provided
-      useEffect(() => {
-        const fetchRecommendations = async () => {
-          console.log('[DNA Tab] Checking recommendations:', recommendations.length);
-          if (recommendations.length === 0) {
-            console.log('[DNA Tab] Fetching screening data...');
-            setFetchLoading(true);
-            try {
-              const url = `${apiBaseUrl}/screening/recommend?market=ALL&limit=50`;
-              console.log('[DNA Tab] Fetching from:', url);
-              const response = await fetch(url);
-              console.log('[DNA Tab] Response status:', response.status);
-              const data = await response.json();
-              console.log('[DNA Tab] Data received:', data);
-              if (data.success && data.recommendations) {
-                setAutoRecommendations(data.recommendations);
-                console.log('[DNA Tab] Set recommendations:', data.recommendations.length);
-              } else {
-                console.error('[DNA Tab] No success or recommendations in response');
-              }
-            } catch (err) {
-              console.error('[DNA Tab] Failed to fetch recommendations:', err);
-            } finally {
-              setFetchLoading(false);
-            }
-          } else {
-            console.log('[DNA Tab] Using provided recommendations');
+      // 과열 종목 수동 조회
+      const fetchOverheatedStocks = async () => {
+        setFetchLoading(true);
+        try {
+          const response = await fetch(`${apiBaseUrl}/screening/recommend?market=ALL&limit=50`);
+          const data = await response.json();
+          if (data.success && data.recommendations) {
+            setAutoRecommendations(data.recommendations);
           }
-        };
-        fetchRecommendations();
-      }, [apiBaseUrl, recommendations.length])
+        } catch (err) {
+          console.error('[DNA Tab] Failed to fetch recommendations:', err);
+        } finally {
+          setFetchLoading(false);
+        }
+      };
 
       // 종목 추가
       const addStock = () => {
@@ -3574,6 +3558,20 @@
             const warningStocks = allRecs
               .filter(stock => stock.recommendation?.grade === '과열')
               .sort((a, b) => b.totalScore - a.totalScore);
+
+            if (allRecs.length === 0 && !fetchLoading) {
+              return (
+                <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6 mb-6 text-center">
+                  <button
+                    onClick={fetchOverheatedStocks}
+                    className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold transition-all shadow-md hover:shadow-lg"
+                  >
+                    ⚠️ 과열 종목 조회
+                  </button>
+                  <p className="text-gray-500 text-sm mt-2">스크리닝 데이터를 조회하여 과열 종목을 표시합니다</p>
+                </div>
+              );
+            }
 
             if (fetchLoading) {
               return (
