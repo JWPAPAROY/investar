@@ -643,6 +643,10 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
           msg += ` ${dateStr} ${d.close ? d.close.toLocaleString() : '?'}원${chg ? '(' + chg + ')' : ''}`;
         });
         msg += '\n';
+      } else if (stock.changeRate != null) {
+        // cached 경로: trendAnalysis 없을 때 당일 등락률 표시
+        const chg = stock.changeRate >= 0 ? `+${stock.changeRate.toFixed(1)}%` : `${stock.changeRate.toFixed(1)}%`;
+        msg += `   📈 당일 등락: ${chg}\n`;
       }
       msg += `\n`;
     });
@@ -1466,14 +1470,29 @@ module.exports = async (req, res) => {
         };
       } catch (e) { }
 
-      // 메시지 생성 (nextTop3 = 기존 top3)
+      // 메시지 생성 (nextTop3 = 기존 top3, DB 필드로 구성)
       const nextTop3 = top3ForAlert.map(s => ({
         stockCode: s.stock_code,
         stockName: s.stock_name,
         market: s.market,
         totalScore: s.total_score,
         currentPrice: s.recommended_price,
-        recommendation: { grade: s.recommendation_grade }
+        recommendation: { grade: s.recommendation_grade },
+        changeRate: s.change_rate,
+        // 점수 내역 (DB 필드 기반)
+        radarScore: {
+          baseScore: s.base_score || 0,
+          whaleBonus: s.whale_bonus || 0,
+          momentumScore: { totalScore: s.momentum_score || 0 },
+          trendScore: { totalScore: s.trend_score || 0 }
+        },
+        scoreBreakdown: {
+          signalAdjustments: {
+            escapeVelocityBonus: s.escape_velocity ? 5 : 0,
+            upperShadowPenalty: 0,
+            sellWhalePenalty: s.signal_adjustment ? s.signal_adjustment - (s.escape_velocity ? 5 : 0) : 0
+          }
+        }
       }));
 
       // v3.34: 방어 TOP 3도 cached 경로에서 선별
