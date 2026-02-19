@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.39
-- **최종 업데이트**: 2026-02-19
+- **버전**: 3.40
+- **최종 업데이트**: 2026-02-20
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -536,6 +536,7 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 ### 스크리닝
 ```
 GET /api/screening/recommend?market=ALL&limit=10   # 종합집계 (모멘텀+방어 통합)
+GET /api/screening/analyze?codes=005930,000660      # 종목 분석 (최대 15개, 단일 프로세스 순차 처리)
 ```
 
 ### 성과 추적
@@ -659,6 +660,14 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.40 (2026-02-20)
+- **종목 분석 탭**: 종목코드 입력 → 스크리닝 엔진 분석 결과 표시 (RecommendationCard 재사용)
+- **종목 분석 API 단일 호출 전환**: 종목별 개별 API → `?codes=` 한 번 호출로 전환 (Rate Limiter 공유)
+- **종목명 3단계 fallback**: KIS `hts_kor_isnm` → KIS `CTPF1002R` → Supabase 일괄 사전조회
+- **점수 상세 툴팁**: Base/Momentum/Trend 항목에 (i) 아이콘 + 컬러풀 JSX 툴팁 추가
+- **StockDetailModal 수정**: dailyRisePenalty 객체→숫자 변환, sticky header z-index 수정
+- **결산 cron 15:50→15:40**: 시간외 종가매매(15:40~16:00) 당일 매수 가능하도록 변경
 
 ### v3.39 (2026-02-19)
 - **KRX 휴장일 체크**: `KRX_HOLIDAYS` Set + `isKRXHoliday()` + `isTradingDay()` — 공휴일 cron 스킵, 웹훅은 허용
