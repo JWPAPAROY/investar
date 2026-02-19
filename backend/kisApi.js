@@ -896,6 +896,7 @@ class KISApi {
    * @returns {Promise<string|null>} - 종목명 또는 null
    */
   async getStockName(stockCode) {
+    // 1차: CTPF1002R (상품기본조회)
     try {
       const token = await this.getAccessToken();
 
@@ -926,12 +927,46 @@ class KISApi {
 
         return stockName || null;
       }
-
-      return null;
     } catch (error) {
-      console.warn(`⚠️ 종목명 조회 실패 [${stockCode}]:`, error.message);
-      return null;
+      console.warn(`⚠️ 종목명 CTPF1002R 실패 [${stockCode}]:`, error.message);
     }
+
+    // 2차: FHKST01010300 (주식현재가 체결) - hts_kor_isnm 재시도
+    try {
+      await this.rateLimiter.acquire();
+      const token = await this.getAccessToken();
+
+      const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-ccnl`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'authorization': `Bearer ${token}`,
+          'appkey': this.appKey,
+          'appsecret': this.appSecret,
+          'tr_id': 'FHKST01010300'
+        },
+        params: {
+          FID_COND_MRKT_DIV_CODE: 'J',
+          FID_INPUT_ISCD: stockCode
+        }
+      });
+
+      if (response.data.rt_cd === '0') {
+        // 체결 API: output1(단일 객체)에 hts_kor_isnm 포함
+        const output1 = response.data.output1;
+        const stockName = output1?.hts_kor_isnm;
+        if (stockName && stockName.trim()) {
+          console.log(`✅ 종목명 체결API 조회 [${stockCode}] → ${stockName}`);
+          if (this.stockNameCache) {
+            this.stockNameCache.set(stockCode, stockName);
+          }
+          return stockName;
+        }
+      }
+    } catch (error) {
+      console.warn(`⚠️ 종목명 체결API 실패 [${stockCode}]:`, error.message);
+    }
+
+    return null;
   }
 
   /**
