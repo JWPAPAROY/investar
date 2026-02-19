@@ -893,6 +893,22 @@ function isKRXHoliday(dateStr) {
 }
 
 /**
+ * 거래일 여부 판별 (주말 + KRX 공휴일 제외)
+ */
+function isTradingDay(dateStr) {
+  const day = new Date(dateStr + 'T00:00:00+09:00').getDay();
+  if (day === 0 || day === 6) return false;
+  return !KRX_HOLIDAYS.has(dateStr);
+}
+
+/**
+ * 날짜 배열에서 거래일만 필터링
+ */
+function filterTradingDays(dates) {
+  return dates.filter(d => isTradingDay(d));
+}
+
+/**
  * 어제 날짜 구하기 (KST 기준)
  */
 function getYesterdayDateKST() {
@@ -985,17 +1001,18 @@ module.exports = async (req, res) => {
         .lt('recommendation_date', today)
         .order('recommendation_date', { ascending: false });
 
-      const latestSaveDate = [...new Set((saveDateRows || []).map(r => r.recommendation_date))][0];
+      const allSaveDates = filterTradingDays([...new Set((saveDateRows || []).map(r => r.recommendation_date))]);
+      const latestSaveDate = allSaveDates[0];
 
       if (!latestSaveDate) {
-        console.log('⚠️ 이전 SAVE 데이터 없음');
+        console.log('⚠️ 이전 거래일 SAVE 데이터 없음');
         return res.status(200).json({
           success: false,
           mode: 'alert',
           message: 'No previous save data'
         });
       }
-      console.log(`📅 최근 SAVE 날짜: ${latestSaveDate}`);
+      console.log(`📅 최근 SAVE 날짜 (거래일): ${latestSaveDate}`);
 
       const { data: savedStocks } = await supabase
         .from('screening_recommendations')
@@ -1027,11 +1044,11 @@ module.exports = async (req, res) => {
           .lt('recommendation_date', latestSaveDate)
           .order('recommendation_date', { ascending: false });
 
-        // 중복 날짜 제거 후 최근 3일
-        const uniqueDates = [...new Set((prevDateRows || []).map(r => r.recommendation_date))].slice(0, 3);
+        // 중복 날짜 제거 → 거래일만 필터 → 최근 3일
+        const uniqueDates = filterTradingDays([...new Set((prevDateRows || []).map(r => r.recommendation_date))]).slice(0, 3);
         // ALERT 전달일 매핑: [latestSaveDate, uniqueDates[0], uniqueDates[1]]
         const alertDates = [latestSaveDate, ...uniqueDates.slice(0, -1)];
-        console.log(`📅 이전 추천일(SAVE): ${uniqueDates.join(', ') || '없음'}`);
+        console.log(`📅 이전 추천일(SAVE, 거래일): ${uniqueDates.join(', ') || '없음'}`);
         console.log(`📅 ALERT 전달일: ${alertDates.join(', ') || '없음'}`);
 
         for (let idx = 0; idx < uniqueDates.length; idx++) {
@@ -1151,10 +1168,10 @@ module.exports = async (req, res) => {
         .lt('recommendation_date', today)
         .order('recommendation_date', { ascending: false });
 
-      const saveDates = [...new Set((saveDateRows || []).map(r => r.recommendation_date))].slice(0, 3);
+      const saveDates = filterTradingDays([...new Set((saveDateRows || []).map(r => r.recommendation_date))]).slice(0, 3);
 
       if (saveDates.length === 0) {
-        console.log('⚠️ 추적할 추천 데이터 없음');
+        console.log('⚠️ 추적할 거래일 추천 데이터 없음');
         return res.status(200).json({ success: false, mode: 'track', message: 'No data to track' });
       }
 
@@ -1359,10 +1376,10 @@ module.exports = async (req, res) => {
           .lt('recommendation_date', today)
           .order('recommendation_date', { ascending: false });
 
-        const prevSaveDate = [...new Set((prevSaveDateRows || []).map(r => r.recommendation_date))][0];
+        const prevSaveDate = filterTradingDays([...new Set((prevSaveDateRows || []).map(r => r.recommendation_date))])[0];
 
         if (prevSaveDate) {
-          console.log(`📅 D-1 추천일: ${prevSaveDate}`);
+          console.log(`📅 D-1 추천일 (거래일): ${prevSaveDate}`);
           const { data: prevStocks } = await supabase
             .from('screening_recommendations')
             .select('*')
@@ -1702,10 +1719,10 @@ module.exports = async (req, res) => {
           .lt('recommendation_date', today)
           .order('recommendation_date', { ascending: false });
 
-        const latestSaveDate = [...new Set((prevSaveDateRows || []).map(r => r.recommendation_date))][0];
+        const latestSaveDate = filterTradingDays([...new Set((prevSaveDateRows || []).map(r => r.recommendation_date))])[0];
 
         if (!latestSaveDate) {
-          console.log('⚠️ 이전 SAVE 데이터 없음 - 성과 분석 건너뜀');
+          console.log('⚠️ 이전 거래일 SAVE 데이터 없음 - 성과 분석 건너뜀');
         }
 
         const { data: yestStocks } = latestSaveDate ? await supabase
