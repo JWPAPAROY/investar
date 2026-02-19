@@ -22,22 +22,21 @@ module.exports = async function handler(req, res) {
   try {
     console.log(`🔍 단일 종목 분석: ${code}`);
 
-    // KIS API 개별 호출로 원인 파악
-    const kisApi = require('../../backend/kisApi');
-    const currentData = await kisApi.getCurrentPrice(code);
-    if (!currentData) {
-      return res.status(404).json({
-        success: false,
-        error: `종목 ${code}: KIS API에서 현재가를 조회할 수 없습니다. 종목코드를 확인해주세요.`
-      });
-    }
+    // analyzeStock() 내부에서 getCurrentPrice + getDailyChart + getInvestorData 호출
+    // 중복 호출 방지를 위해 여기서 getCurrentPrice를 별도로 호출하지 않음
+    let result = await screener.analyzeStock(code);
 
-    const result = await screener.analyzeStock(code);
+    // 실패 시 1회 재시도 (KIS API 간헐적 응답 실패 대응)
+    if (!result) {
+      console.log(`⚠️ [${code}] 1차 분석 실패, 500ms 후 재시도...`);
+      await new Promise(r => setTimeout(r, 500));
+      result = await screener.analyzeStock(code);
+    }
 
     if (!result) {
       return res.status(404).json({
         success: false,
-        error: `종목 ${code}: 분석에 실패했습니다 (차트 데이터 부족 등).`
+        error: `종목 ${code}: 분석에 실패했습니다. KIS API 응답 오류 또는 차트 데이터 부족일 수 있습니다. 잠시 후 다시 시도해주세요.`
       });
     }
 
