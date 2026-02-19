@@ -20,10 +20,24 @@ module.exports = async function handler(req, res) {
 
   try {
     console.log(`🔍 단일 종목 분석: ${code}`);
+
+    // KIS API 개별 호출로 원인 파악
+    const kisApi = require('../../backend/kisApi');
+    const currentData = await kisApi.getCurrentPrice(code);
+    if (!currentData) {
+      return res.status(404).json({
+        success: false,
+        error: `종목 ${code}: KIS API에서 현재가를 조회할 수 없습니다. 종목코드를 확인해주세요.`
+      });
+    }
+
     const result = await screener.analyzeStock(code);
 
     if (!result) {
-      return res.status(404).json({ success: false, error: `종목 ${code}을 찾을 수 없거나 분석에 실패했습니다.` });
+      return res.status(404).json({
+        success: false,
+        error: `종목 ${code}: 분석에 실패했습니다 (차트 데이터 부족 등).`
+      });
     }
 
     return res.status(200).json({
