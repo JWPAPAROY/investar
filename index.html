@@ -130,13 +130,11 @@
 
       // 추천 종목을 Supabase에 저장 (성과 추적용)
       // ⚠️ v3.10.3부터 프론트엔드 자동 저장 제거 - Cron만 저장
-      // 실제 저장 기준: 50-89점 (save-daily-recommendations.js, v3.17에서 50-90으로 확장)
+      // 실제 저장 기준: 50점+ (save-daily-recommendations.js, v3.35에서 상한 제거)
       const saveRecommendationsToSupabase = async (stocks) => {
         try {
-          // v3.17: 저장 범위 확장 (S등급 75-89점 포함)
-          // - 50-89점: B~S등급 성과 추적
-          // - 45-49점: 승률 21.62%, 평균 -5.13% (제외)
-          const stocksToSave = stocks.filter(s => s.totalScore >= 50 && s.totalScore < 90);
+          // v3.35: 50점+ 전체 저장 (상한 제거)
+          const stocksToSave = stocks.filter(s => s.totalScore >= 50);
 
           if (stocksToSave.length === 0) {
             console.log('저장할 추천 종목 없음 (50점 이상 범위 없음)');
@@ -243,18 +241,19 @@
             return;
           }
 
-          // 등급별 통계 계산
+          // 등급별 통계 계산 (stock_code 기준 최신 추천만 — 중복 제거)
           const byGrade = {};
-          perfData.stocks.forEach(stock => {
+          const gradeSeenCodes = {};
+          // 최신순 정렬 후 stock_code 기준 dedup
+          const sortedByDate = [...perfData.stocks].sort((a, b) => new Date(b.recommendation_date) - new Date(a.recommendation_date));
+          sortedByDate.forEach(stock => {
             const grade = stock.recommendation_grade;
             if (!byGrade[grade]) {
-              byGrade[grade] = {
-                count: 0,
-                winCount: 0,
-                returns: [],
-                maxReturn: 0
-              };
+              byGrade[grade] = { count: 0, winCount: 0, returns: [], maxReturn: 0 };
+              gradeSeenCodes[grade] = new Set();
             }
+            if (gradeSeenCodes[grade].has(stock.stock_code)) return;
+            gradeSeenCodes[grade].add(stock.stock_code);
             byGrade[grade].count++;
             if (stock.is_winning) byGrade[grade].winCount++;
             byGrade[grade].returns.push(stock.current_return);
@@ -263,13 +262,18 @@
             }
           });
 
-          // 등급별 평균 계산
+          // 등급별 평균 계산 (기하평균 — 백엔드와 동일)
+          const calcGeoMean = (returns) => {
+            if (!returns || returns.length === 0) return 0;
+            const product = returns.reduce((acc, r) => acc * (1 + r / 100), 1);
+            return (Math.pow(product, 1 / returns.length) - 1) * 100;
+          };
           const gradeStats = {};
           Object.entries(byGrade).forEach(([grade, data]) => {
             gradeStats[grade] = {
               count: data.count,
               winRate: ((data.winCount / data.count) * 100).toFixed(1),
-              avgReturn: (data.returns.reduce((a, b) => a + b, 0) / data.count).toFixed(2),
+              avgReturn: calcGeoMean(data.returns).toFixed(2),
               maxReturn: data.maxReturn.toFixed(2)
             };
           });
@@ -557,7 +561,7 @@
                               </div>
                               <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                                 <p className="text-sm text-gray-700">
-                                  <strong className="text-orange-700">💡 선정 기준:</strong> 고래 감지 종목 우선. 1순위: 50-89점, 2순위: 70점+, 3순위: 40점+.
+                                  <strong className="text-orange-700">💡 선정 기준:</strong> 고래 감지 종목 우선. 1순위: 50-69점(스윗스팟), 2순위: 80-89점, 3순위: 90점+, 4순위: 70-79점.
                                 </p>
                               </div>
                             </>
@@ -2260,9 +2264,9 @@
           {perfStrategy === 'momentum' && <div className="bg-white rounded-xl shadow-lg p-6">
             <h3 className="text-2xl font-bold mb-4">📊 등급별 성과</h3>
 
-            {/* 등급 기준 설명 (v3.26 Radar Scoring System) */}
+            {/* 등급 기준 설명 */}
             <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg">
-              <h4 className="font-bold text-blue-900 mb-3">🎯 등급 부여 기준 (v3.26 Radar Scoring System)</h4>
+              <h4 className="font-bold text-blue-900 mb-3">🎯 등급 부여 기준 (Radar Scoring System)</h4>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
                 <div className="bg-white p-3 rounded border-l-4 border-red-600">
                   <div className="font-bold text-red-700 mb-1">⚠️과열</div>
@@ -2287,7 +2291,7 @@
                 <div className="bg-white p-3 rounded border-l-4 border-yellow-500">
                   <div className="font-bold text-yellow-700 mb-1">🟡 B 등급: 45-59점</div>
                   <div className="text-gray-700">매수 고려 (선행 패턴 감지, 진입 검토)</div>
-                  <div className="text-xs text-gray-500 mt-1">선행 신호</div>
+                  <div className="text-xs text-gray-500 mt-1">성과 추적 저장: 50점+</div>
                 </div>
                 <div className="bg-white p-3 rounded border-l-4 border-orange-400">
                   <div className="font-bold text-orange-700 mb-1">🟠 C 등급: 30-44점</div>
@@ -2301,7 +2305,7 @@
                 </div>
               </div>
               <div className="mt-3 p-3 bg-blue-100 rounded text-xs text-blue-900">
-                <strong>💡 Radar Scoring (v3.26):</strong><br />
+                <strong>💡 Radar Scoring:</strong><br />
                 • <strong>Base(0-25):</strong> 거래량 비율, VPD raw, 시총 보정, 되돌림 페널티, 연속상승 보너스<br />
                 • <strong>Whale(0/15/30):</strong> 확인된 고래 +30, 미확인 고래 +15 (v3.25)<br />
                 • <strong>Momentum(0-30):</strong> 거래량 가속도, 연속상승, 기관 진입<br />
