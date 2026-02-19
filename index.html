@@ -1024,14 +1024,15 @@
                       <h4 className="font-bold text-blue-700 mb-2 text-sm">Base 상세</h4>
                       <div className="space-y-2">
                         {Object.entries(stock.scoreBreakdown.baseComponents).map(([key, comp]) => (
-                          <div key={key} className="bg-white p-3 rounded-lg border border-gray-200">
-                            <div className="flex justify-between items-center">
-                              <span className="text-sm font-semibold text-gray-800">{comp.name}</span>
-                              <span className={`font-bold ${comp.score > 0 ? 'text-blue-700' : comp.score < 0 ? 'text-red-600' : 'text-gray-400'}`}>
-                                {comp.score > 0 ? '+' : ''}{comp.score}점
-                              </span>
-                            </div>
-                          </div>
+                          <ScoreItem key={key} name={comp.name} score={comp.score} color="blue"
+                            showSign={true}
+                            tooltip={({
+                              volumeRatio: '당일 거래량 / 20일 평균 거래량\n1.0-2.0x: 8점 (황금구간)\n2.0-3.0x: 5점\n3.0-5.0x: 2점\n5.0x+ 또는 <1.0x: 0점',
+                              vpd: 'Volume-Price Divergence\n거래량은 폭발했는데 가격이 아직 안 오른 정도\ndivergence = volumeRatio - priceRatio\n3.0+: 7점 / 2.0+: 5점 / 1.0+: 4점\n0.5+: 2점 / 0+: 1점 / 0이하: 0점',
+                              marketCap: '시가총액 기준 보정\n1조+: +7 / 5천억+: +5 / 3천억+: +2\n1천~3천억: -2 / 1천억 미만: -5',
+                              drawdown: '최근 30일 고가 대비 현재가 하락폭\n20%+: -3 / 15%+: -2 / 10%+: -1 / <10%: 0',
+                              consecutiveRise: '최근 5일 중 연속 상승(종가 기준) 일수\n4일+: +5 / 3일+: +3 / 2일+: +1 / <2일: 0'
+                            })[key]} />
                         ))}
                       </div>
                     </div>
@@ -1046,13 +1047,13 @@
                       </h4>
                       <div className="space-y-2">
                         {Object.entries(stock.scoreBreakdown.momentumComponents).map(([key, comp]) => (
-                          <div key={key} className="bg-white p-3 rounded-lg border border-gray-200">
-                            <div className="flex justify-between items-center mb-1">
-                              <span className="text-sm font-semibold text-gray-800">{comp.name}</span>
-                              <span className="font-bold text-green-700">{comp.score}점</span>
-                            </div>
-                            <p className="text-xs text-gray-600">{comp.details}</p>
-                          </div>
+                          <ScoreItem key={key} name={comp.name} score={comp.score} color="green"
+                            detail={comp.details}
+                            tooltip={({
+                              volumeAcceleration: '30일 데이터를 4구간으로 나눠 점진적 거래량 증가 감지\nRecent/Mid/Old/Oldest 구간별 평균 비교\n3구간 연속 증가: 15점 (strong)\n2구간 연속: 11점 / 최근만: 7점\n완만한 증가: 4점 / 변화없음: 0점',
+                              consecutiveRise: '최근 5일 중 연속 상승일 수\n4일+: 10점 / 3일+: 7점\n2일+: 4점 / <2일: 0점',
+                              institutionalEntry: 'D-5 vs D-0 기관 순매수 일수 비교\n0일→3일+: +5 (신규진입)\n0일→1일+: +3 (진입시작)\n가속중: +4 / 증가: +2\n감소: -2'
+                            })[key]} />
                         ))}
                         {(() => {
                           const drp = stock.momentumScore?.dailyRisePenalty;
@@ -1060,13 +1061,10 @@
                           const closeChg = typeof drp === 'object' ? drp?.closeChange : stock.changeRate;
                           if (penalty == null || penalty === 0) return null;
                           return (
-                            <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                              <div className="flex justify-between items-center">
-                                <span className="text-sm font-semibold text-red-800">당일 급등 페널티</span>
-                                <span className="font-bold text-red-700">{penalty}점</span>
-                              </div>
-                              <p className="text-xs text-red-600">등락률 {closeChg >= 0 ? '+' : ''}{closeChg?.toFixed?.(1) || closeChg}%</p>
-                            </div>
+                            <ScoreItem name="당일 급등 페널티" score={penalty} color="red"
+                              detail={`등락률 ${closeChg >= 0 ? '+' : ''}${closeChg?.toFixed?.(1) || closeChg}%`}
+                              bgClass="bg-red-50 border-red-200"
+                              tooltip={'이미 급등한 종목 감점\n고가 15%+: -30점 (상한가급)\n종가 10%+: -15점\n종가 -10% 이하: -15점 (급락)'} />
                           );
                         })()}
                       </div>
@@ -1079,13 +1077,9 @@
                       <h4 className="font-bold text-orange-700 mb-2 text-sm">Trend 상세 (30일)</h4>
                       <div className="space-y-2">
                         {Object.entries(stock.scoreBreakdown.trendComponents).map(([key, comp]) => (
-                          <div key={key} className="bg-white p-3 rounded-lg border border-gray-200">
-                            <div className="flex justify-between items-center mb-1">
-                              <span className="text-sm font-semibold text-gray-800">{comp.name}</span>
-                              <span className="font-bold text-orange-700">{comp.score}점</span>
-                            </div>
-                            <p className="text-xs text-gray-500">{comp.trend && `추세: ${comp.trend}`}</p>
-                          </div>
+                          <ScoreItem key={key} name={comp.name} score={comp.score} color="orange"
+                            detail={comp.trend && `추세: ${comp.trend}`}
+                            tooltip={'30일 장기 추세에서 점진적 거래량 증가 패턴 감지\nMomentum 거래량 가속도와 동일 로직\n최대 15점 cap'} />
                         ))}
                       </div>
                     </div>
@@ -1530,6 +1524,44 @@
       );
     }
 
+
+    // 점수 상세 항목 컴포넌트 (툴팁 포함)
+    function ScoreItem({ name, score, color, detail, tooltip, showSign, bgClass }) {
+      const [showTip, setShowTip] = useState(false);
+      const colorMap = {
+        blue: { text: 'text-blue-700', negText: 'text-red-600' },
+        green: { text: 'text-green-700' },
+        orange: { text: 'text-orange-700' },
+        red: { text: 'text-red-700' }
+      };
+      const c = colorMap[color] || colorMap.blue;
+      const scoreColor = (showSign && score < 0) ? (c.negText || 'text-red-600') : (score === 0 ? 'text-gray-400' : c.text);
+      const prefix = showSign && score > 0 ? '+' : '';
+
+      return (
+        <div className={`p-3 rounded-lg border relative ${bgClass || 'bg-white border-gray-200'}`}>
+          <div className="flex justify-between items-center mb-1">
+            <span className="text-sm font-semibold text-gray-800">
+              {name}
+              {tooltip && (
+                <span
+                  className="ml-1 text-blue-400 cursor-help text-xs"
+                  onMouseEnter={() => setShowTip(true)}
+                  onMouseLeave={() => setShowTip(false)}
+                >ⓘ</span>
+              )}
+            </span>
+            <span className={`font-bold ${scoreColor}`}>{prefix}{score}점</span>
+          </div>
+          {detail && <p className={`text-xs ${color === 'red' ? 'text-red-600' : 'text-gray-600'}`}>{detail}</p>}
+          {tooltip && showTip && (
+            <div className="absolute z-50 bg-gray-800 text-white text-xs rounded-lg p-3 shadow-xl w-72 left-0 bottom-full mb-2 whitespace-pre-line">
+              {tooltip}
+            </div>
+          )}
+        </div>
+      );
+    }
 
     // 성과 검증 컴포넌트 (v3.10.4: 캐싱 지원)
     function PerformanceVerification({ apiBaseUrl, trackerData, loading, error, fetchPerformanceData, patternAnalysis, patternLoading }) {
