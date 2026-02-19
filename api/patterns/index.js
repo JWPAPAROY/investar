@@ -308,15 +308,14 @@ async function getPatternAnalysis(req, res) {
     // 거래량 기준 지표 분석
     // ========================================
     volumeIndicators: {
-      volumeRatio: {
-        ...calcStats(patterns.map(p => p.volume_ratio)),
-        distribution: calcDistribution(patterns.map(p => p.volume_ratio), 0.5),
-        insight: null // 아래에서 생성
-      },
-      asymmetricRatio: {
-        ...calcStats(patterns.map(p => p.asymmetric_ratio)),
-        distribution: calcDistribution(patterns.map(p => p.asymmetric_ratio), 0.3)
-      },
+      volumeRatio: (() => {
+        const stats = calcStats(patterns.map(p => p.volume_ratio));
+        return stats ? { ...stats, distribution: calcDistribution(patterns.map(p => p.volume_ratio), 0.5), insight: null } : null;
+      })(),
+      asymmetricRatio: (() => {
+        const stats = calcStats(patterns.map(p => p.asymmetric_ratio));
+        return stats ? { ...stats, distribution: calcDistribution(patterns.map(p => p.asymmetric_ratio), 0.3) } : null;
+      })(),
       volume5dChange: calcStats(patterns.map(p => p.volume_5d_change_rate)),
       volumeAcceleration: {
         distribution: {
@@ -337,18 +336,18 @@ async function getPatternAnalysis(req, res) {
     // 시세 기준 지표 분석
     // ========================================
     priceIndicators: {
-      rsi: {
-        ...calcStats(patterns.map(p => p.rsi)),
-        distribution: calcDistribution(patterns.map(p => p.rsi), 10)
-      },
-      mfi: {
-        ...calcStats(patterns.map(p => p.mfi)),
-        distribution: calcDistribution(patterns.map(p => p.mfi), 10)
-      },
-      disparity: {
-        ...calcStats(patterns.map(p => p.disparity)),
-        distribution: calcDistribution(patterns.map(p => p.disparity), 5)
-      },
+      rsi: (() => {
+        const stats = calcStats(patterns.map(p => p.rsi));
+        return stats ? { ...stats, distribution: calcDistribution(patterns.map(p => p.rsi), 10) } : null;
+      })(),
+      mfi: (() => {
+        const stats = calcStats(patterns.map(p => p.mfi));
+        return stats ? { ...stats, distribution: calcDistribution(patterns.map(p => p.mfi), 10) } : null;
+      })(),
+      disparity: (() => {
+        const stats = calcStats(patterns.map(p => p.disparity));
+        return stats ? { ...stats, distribution: calcDistribution(patterns.map(p => p.disparity), 5) } : null;
+      })(),
       vwapDivergence: calcStats(patterns.map(p => p.vwap_divergence)),
       dailyChange: calcStats(patterns.map(p => p.daily_change_rate)),
       escapeVelocity: {
