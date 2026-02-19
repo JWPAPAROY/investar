@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.37
-- **최종 업데이트**: 2026-02-12
+- **버전**: 3.39
+- **최종 업데이트**: 2026-02-19
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -646,6 +646,15 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.39 (2026-02-19)
+- **KRX 휴장일 체크**: `KRX_HOLIDAYS` Set + `isKRXHoliday()` + `isTradingDay()` — 공휴일 cron 스킵, 웹훅은 허용
+- **거래일 기준 필터링**: `filterTradingDays()` — 텔레그램 D-1/D-2/D-3 날짜를 영업일 기준으로 조회
+- **TOP3 급등 과열 필터**: `|change_rate| < 25` AND `disparity < 150` 자격 조건 추가
+- **점수 상세 분석 UI**: 5-컬럼 구성(Base+Whale+Momentum+Trend+Signal), Base/Whale 서브 컴포넌트 표시
+- **Base 서브 컴포넌트**: `_baseDetail` — 거래량비율(0-8), VPD(0-7), 시총(-5~+7), 되돌림(-3~0), 연속상승(0-5)
+- **signal_adjustment DB 컬럼 추가**: 시그널 가감 점수 Supabase 저장
+- **텔레그램 cached 경로 보강**: nextTop3에 changeRate/radarScore/scoreBreakdown 추가, 최근주가 fallback
 
 ### v3.38 (2026-02-12)
 - **TOP3 스윗스팟 우선순위**: 50-69 → 80-89 → 90+ → 70-79 (최후 보충)
