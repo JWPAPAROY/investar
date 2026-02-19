@@ -1470,6 +1470,28 @@ module.exports = async (req, res) => {
         };
       } catch (e) { }
 
+      // TOP3 종목의 최근 주가 데이터 조회 (KIS 차트 API, 3건)
+      const top3DailyPrices = {};
+      try {
+        for (const s of top3ForAlert) {
+          await new Promise(r => setTimeout(r, 200)); // Rate limit
+          const chartData = await kisApi.getDailyChart(s.stock_code, 5);
+          if (chartData && chartData.length >= 2) {
+            top3DailyPrices[s.stock_code] = chartData.slice(0, 3).map((d, i) => {
+              const prev = chartData[i + 1];
+              const priceChange = prev ? ((d.close - prev.close) / prev.close * 100) : 0;
+              return {
+                date: d.date,
+                close: d.close,
+                priceChange: parseFloat(priceChange.toFixed(1))
+              };
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('⚠️ TOP3 최근주가 조회 실패:', e.message);
+      }
+
       // 메시지 생성 (nextTop3 = 기존 top3, DB 필드로 구성)
       const nextTop3 = top3ForAlert.map(s => ({
         stockCode: s.stock_code,
@@ -1479,6 +1501,9 @@ module.exports = async (req, res) => {
         currentPrice: s.recommended_price,
         recommendation: { grade: s.recommendation_grade },
         changeRate: s.change_rate,
+        trendAnalysis: {
+          dailyData: top3DailyPrices[s.stock_code] || []
+        },
         // 점수 내역 (DB 필드 기반)
         radarScore: {
           baseScore: s.base_score || 0,
