@@ -855,6 +855,44 @@ function getTodayDateKST() {
 }
 
 /**
+ * KRX 휴장일 목록 (2025-2026)
+ * 주말은 vercel.json cron에서 이미 제외 (1-5), 여기서는 공휴일만 관리
+ * 매년 초 KRX 휴장일 공지 확인 후 업데이트 필요
+ */
+const KRX_HOLIDAYS = new Set([
+  // 2025
+  '2025-01-01', // 신정
+  '2025-01-28', '2025-01-29', '2025-01-30', // 설 연휴
+  '2025-03-01', // 삼일절
+  '2025-03-03', // 삼일절 대체휴일
+  '2025-05-01', // 근로자의 날
+  '2025-05-05', // 어린이날
+  '2025-05-06', // 부처님오신날
+  '2025-06-06', // 현충일
+  '2025-08-15', // 광복절
+  '2025-10-03', // 개천절
+  '2025-10-06', '2025-10-07', '2025-10-08', // 추석 연휴
+  '2025-10-09', // 한글날
+  '2025-12-25', // 크리스마스
+  // 2026
+  '2026-01-01', // 신정
+  '2026-02-16', '2026-02-17', '2026-02-18', // 설 연휴
+  '2026-03-02', // 삼일절 대체휴일
+  '2026-05-01', // 근로자의 날
+  '2026-05-05', // 어린이날
+  '2026-05-25', // 부처님오신날
+  '2026-08-17', // 광복절 대체휴일
+  '2026-09-24', '2026-09-25', // 추석 연휴
+  '2026-10-05', // 개천절 대체휴일
+  '2026-10-09', // 한글날
+  '2026-12-25', // 크리스마스
+]);
+
+function isKRXHoliday(dateStr) {
+  return KRX_HOLIDAYS.has(dateStr);
+}
+
+/**
  * 어제 날짜 구하기 (KST 기준)
  */
 function getYesterdayDateKST() {
@@ -904,6 +942,17 @@ module.exports = async (req, res) => {
       await sendTelegramMessage(helpMsg);
       return res.status(200).json({ ok: true });
     }
+  }
+
+  // KRX 휴장일 체크 (cron 자동 실행만 차단, 웹훅 수동 명령은 허용)
+  const todayKST = getTodayDateKST();
+  if (!req._fromWebhook && isKRXHoliday(todayKST)) {
+    console.log(`🏖️ 오늘(${todayKST})은 KRX 휴장일 — cron 건너뜀`);
+    return res.status(200).json({
+      success: true,
+      message: `KRX holiday (${todayKST}) — skipped`,
+      holiday: true
+    });
   }
 
   console.log(`📊 Cron 실행 (mode: ${mode})\n`);
