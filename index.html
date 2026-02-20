@@ -800,7 +800,7 @@
                 <p className="text-gray-600 text-xs">거래량 비율 ⓘ</p>
                 <p className="font-bold text-blue-700">{volumeRatio ? `${volumeRatio}x` : 'N/A'}</p>
                 {/* 툴팁 - 왼쪽 정렬 */}
-                <div className="absolute bottom-full left-0 mb-2 w-72 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
+                <div className="absolute bottom-full left-0 mb-2 w-72 max-w-[calc(100vw-3rem)] px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
                   <div className="font-bold mb-1">📊 거래량 비율 (일봉 20일 기준)</div>
                   <div className="space-y-1">
                     <div className="text-yellow-300 font-semibold">"당일 거래량 ÷ 최근 20일 이동평균"</div>
@@ -826,7 +826,7 @@
                   {stock.volumeAnalysis.indicators.mfi?.toFixed(1) || 'N/A'}
                 </p>
                 {/* 툴팁 - 중앙 정렬 */}
-                <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 w-72 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
+                <div className="absolute bottom-full left-0 md:left-1/2 md:transform md:-translate-x-1/2 mb-2 w-72 max-w-[calc(100vw-3rem)] px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
                   <div className="font-bold mb-1">💰 MFI (일봉 14일 기준)</div>
                   <div className="space-y-1">
                     <div className="text-yellow-300 font-semibold">"Money Flow Index (자금흐름지수)"</div>
@@ -855,7 +855,7 @@
                   {stock.advancedAnalysis.indicators.asymmetric.ratio || 'N/A'}
                 </p>
                 {/* 툴팁 - 오른쪽 정렬 */}
-                <div className="absolute bottom-full right-0 mb-2 w-72 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
+                <div className="absolute bottom-full right-0 mb-2 w-72 max-w-[calc(100vw-3rem)] px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
                   <div className="font-bold mb-1">📊 비대칭 비율 (일봉 20일 기준)</div>
                   <div className="space-y-1">
                     <div className="text-yellow-300 font-semibold">"상승일 vs 하락일 거래량 비교"</div>
@@ -885,10 +885,10 @@
     // 로딩 화면
     function LoadingScreen() {
       return (
-        <div className="text-center py-20">
-          <div className="inline-block animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
-          <h3 className="text-2xl font-bold text-gray-800 mb-2">AI가 종목을 분석하고 있습니다...</h3>
-          <p className="text-gray-600">전체 종목 스크리닝 중 (수 분 소요)</p>
+        <div className="text-center py-12 md:py-20">
+          <div className="inline-block animate-spin rounded-full h-12 w-12 md:h-16 md:w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
+          <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">AI가 종목을 분석하고 있습니다...</h3>
+          <p className="text-sm md:text-base text-gray-600">전체 종목 스크리닝 중 (수 분 소요)</p>
         </div>
       );
     }
@@ -896,16 +896,16 @@
     // 빈 상태 화면
     function EmptyState() {
       return (
-        <div className="text-center py-20">
-          <div className="text-6xl mb-4">🚀</div>
-          <h3 className="text-2xl font-bold text-gray-800 mb-2">
+        <div className="text-center py-12 md:py-20">
+          <div className="text-5xl md:text-6xl mb-3">🚀</div>
+          <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">
             종목 스크리닝을 시작하세요
           </h3>
-          <p className="text-gray-600 mb-6">
+          <p className="text-sm md:text-base text-gray-600 mb-4 md:mb-6">
             상단의 <span className="font-semibold text-indigo-600">🔄 새로고침</span> 버튼을 눌러 종목 분석을 시작하세요
           </p>
-          <div className="bg-blue-50 border-l-4 border-blue-500 p-4 max-w-md mx-auto rounded">
-            <p className="text-sm text-blue-800">
+          <div className="bg-blue-50 border-l-4 border-blue-500 p-3 md:p-4 max-w-md mx-auto rounded">
+            <p className="text-xs md:text-sm text-blue-800">
               💡 <strong>팁:</strong> 패턴 분석은 상단의 <strong>패턴 분석</strong> 탭에서 실행할 수 있습니다.
             </p>
           </div>
@@ -975,34 +975,34 @@
                   <p className="text-sm text-gray-600 mb-4">{stock.scoreBreakdown.formula}</p>
 
                   {/* 전체 점수 구성 - 5칸 */}
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-                    <div className="bg-white p-3 rounded-lg border border-blue-200">
-                      <p className="text-gray-600 text-xs mb-1">Base (0-25)</p>
-                      <p className="text-2xl font-bold text-blue-600">{stock.scoreBreakdown.baseScore}</p>
+                  <div className="grid grid-cols-3 md:grid-cols-5 gap-2 md:gap-3 mb-4">
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-blue-200">
+                      <p className="text-gray-600 text-[10px] md:text-xs mb-1">Base (0-25)</p>
+                      <p className="text-lg md:text-2xl font-bold text-blue-600">{stock.scoreBreakdown.baseScore}</p>
                     </div>
-                    <div className="bg-white p-3 rounded-lg border border-purple-200">
-                      <p className="text-gray-600 text-xs mb-1">Whale (0/15/30)</p>
-                      <p className="text-2xl font-bold text-purple-600">{stock.radarScore?.whaleBonus ?? '?'}</p>
-                      <p className="text-xs text-gray-500 mt-1">
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-purple-200">
+                      <p className="text-gray-600 text-[10px] md:text-xs mb-1">Whale (0/15/30)</p>
+                      <p className="text-lg md:text-2xl font-bold text-purple-600">{stock.radarScore?.whaleBonus ?? '?'}</p>
+                      <p className="text-[10px] md:text-xs text-gray-500 mt-1">
                         {stock.radarScore?.whaleBonus === 30 ? '확인됨' : stock.radarScore?.whaleBonus === 15 ? '미확인' : '미감지'}
                       </p>
                     </div>
-                    <div className="bg-white p-3 rounded-lg border border-green-200">
-                      <p className="text-gray-600 text-xs mb-1">Momentum (0-30)</p>
-                      <p className="text-2xl font-bold text-green-600">{stock.scoreBreakdown.momentumScore}</p>
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-green-200">
+                      <p className="text-gray-600 text-[10px] md:text-xs mb-1">Momentum (0-30)</p>
+                      <p className="text-lg md:text-2xl font-bold text-green-600">{stock.scoreBreakdown.momentumScore}</p>
                     </div>
-                    <div className="bg-white p-3 rounded-lg border border-orange-200">
-                      <p className="text-gray-600 text-xs mb-1">Trend (0-15)</p>
-                      <p className="text-2xl font-bold text-orange-600">{stock.scoreBreakdown.trendScore}</p>
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-orange-200">
+                      <p className="text-gray-600 text-[10px] md:text-xs mb-1">Trend (0-15)</p>
+                      <p className="text-lg md:text-2xl font-bold text-orange-600">{stock.scoreBreakdown.trendScore}</p>
                     </div>
-                    <div className="bg-white p-3 rounded-lg border border-red-200">
-                      <p className="text-gray-600 text-xs mb-1">Signal Adj</p>
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-red-200">
+                      <p className="text-gray-600 text-[10px] md:text-xs mb-1">Signal Adj</p>
                       {(() => {
                         const adj = stock.scoreBreakdown.signalAdjustments || {};
                         const total = (adj.escapeVelocityBonus || 0) + (adj.upperShadowPenalty || 0) + (adj.sellWhalePenalty || 0);
                         return (
                           <React.Fragment>
-                            <p className={`text-2xl font-bold ${total > 0 ? 'text-green-600' : total < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                            <p className={`text-lg md:text-2xl font-bold ${total > 0 ? 'text-green-600' : total < 0 ? 'text-red-600' : 'text-gray-400'}`}>
                               {total > 0 ? '+' : ''}{total}
                             </p>
                             <div className="text-xs text-gray-500 mt-1 space-y-0.5">
@@ -1203,10 +1203,10 @@
                   )}
 
                   {/* 최종 계산 */}
-                  <div className="mt-4 pt-4 border-t-2 border-green-300">
+                  <div className="mt-3 md:mt-4 pt-3 md:pt-4 border-t-2 border-green-300">
                     <div className="flex justify-between items-center">
-                      <span className="font-bold text-lg">최종 점수</span>
-                      <span className="text-3xl font-bold text-indigo-600">{stock.scoreBreakdown.finalScore}점</span>
+                      <span className="font-bold text-base md:text-lg">최종 점수</span>
+                      <span className="text-2xl md:text-3xl font-bold text-indigo-600">{stock.scoreBreakdown.finalScore}점</span>
                     </div>
                     {(() => {
                       const adj = stock.scoreBreakdown.signalAdjustments || {};
@@ -1226,11 +1226,11 @@
               )}
 
               {/* 종합 지표 분석 (감지된 신호 기준 통합) */}
-              <div className="bg-white border-2 border-gray-200 rounded-xl p-6">
-                <h3 className="text-xl font-bold mb-4 text-indigo-900">📢 종합 지표 분석</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  ✓ <span className="text-green-700 font-semibold">초록색 강조</span>: 현재 감지된 신호 (상세 정보 포함) |
-                  <span className="text-gray-500 ml-2">회색 반투명</span>: 미감지 신호 (호버 시 선명)
+              <div className="bg-white border-2 border-gray-200 rounded-xl p-3 md:p-6">
+                <h3 className="text-lg md:text-xl font-bold mb-3 md:mb-4 text-indigo-900">📢 종합 지표 분석</h3>
+                <p className="text-xs md:text-sm text-gray-600 mb-3 md:mb-4">
+                  ✓ <span className="text-green-700 font-semibold">초록색 강조</span>: 감지된 신호 |
+                  <span className="text-gray-500 ml-1 md:ml-2">회색 반투명</span>: 미감지 (호버 시 선명)
                 </p>
 
                 {/* v3.26: 시그널 감지 기준 표 */}
@@ -1398,7 +1398,7 @@
 
                         {/* Tooltip */}
                         {indicator.tooltip && (
-                          <div className="absolute bottom-full left-0 mb-2 w-80 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
+                          <div className="absolute bottom-full left-0 mb-2 w-72 md:w-80 max-w-[calc(100vw-3rem)] px-3 py-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 shadow-xl">
                             {indicator.tooltip}
                             <div className="absolute top-full left-6 transform -mt-1">
                               <div className="border-4 border-transparent border-t-gray-900"></div>
@@ -1413,19 +1413,19 @@
 
               {/* 추세 분석 (최근 5일) */}
               {stock.trendAnalysis && stock.trendAnalysis.dailyData && stock.trendAnalysis.dailyData.length > 0 && (
-                <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-300 rounded-xl p-6">
-                  <h3 className="text-xl font-bold mb-4 text-purple-900">📈 최근 5일 추세 분석</h3>
+                <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-300 rounded-xl p-3 md:p-6">
+                  <h3 className="text-lg md:text-xl font-bold mb-3 md:mb-4 text-purple-900">📈 최근 5일 추세 분석</h3>
 
                   <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-xs md:text-sm">
                       <thead>
                         <tr className="border-b-2 border-purple-300">
-                          <th className="text-left py-3 px-3 font-bold text-purple-900">구분</th>
-                          <th className="text-center py-3 px-3 font-bold text-purple-900">종가/현재가</th>
-                          <th className="text-center py-3 px-3 font-bold text-purple-900">전일대비</th>
-                          <th className="text-center py-3 px-3 font-bold text-purple-900">거래량</th>
-                          <th className="text-center py-3 px-3 font-bold text-purple-900">거래량 전일대비</th>
-                          <th className="text-center py-3 px-3 font-bold text-purple-900">기간 누적</th>
+                          <th className="text-left py-2 px-1.5 md:py-3 md:px-3 font-bold text-purple-900">구분</th>
+                          <th className="text-center py-2 px-1.5 md:py-3 md:px-3 font-bold text-purple-900">종가</th>
+                          <th className="text-center py-2 px-1.5 md:py-3 md:px-3 font-bold text-purple-900">전일비</th>
+                          <th className="text-center py-2 px-1.5 md:py-3 md:px-3 font-bold text-purple-900">거래량</th>
+                          <th className="text-center py-2 px-1.5 md:py-3 md:px-3 font-bold text-purple-900">거래량비</th>
+                          <th className="text-center py-2 px-1.5 md:py-3 md:px-3 font-bold text-purple-900">누적</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1443,40 +1443,30 @@
 
                           return (
                             <tr key={idx} className={`${rowClass} border-b border-purple-100`}>
-                              <td className="py-3 px-3 font-semibold">
+                              <td className="py-2 px-1.5 md:py-3 md:px-3 font-semibold">
                                 {isToday ? '오늘' : `${idx}일전`}
-                                <div className="text-xs text-gray-500 mt-1">
+                                <div className="text-[10px] md:text-xs text-gray-500 mt-0.5">
                                   {day.date ? day.date.slice(4, 6) + '/' + day.date.slice(6, 8) : '-'}
                                 </div>
                               </td>
-                              <td className="text-center py-3 px-3 font-bold">
-                                {(day.close || 0).toLocaleString()}원
-                                {isToday && (
-                                  <div className="text-xs text-red-600 mt-1">
-                                    (현재가)
-                                  </div>
-                                )}
-                                {!isToday && (
-                                  <div className="text-xs text-gray-500 mt-1">
-                                    (종가)
-                                  </div>
-                                )}
+                              <td className="text-center py-2 px-1.5 md:py-3 md:px-3 font-bold">
+                                {(day.close || 0).toLocaleString()}
                               </td>
-                              <td className={`text-center py-3 px-3 font-bold ${priceColor}`}>
-                                {pc >= 0 ? '▲' : '▼'} {Math.abs(pc).toFixed(2)}%
+                              <td className={`text-center py-2 px-1.5 md:py-3 md:px-3 font-bold ${priceColor}`}>
+                                {pc >= 0 ? '▲' : '▼'}{Math.abs(pc).toFixed(1)}%
                               </td>
-                              <td className="text-center py-3 px-3">
+                              <td className="text-center py-2 px-1.5 md:py-3 md:px-3">
                                 {((day.volume || 0) / 1000).toFixed(0)}K
                               </td>
-                              <td className={`text-center py-3 px-3 font-bold ${volumeColor}`}>
-                                {vc >= 0 ? '+' : ''}{vc.toFixed(1)}%
+                              <td className={`text-center py-2 px-1.5 md:py-3 md:px-3 font-bold ${volumeColor}`}>
+                                {vc >= 0 ? '+' : ''}{vc.toFixed(0)}%
                               </td>
-                              <td className="text-center py-3 px-3 text-xs">
+                              <td className="text-center py-2 px-1.5 md:py-3 md:px-3 text-[10px] md:text-xs">
                                 <div className={ppc >= 0 ? 'text-red-600' : 'text-blue-600'}>
-                                  주가: {ppc >= 0 ? '+' : ''}{ppc.toFixed(2)}%
+                                  {ppc >= 0 ? '+' : ''}{ppc.toFixed(1)}%
                                 </div>
-                                <div className="text-gray-600 mt-1">
-                                  거래량: {pvc >= 0 ? '+' : ''}{pvc.toFixed(1)}%
+                                <div className="text-gray-600">
+                                  {pvc >= 0 ? '+' : ''}{pvc.toFixed(0)}%
                                 </div>
                               </td>
                             </tr>
@@ -1538,8 +1528,8 @@
               )}
 
               {/* 거래량 지표 */}
-              <div className="bg-white border-2 border-gray-200 rounded-xl p-6">
-                <h3 className="text-xl font-bold mb-4">📊 거래량 지표</h3>
+              <div className="bg-white border-2 border-gray-200 rounded-xl p-3 md:p-6">
+                <h3 className="text-lg md:text-xl font-bold mb-3 md:mb-4">📊 거래량 지표</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
                   <StatBox
                     label="MFI (자금흐름지수)"
@@ -1631,7 +1621,7 @@
             )}
           </p>
           {tooltip && showTooltip && (
-            <div className="absolute z-50 bg-gray-800 text-white text-xs rounded-lg p-3 shadow-xl w-72 left-0 bottom-full mb-2">
+            <div className="absolute z-50 bg-gray-800 text-white text-xs rounded-lg p-3 shadow-xl w-64 md:w-72 max-w-[calc(100vw-3rem)] left-0 bottom-full mb-2">
               {tooltip}
             </div>
           )}
@@ -1672,7 +1662,7 @@
           </div>
           {detail && <p className={`text-xs ${color === 'red' ? 'text-red-600' : 'text-gray-600'}`}>{detail}</p>}
           {tooltip && showTip && (
-            <div className="absolute z-50 bg-gray-800 text-white text-xs rounded-lg p-3 shadow-xl w-80 left-0 top-full mt-2">
+            <div className="absolute z-50 bg-gray-800 text-white text-xs rounded-lg p-3 shadow-xl w-72 md:w-80 max-w-[calc(100vw-3rem)] left-0 top-full mt-2">
               {tooltip}
             </div>
           )}
@@ -1756,17 +1746,17 @@
                 실전 추천 종목의 실제 성과를 확인합니다
               </p>
             </div>
-            <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 px-4 py-3 rounded">
-              <p className="font-bold mb-2">📊 추적 데이터 없음</p>
-              <p>아직 추천 종목이 데이터베이스에 저장되지 않았습니다.</p>
-              <p className="mt-2 text-sm">💡 <strong>종합집계</strong> 탭에서 종목을 조회하면 자동으로 저장되어 성과를 추적할 수 있습니다.</p>
+            <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 px-3 md:px-4 py-3 rounded">
+              <p className="font-bold mb-2 text-sm md:text-base">📊 추적 데이터 없음</p>
+              <p className="text-sm">아직 추천 종목이 데이터베이스에 저장되지 않았습니다.</p>
+              <p className="mt-2 text-xs md:text-sm">💡 <strong>종합집계</strong> 탭에서 종목을 조회하면 자동으로 저장되어 성과를 추적할 수 있습니다.</p>
             </div>
 
             {/* 🆕 패턴 분석 리포트 - trackerData 없어도 표시 */}
-            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-300 rounded-xl shadow-lg p-6">
-              <h3 className="text-2xl font-bold mb-4 text-purple-900 flex items-center gap-2">
+            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-300 rounded-xl shadow-lg p-3 md:p-6">
+              <h3 className="text-lg md:text-2xl font-bold mb-3 md:mb-4 text-purple-900 flex items-center gap-2 flex-wrap">
                 📊 신호 효과 분석
-                <span className="text-sm font-normal text-purple-700">(성공 패턴 기반)</span>
+                <span className="text-xs md:text-sm font-normal text-purple-700">(성공 패턴 기반)</span>
               </h3>
 
               {patternLoading ? (
@@ -1780,8 +1770,8 @@
                 <div className="space-y-4">
                   {/* 요약 통계 */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
-                      <div className="text-2xl font-bold text-purple-700">{patternAnalysis.totalPatterns}</div>
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-purple-200 text-center">
+                      <div className="text-xl md:text-2xl font-bold text-purple-700">{patternAnalysis.totalPatterns}</div>
                       <div className="text-xs text-gray-600">수집된 패턴</div>
                     </div>
                     <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
@@ -1993,18 +1983,18 @@
                       .sort((a, b) => b.current_return - a.current_return)
                       .slice(0, top3Expanded ? top3Stocks.length : 10)
                       .map((stock, index) => (
-                        <div key={stock.stock_code} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded">
-                          <div className="flex items-center gap-2">
-                            <span className="font-bold text-orange-600">#{index + 1}</span>
-                            <span className="font-semibold">{stock.stock_name}</span>
-                            <span className="text-xs text-gray-500">{stock.stock_code}</span>
-                            {stock.is_rising && <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded">🔥 상승 중</span>}
+                        <div key={stock.stock_code} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded gap-2">
+                          <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
+                            <span className="font-bold text-orange-600 text-sm">#{index + 1}</span>
+                            <span className="font-semibold text-sm truncate">{stock.stock_name}</span>
+                            <span className="text-[10px] md:text-xs text-gray-500 hidden md:inline">{stock.stock_code}</span>
+                            {stock.is_rising && <span className="text-[10px] md:text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">🔥</span>}
                           </div>
-                          <div className="flex items-center gap-3">
-                            <span className={`font-bold ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
-                              {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(2)}%
+                          <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
+                            <span className={`font-bold text-sm ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
+                              {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
                             </span>
-                            <span className="text-xs text-gray-500">
+                            <span className="text-[10px] md:text-xs text-gray-500">
                               {stock.days_since_recommendation}일
                             </span>
                           </div>
@@ -2059,14 +2049,14 @@
               ? defFiltered.reduce((sum, s) => sum + s.current_return, 0) / defFiltered.length : 0;
 
             return defFiltered.length > 0 ? (
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-6 mb-8">
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-3 md:p-6 mb-6 md:mb-8">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-3">
-                    <span className="text-3xl">🛡️</span>
-                    <div>
-                      <h3 className="text-2xl font-bold text-blue-800">방어 전략 성과</h3>
-                      <p className="text-sm text-blue-600 mt-1">
-                        기관/외국인 수급 기반 과매도 반등 전략 (최근 3일)
+                  <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                    <span className="text-2xl md:text-3xl flex-shrink-0">🛡️</span>
+                    <div className="min-w-0">
+                      <h3 className="text-lg md:text-2xl font-bold text-blue-800">방어 전략 성과</h3>
+                      <p className="text-xs md:text-sm text-blue-600 mt-1">
+                        기관/외국인 수급 기반 과매도 반등 (최근 3일)
                       </p>
                     </div>
                   </div>
@@ -2101,15 +2091,14 @@
                     .sort((a, b) => (b.defense_score || 0) - (a.defense_score || 0))
                     .slice(0, 5)
                     .map((stock, index) => (
-                      <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between bg-white rounded-lg px-4 py-2 shadow-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded font-bold">{stock.defense_grade || 'D-D'}</span>
-                          <span className="font-semibold text-gray-800">{stock.stock_name}</span>
-                          <span className="text-xs text-gray-500">방어 {(stock.defense_score || 0).toFixed(0)}점</span>
-                          <span className="text-xs text-gray-400">기관{stock.institution_buy_days || 0}일 외인{stock.foreign_buy_days || 0}일</span>
+                      <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between bg-white rounded-lg px-2 md:px-4 py-2 shadow-sm gap-2">
+                        <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
+                          <span className="text-[10px] md:text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 md:px-2 md:py-1 rounded font-bold">{stock.defense_grade || 'D-D'}</span>
+                          <span className="font-semibold text-gray-800 text-sm md:text-base truncate">{stock.stock_name}</span>
+                          <span className="text-[10px] md:text-xs text-gray-500">{(stock.defense_score || 0).toFixed(0)}점</span>
                         </div>
-                        <span className={`font-bold ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
-                          {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(2)}%
+                        <span className={`font-bold flex-shrink-0 text-sm md:text-base ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
+                          {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
                         </span>
                       </div>
                     ))}
@@ -2152,9 +2141,9 @@
 
           {/* Phase 3: 고급 지표 */}
           {perfStrategy === 'momentum' && trackerData.statistics?.advanced && (
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
-                🎯 고급 성과 지표 (Phase 3)
+            <div className="bg-white rounded-xl shadow-lg p-3 md:p-6">
+              <h3 className="text-lg md:text-2xl font-bold mb-4 md:mb-6 flex items-center gap-2">
+                🎯 고급 성과 지표
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <AdvancedMetricBox
@@ -2195,11 +2184,11 @@
 
           {/* 공통 추천 종목 (2회 이상 추천) */}
           {perfStrategy === 'momentum' && trackerData.commonStocks && trackerData.commonStocks.length > 0 && (
-            <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-300 rounded-xl shadow-lg p-6">
-              <h3 className="text-2xl font-bold mb-4 text-purple-900 flex items-center gap-2">
+            <div className="bg-gradient-to-br from-purple-50 to-pink-50 border-2 border-purple-300 rounded-xl shadow-lg p-3 md:p-6">
+              <h3 className="text-lg md:text-2xl font-bold mb-3 md:mb-4 text-purple-900 flex items-center gap-2 flex-wrap">
                 🔄 공통 추천 종목
-                <span className="text-sm font-normal text-purple-700">
-                  (2회 이상 추천된 종목)
+                <span className="text-xs md:text-sm font-normal text-purple-700">
+                  (2회 이상 추천)
                 </span>
               </h3>
 
@@ -2260,13 +2249,13 @@
           )}
 
           {/* 등급별 성과 */}
-          {perfStrategy === 'momentum' && <div className="bg-white rounded-xl shadow-lg p-6">
-            <h3 className="text-2xl font-bold mb-4">📊 등급별 성과</h3>
+          {perfStrategy === 'momentum' && <div className="bg-white rounded-xl shadow-lg p-3 md:p-6">
+            <h3 className="text-lg md:text-2xl font-bold mb-3 md:mb-4">📊 등급별 성과</h3>
 
             {/* 등급 기준 설명 */}
-            <div className="mb-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg">
-              <h4 className="font-bold text-blue-900 mb-3">🎯 등급 부여 기준 (Radar Scoring System)</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
+            <div className="mb-4 md:mb-6 p-3 md:p-4 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-lg">
+              <h4 className="font-bold text-blue-900 mb-2 md:mb-3 text-sm md:text-base">🎯 등급 부여 기준 (Radar Scoring System)</h4>
+              <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 text-xs md:text-sm">
                 <div className="bg-white p-3 rounded border-l-4 border-red-600">
                   <div className="font-bold text-red-700 mb-1">⚠️과열</div>
                   <div className="text-gray-700">과열 경고 (RSI > 80 AND 이격도 > 115)</div>
@@ -2536,10 +2525,10 @@
           )}
 
           {/* 🆕 성공 패턴 분석 v2 - 지표별 통계 기반 */}
-          {perfStrategy === 'momentum' && <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-300 rounded-xl shadow-lg p-6">
-            <h3 className="text-2xl font-bold mb-4 text-purple-900 flex items-center gap-2">
+          {perfStrategy === 'momentum' && <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border-2 border-purple-300 rounded-xl shadow-lg p-3 md:p-6">
+            <h3 className="text-lg md:text-2xl font-bold mb-3 md:mb-4 text-purple-900 flex items-center gap-2 flex-wrap">
               📊 성공 패턴 분석
-              <span className="text-sm font-normal text-purple-700">(+10% 수익 달성 종목 기준)</span>
+              <span className="text-xs md:text-sm font-normal text-purple-700">(+10% 달성 기준)</span>
             </h3>
 
             {patternLoading ? (
@@ -2722,16 +2711,16 @@
           </div>}
 
           {/* 카테고리별 성과 */}
-          {perfStrategy === 'momentum' && <div className="bg-white rounded-xl shadow-lg p-6">
-            <h3 className="text-2xl font-bold mb-4">🎯 카테고리별 성과</h3>
+          {perfStrategy === 'momentum' && <div className="bg-white rounded-xl shadow-lg p-3 md:p-6">
+            <h3 className="text-lg md:text-2xl font-bold mb-3 md:mb-4">🎯 카테고리별 성과</h3>
 
             {/* 카테고리 상세 설명 */}
-            <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="mb-4 md:mb-6 grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-4">
               {Object.entries(categoryDescriptions).map(([key, desc]) => (
-                <div key={key} className="p-4 bg-gradient-to-br from-gray-50 to-white border-2 border-gray-200 rounded-lg hover:shadow-md transition">
+                <div key={key} className="p-3 md:p-4 bg-gradient-to-br from-gray-50 to-white border-2 border-gray-200 rounded-lg hover:shadow-md transition">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-2xl">{desc.icon}</span>
-                    <h4 className="font-bold text-lg text-gray-800">{desc.label}</h4>
+                    <span className="text-xl md:text-2xl">{desc.icon}</span>
+                    <h4 className="font-bold text-base md:text-lg text-gray-800">{desc.label}</h4>
                   </div>
                   <p className="text-sm text-gray-700 leading-relaxed">{desc.description}</p>
                   <div className="mt-3 pt-3 border-t border-gray-200">
@@ -3258,13 +3247,13 @@
     // 요약 카드
     function SummaryCard({ title, value, subtext, color, icon }) {
       return (
-        <div className={`${color} rounded-xl shadow-lg p-6 text-white`}>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="text-sm font-semibold opacity-90">{title}</h3>
-            <span className="text-2xl">{icon}</span>
+        <div className={`${color} rounded-xl shadow-lg p-4 md:p-6 text-white`}>
+          <div className="flex items-center justify-between mb-1 md:mb-2">
+            <h3 className="text-xs md:text-sm font-semibold opacity-90">{title}</h3>
+            <span className="text-xl md:text-2xl">{icon}</span>
           </div>
-          <p className="text-3xl font-bold mb-1">{value}</p>
-          <p className="text-sm opacity-80">{subtext}</p>
+          <p className="text-2xl md:text-3xl font-bold mb-1">{value}</p>
+          <p className="text-xs md:text-sm opacity-80">{subtext}</p>
         </div>
       );
     }
@@ -3272,10 +3261,10 @@
     // 고급 지표 박스
     function AdvancedMetricBox({ label, value, desc, good }) {
       return (
-        <div className={`p-4 rounded-lg border-2 ${good ? 'bg-green-50 border-green-300' : 'bg-gray-50 border-gray-200'}`}>
-          <p className="text-xs text-gray-600 mb-1">{label}</p>
-          <p className={`text-2xl font-bold mb-1 ${good ? 'text-green-700' : 'text-gray-700'}`}>{value}</p>
-          <p className="text-xs text-gray-500">{desc}</p>
+        <div className={`p-3 md:p-4 rounded-lg border-2 ${good ? 'bg-green-50 border-green-300' : 'bg-gray-50 border-gray-200'}`}>
+          <p className="text-[10px] md:text-xs text-gray-600 mb-1">{label}</p>
+          <p className={`text-xl md:text-2xl font-bold mb-1 ${good ? 'text-green-700' : 'text-gray-700'}`}>{value}</p>
+          <p className="text-[10px] md:text-xs text-gray-500">{desc}</p>
         </div>
       );
     }
@@ -3338,28 +3327,28 @@
       return (
         <div className="space-y-6">
           {/* 입력 영역 */}
-          <div className="bg-white rounded-xl shadow-lg p-6">
-            <h2 className="text-2xl font-bold text-gray-800 mb-2">🔎 종목 분석</h2>
-            <p className="text-gray-600 text-sm mb-4">종목코드를 입력하면 스크리닝 엔진으로 분석합니다. 쉼표로 여러 종목을 한번에 분석할 수 있습니다.</p>
-            <div className="flex gap-3">
+          <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
+            <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-1 md:mb-2">🔎 종목 분석</h2>
+            <p className="text-gray-600 text-xs md:text-sm mb-3 md:mb-4">종목코드를 입력하면 스크리닝 엔진으로 분석합니다. 쉼표로 여러 종목 분석 가능.</p>
+            <div className="flex gap-2 md:gap-3">
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder="005930, 128940, 035720"
-                className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none text-lg font-mono"
+                placeholder="005930, 128940"
+                className="flex-1 min-w-0 px-3 py-2 md:px-4 md:py-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none text-base md:text-lg font-mono"
               />
               <button
                 onClick={analyzeStocks}
                 disabled={loading || !hasValidCode}
-                className={`px-8 py-3 rounded-lg font-bold text-white transition-all whitespace-nowrap ${
+                className={`px-4 py-2 md:px-8 md:py-3 rounded-lg font-bold text-white transition-all whitespace-nowrap text-sm md:text-base ${
                   loading || !hasValidCode
                     ? 'bg-gray-400 cursor-not-allowed'
                     : 'bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg'
                 }`}
               >
-                {loading ? '분석 중...' : '분석'}
+                {loading ? '분석중...' : '분석'}
               </button>
             </div>
           </div>
@@ -3384,8 +3373,8 @@
           {/* 결과 - RecommendationCard 재사용 */}
           {results.length > 0 && (
             <>
-              <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
-                <div className="flex items-center justify-center gap-6 text-sm">
+              <div className="bg-blue-50 border-l-4 border-blue-500 p-3 md:p-4 rounded">
+                <div className="flex items-center justify-center gap-2 md:gap-6 text-xs md:text-sm">
                   <div>
                     <span className="text-gray-600">분석 완료:</span>
                     <span className="font-bold text-blue-900 ml-1">{results.length}개</span>
@@ -3546,10 +3535,10 @@
       return (
         <div className="space-y-6">
           {/* 헤더 */}
-          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl shadow-lg p-6 text-white">
-            <h2 className="text-3xl font-bold mb-2">🧬 거래량 DNA 추출 시스템</h2>
-            <p className="text-purple-100">
-              과거 급등주의 거래량 패턴에서 DNA를 추출하여 현재 시장에서 유사한 종목을 찾습니다
+          <div className="bg-gradient-to-r from-purple-600 to-indigo-600 rounded-xl shadow-lg p-4 md:p-6 text-white">
+            <h2 className="text-xl md:text-3xl font-bold mb-1 md:mb-2">🧬 거래량 DNA 추출</h2>
+            <p className="text-purple-100 text-xs md:text-base">
+              과거 급등주의 거래량 패턴에서 DNA를 추출하여 유사 종목을 찾습니다
             </p>
           </div>
 
@@ -3568,14 +3557,14 @@
 
             if (allRecs.length === 0 && !fetchLoading) {
               return (
-                <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-6 mb-6 text-center">
+                <div className="bg-gray-50 border-2 border-gray-200 rounded-xl p-4 md:p-6 mb-4 md:mb-6 text-center">
                   <button
                     onClick={fetchOverheatedStocks}
-                    className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold transition-all shadow-md hover:shadow-lg"
+                    className="px-4 py-2 md:px-6 md:py-3 bg-red-500 hover:bg-red-600 text-white rounded-lg font-bold transition-all shadow-md hover:shadow-lg text-sm md:text-base"
                   >
                     ⚠️ 과열 종목 조회
                   </button>
-                  <p className="text-gray-500 text-sm mt-2">스크리닝 데이터를 조회하여 과열 종목을 표시합니다</p>
+                  <p className="text-gray-500 text-xs md:text-sm mt-2">스크리닝 데이터를 조회하여 과열 종목을 표시합니다</p>
                 </div>
               );
             }
@@ -3590,10 +3579,10 @@
 
             if (warningStocks.length > 0) {
               return (
-                <div className="bg-red-50 border-2 border-red-200 rounded-xl shadow-lg p-6 mb-6">
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="text-2xl">⚠️</span>
-                    <h3 className="text-xl font-bold text-red-800">
+                <div className="bg-red-50 border-2 border-red-200 rounded-xl shadow-lg p-3 md:p-6 mb-4 md:mb-6">
+                  <div className="flex items-center gap-2 mb-3 md:mb-4">
+                    <span className="text-xl md:text-2xl">⚠️</span>
+                    <h3 className="text-base md:text-xl font-bold text-red-800">
                       당일 과열 종목 ({warningStocks.length}개)
                     </h3>
                   </div>
