@@ -374,17 +374,11 @@
                 </div>
                 <button
                   onClick={() => {
-                    if (activeTab === 'screening') {
-                      setCachedData(null);
-                      fetchRecommendations();
-                    } else {
-                      window.location.reload();
-                    }
+                    window.location.reload(true);
                   }}
-                  disabled={loading}
-                  className="px-3 py-2 md:px-6 md:py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition disabled:opacity-50 font-semibold shadow-lg text-sm md:text-base whitespace-nowrap flex-shrink-0"
+                  className="px-3 py-2 md:px-6 md:py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition font-semibold shadow-lg text-sm md:text-base whitespace-nowrap flex-shrink-0"
                 >
-                  {loading ? '분석중...' : '🔄 새로고침'}
+                  🔄 새로고침
                 </button>
               </div>
               {/* 탭 메뉴 */}
@@ -663,7 +657,7 @@
                 {loading && recommendations.length === 0 ? (
                   <LoadingScreen />
                 ) : recommendations.length === 0 ? (
-                  <EmptyState />
+                  <EmptyState onStart={() => { setCachedData(null); fetchRecommendations(); }} loading={loading} />
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
                     {[...recommendations]
@@ -907,16 +901,31 @@
     }
 
     // 빈 상태 화면
-    function EmptyState() {
+    function EmptyState({ onStart, loading }) {
       return (
-        <div className="text-center py-12 md:py-20">
-          <div className="text-5xl md:text-6xl mb-3">🚀</div>
-          <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">
-            종목 스크리닝을 시작하세요
-          </h3>
-          <p className="text-sm md:text-base text-gray-600 mb-4 md:mb-6">
-            상단의 <span className="font-semibold text-indigo-600">🔄 새로고침</span> 버튼을 눌러 종목 분석을 시작하세요
-          </p>
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl shadow-lg p-4 md:p-6 text-white">
+            <h2 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2">📊 종목 스크리닝</h2>
+            <p className="text-indigo-100 text-sm md:text-base">
+              거래량 AI가 추천하는 오늘의 종목을 분석합니다
+            </p>
+          </div>
+          <div className="text-center py-12 md:py-20">
+            <div className="text-5xl md:text-6xl mb-3">🚀</div>
+            <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">
+              종목 스크리닝을 시작하세요
+            </h3>
+            <p className="text-sm md:text-base text-gray-600 mb-6">
+              AI가 거래량 패턴을 분석하여 유망 종목을 추천합니다
+            </p>
+            <button
+              onClick={onStart}
+              disabled={loading}
+              className="px-6 py-3 md:px-8 md:py-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl hover:from-indigo-700 hover:to-purple-700 transition font-bold shadow-lg text-sm md:text-base disabled:opacity-50"
+            >
+              {loading ? '🔄 분석중...' : '📊 종목 스크리닝 시작'}
+            </button>
+          </div>
         </div>
       );
     }
@@ -3362,10 +3371,16 @@
 
       return (
         <div className="space-y-6">
+          {/* 헤더 */}
+          <div className="bg-gradient-to-r from-orange-500 to-red-500 rounded-xl shadow-lg p-4 md:p-6 text-white">
+            <h2 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2">🔎 종목 분석</h2>
+            <p className="text-orange-100 text-sm md:text-base">
+              종목코드를 입력하면 스크리닝 엔진으로 분석합니다. 쉼표로 여러 종목 분석 가능.
+            </p>
+          </div>
+
           {/* 입력 영역 */}
           <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
-            <h2 className="text-xl md:text-2xl font-bold text-gray-800 mb-1 md:mb-2">🔎 종목 분석</h2>
-            <p className="text-gray-600 text-xs md:text-sm mb-3 md:mb-4">종목코드를 입력하면 스크리닝 엔진으로 분석합니다. 쉼표로 여러 종목 분석 가능.</p>
             <div className="flex gap-2 md:gap-3">
               <input
                 type="text"
