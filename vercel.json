@@ -13,7 +13,7 @@
   "crons": [
     {
       "path": "/api/cron/save-daily-recommendations?mode=save",
-      "schedule": "40 6 * * 1-5"
+      "schedule": "10 7 * * 1-5"
     },
     {
       "path": "/api/recommendations/update-prices",
