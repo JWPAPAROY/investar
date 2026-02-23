@@ -659,7 +659,34 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ---
 
+## 🔮 To-Do 검토 리스트
+
+데이터 축적 후 검증이 필요한 개선 후보. 섣불리 적용하지 말고 데이터 기반으로 판단할 것.
+
+### 1. TOP3 기관매수 필터 강화 (대기: 25건+ 데이터 필요)
+
+- **내용**: TOP3 선별 시 `기관매수일 ≥ 1일` 필터 추가
+- **근거**: TOP1 분석(2026-02-23, 14건)에서 기관≥1일 필터 적용 시 승률 100% (8/8)
+- **리스크**: 샘플 14건으로 통계적 신뢰도 부족. 필터 추가 시 TOP3가 없는 날 발생 가능
+- **검증 방법**: `scripts/analyze-top1-performance.js` 재실행 → 25건+ 데이터에서 기관≥1일 승률 90%+ 유지 시 적용
+- **적용 범위**: TOP3 선별(`selectTop3`, `selectSaveTop3`, `selectAlertTop3`)에만 적용, 전체 스코어링은 변경 없음
+
+### 2. 업종별 베타 반영 (보류)
+
+- **내용**: 업종 지수 대비 종목 민감도(베타)를 스크리닝/TOP3에 활용
+- **보류 사유**: API 호출 +20~40개 증가, Vercel 60초 타임아웃 리스크, 단기(1-3일) 전략에서 베타 유효성 미검증
+- **대안**: 업종 분산(같은 업종 TOP3 제한)만 가볍게 적용하는 방안 검토 가능
+- **선행 조건**: Supabase 데이터에서 "같은 업종 TOP3 동시 선정 시 성과 저하" 여부 사후 분석 필요
+
+---
+
 ## 📝 변경 이력
+
+### v3.42 (2026-02-23)
+- **종목 분석 탭 API 최적화**: 불필요한 8개 랭킹 API 동시호출 제거 → Supabase + getCurrentPrice 내장 종목명으로 대체 (종목당 11→3 API)
+- **Supabase 1000행 제한 대응**: performance.js, patterns/index.js, update-prices.js 페이지네이션 + .in() 배치 분할 추가
+- **Enter 키 중복 호출 방지**: 종목 분석 탭 handleKeyDown에 loading 가드 추가
+- **TOP1 성과 분석 스크립트**: `scripts/analyze-top1-performance.js` 추가 (순위별 승률, 지표 상관관계, 필터 시뮬레이션)
 
 ### v3.41 (2026-02-23)
 - **TOP3 로직 완전 통일**: `selectTop3`(백엔드)와 `selectSaveTop3`(텔레그램)을 스윗스팟 우선순위(v3.38)로 통합
