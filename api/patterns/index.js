@@ -54,17 +54,27 @@ async function collectSuccessPatterns(req, res) {
 
   console.log(`\n📊 성공 패턴 수집 시작 (기준: +${SUCCESS_THRESHOLD}%)`);
 
-  // 1. 활성 추천 종목 조회 (최근 90일)
-  const { data: recommendations, error: recError } = await supabase
-    .from('screening_recommendations')
-    .select('*')
-    .eq('is_active', true)
-    .gte('recommendation_date', new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
-    .order('recommendation_date', { ascending: false });
+  // 1. 활성 추천 종목 조회 (최근 90일, 페이지네이션)
+  const startDateStr = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  let recommendations = [];
+  let recPage = 0;
+  while (true) {
+    const { data: pageData, error: recError } = await supabase
+      .from('screening_recommendations')
+      .select('*')
+      .eq('is_active', true)
+      .gte('recommendation_date', startDateStr)
+      .order('recommendation_date', { ascending: false })
+      .range(recPage * 1000, (recPage + 1) * 1000 - 1);
 
-  if (recError) {
-    console.error('추천 조회 실패:', recError);
-    return res.status(500).json({ error: recError.message });
+    if (recError) {
+      console.error('추천 조회 실패:', recError);
+      return res.status(500).json({ error: recError.message });
+    }
+    if (!pageData || pageData.length === 0) break;
+    recommendations = recommendations.concat(pageData);
+    if (pageData.length < 1000) break;
+    recPage++;
   }
 
   console.log(`   활성 추천: ${recommendations.length}개`);
@@ -175,22 +185,36 @@ async function collectSuccessPatterns(req, res) {
 
   console.log(`\n📊 수집 완료: ${successPatterns.length}개 새 패턴`);
 
-  // 4. 기존 패턴 중 null 지표 백필 (v3.30 이전 수집분)
+  // 4. 기존 패턴 중 null 지표 백필 (v3.30 이전 수집분, 페이지네이션)
   let backfilled = 0;
   try {
-    const { data: nullPatterns } = await supabase
-      .from('success_patterns')
-      .select('id, recommendation_id')
-      .is('rsi', null);
+    let nullPatterns = [];
+    let npPage = 0;
+    while (true) {
+      const { data: npData } = await supabase
+        .from('success_patterns')
+        .select('id, recommendation_id')
+        .is('rsi', null)
+        .range(npPage * 1000, (npPage + 1) * 1000 - 1);
+      if (!npData || npData.length === 0) break;
+      nullPatterns = nullPatterns.concat(npData);
+      if (npData.length < 1000) break;
+      npPage++;
+    }
 
-    if (nullPatterns && nullPatterns.length > 0) {
+    if (nullPatterns.length > 0) {
+      // .in() 배치 분할 (300개씩)
       const recIds = nullPatterns.map(p => p.recommendation_id);
-      const { data: recs } = await supabase
-        .from('screening_recommendations')
-        .select('id, asymmetric_ratio, asymmetric_signal, rsi, mfi, disparity, vwap_divergence, escape_velocity, escape_closing_strength, upper_shadow_ratio, institution_buy_days, foreign_buy_days')
-        .in('id', recIds);
+      let recs = [];
+      for (let b = 0; b < recIds.length; b += 300) {
+        const { data: batchData } = await supabase
+          .from('screening_recommendations')
+          .select('id, asymmetric_ratio, asymmetric_signal, rsi, mfi, disparity, vwap_divergence, escape_velocity, escape_closing_strength, upper_shadow_ratio, institution_buy_days, foreign_buy_days')
+          .in('id', recIds.slice(b, b + 300));
+        if (batchData) recs = recs.concat(batchData);
+      }
 
-      if (recs) {
+      if (recs.length > 0) {
         const recMap = new Map(recs.map(r => [r.id, r]));
         for (const pat of nullPatterns) {
           const src = recMap.get(pat.recommendation_id);
@@ -238,15 +262,24 @@ async function collectSuccessPatterns(req, res) {
  * 성공 패턴 분석 결과 조회
  */
 async function getPatternAnalysis(req, res) {
-  // 1. 전체 패턴 조회
-  const { data: patterns, error } = await supabase
-    .from('success_patterns')
-    .select('*')
-    .order('success_date', { ascending: false });
+  // 1. 전체 패턴 조회 (페이지네이션)
+  let patterns = [];
+  let patPage = 0;
+  while (true) {
+    const { data: pageData, error } = await supabase
+      .from('success_patterns')
+      .select('*')
+      .order('success_date', { ascending: false })
+      .range(patPage * 1000, (patPage + 1) * 1000 - 1);
 
-  if (error) {
-    console.error('패턴 조회 실패:', error);
-    return res.status(500).json({ error: error.message });
+    if (error) {
+      console.error('패턴 조회 실패:', error);
+      return res.status(500).json({ error: error.message });
+    }
+    if (!pageData || pageData.length === 0) break;
+    patterns = patterns.concat(pageData);
+    if (pageData.length < 1000) break;
+    patPage++;
   }
 
   if (!patterns || patterns.length === 0) {

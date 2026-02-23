@@ -58,23 +58,34 @@ module.exports = async (req, res) => {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    const { data: recommendations, error } = await supabase
-      .from('screening_recommendations')
-      .select('*')
-      .gte('recommendation_date', startDate.toISOString().slice(0, 10))
-      .eq('is_active', true)
-      .order('recommendation_date', { ascending: false })
-      .order('total_score', { ascending: false });
+    // 페이지네이션으로 전체 추천 종목 조회 (Supabase 1000행 제한 대응)
+    let recommendations = [];
+    let recPage = 0;
+    const REC_PAGE_SIZE = 1000;
+    while (true) {
+      const { data: pageData, error: pageErr } = await supabase
+        .from('screening_recommendations')
+        .select('*')
+        .gte('recommendation_date', startDate.toISOString().slice(0, 10))
+        .eq('is_active', true)
+        .order('recommendation_date', { ascending: false })
+        .order('total_score', { ascending: false })
+        .range(recPage * REC_PAGE_SIZE, (recPage + 1) * REC_PAGE_SIZE - 1);
 
-    if (error) {
-      console.error('Supabase 조회 실패:', error);
-      return res.status(500).json({
-        error: 'Database error',
-        message: error.message
-      });
+      if (pageErr) {
+        console.error('Supabase 조회 실패:', pageErr);
+        return res.status(500).json({
+          error: 'Database error',
+          message: pageErr.message
+        });
+      }
+      if (!pageData || pageData.length === 0) break;
+      recommendations = recommendations.concat(pageData);
+      if (pageData.length < REC_PAGE_SIZE) break;
+      recPage++;
     }
 
-    if (!recommendations || recommendations.length === 0) {
+    if (recommendations.length === 0) {
       return res.status(200).json({
         success: true,
         count: 0,
@@ -91,35 +102,36 @@ module.exports = async (req, res) => {
 
     console.log(`📊 ${recommendations.length}개 추천 종목 성과 추적 중...`);
 
-    // === Phase 1: 전체 daily_prices 일괄 조회 (N개 개별 쿼리 → 1개 쿼리) ===
+    // === Phase 1: 전체 daily_prices 일괄 조회 (ID 배치 × 페이지네이션) ===
     const recIds = recommendations.map(r => r.id);
     let allPriceData = [];
 
-    // Supabase 기본 1000행 제한 → 페이지네이션
+    // .in() URL 길이 제한 대응: ID를 300개씩 배치 + 각 배치 내 1000행 페이지네이션
+    const IN_BATCH_SIZE = 300;
     const PAGE_SIZE = 1000;
-    let page = 0;
-    let hasMore = true;
-    while (hasMore) {
-      const { data: pageData, error: pageError } = await supabase
-        .from('recommendation_daily_prices')
-        .select('*')
-        .in('recommendation_id', recIds)
-        .order('tracking_date', { ascending: true })
-        .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+    for (let b = 0; b < recIds.length; b += IN_BATCH_SIZE) {
+      const batchIds = recIds.slice(b, b + IN_BATCH_SIZE);
+      let page = 0;
+      while (true) {
+        const { data: pageData, error: pageError } = await supabase
+          .from('recommendation_daily_prices')
+          .select('*')
+          .in('recommendation_id', batchIds)
+          .order('tracking_date', { ascending: true })
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
-      if (pageError) {
-        console.warn('일별 가격 조회 실패:', pageError.message);
-        break;
-      }
-      if (pageData && pageData.length > 0) {
-        allPriceData = allPriceData.concat(pageData);
-        hasMore = pageData.length === PAGE_SIZE;
+        if (pageError) {
+          console.warn('일별 가격 조회 실패:', pageError.message);
+          break;
+        }
+        if (pageData && pageData.length > 0) {
+          allPriceData = allPriceData.concat(pageData);
+        }
+        if (!pageData || pageData.length < PAGE_SIZE) break;
         page++;
-      } else {
-        hasMore = false;
       }
     }
-    console.log(`📦 daily_prices 조회: ${allPriceData.length}행 (${page + 1}페이지)`);
+    console.log(`📦 daily_prices 조회: ${allPriceData.length}행 (${Math.ceil(recIds.length / IN_BATCH_SIZE)}배치)`);
 
     // recommendation_id별로 그룹화
     const pricesByRecId = {};

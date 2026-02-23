@@ -119,18 +119,27 @@ module.exports = async (req, res) => {
       console.log(`🕐 ${expired.length}개 추천 자동 만료 (30일+ 경과)`);
     }
 
-    // 활성 추천 종목 조회
-    const { data: activeRecs, error: fetchError } = await supabase
-      .from('screening_recommendations')
-      .select('id, stock_code, stock_name, recommended_price, recommendation_date')
-      .eq('is_active', true);
+    // 활성 추천 종목 조회 (페이지네이션 — Supabase 1000행 제한 대응)
+    let activeRecs = [];
+    let arPage = 0;
+    while (true) {
+      const { data: pageData, error: fetchError } = await supabase
+        .from('screening_recommendations')
+        .select('id, stock_code, stock_name, recommended_price, recommendation_date')
+        .eq('is_active', true)
+        .range(arPage * 1000, (arPage + 1) * 1000 - 1);
 
-    if (fetchError) {
-      console.error('활성 추천 조회 실패:', fetchError);
-      return res.status(500).json({ error: fetchError.message });
+      if (fetchError) {
+        console.error('활성 추천 조회 실패:', fetchError);
+        return res.status(500).json({ error: fetchError.message });
+      }
+      if (!pageData || pageData.length === 0) break;
+      activeRecs = activeRecs.concat(pageData);
+      if (pageData.length < 1000) break;
+      arPage++;
     }
 
-    if (!activeRecs || activeRecs.length === 0) {
+    if (activeRecs.length === 0) {
       console.log('활성 추천 종목 없음');
       return res.status(200).json({
         success: true,
