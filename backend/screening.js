@@ -1991,12 +1991,14 @@ class StockScreener {
   }
 
   /**
-   * TOP 3 추천 종목 선정 (Fallback 로직 포함)
+   * TOP 3 추천 종목 선정 (v3.38 스윗스팟 우선순위)
    *
-   * 시뮬레이션 결과 기반 전략:
-   * - 1순위: 고래 + 황금구간(50-79점) - 승률 76.9%, 평균 +27.02%
-   * - 2순위: 고래 + 60점 이상 - 승률 71.4%
-   * - 3순위: 고래 단독 - 승률 64.7%, 평균 +20.31%
+   * 텔레그램 selectSaveTop3와 동일한 전략:
+   * - 필수: 매수고래 + 비과열 + 이격도<150 + 등락률<25%
+   * - 1순위: 50-69점 (스윗스팟, 승률 72%)
+   * - 2순위: 80-89점
+   * - 3순위: 90-100점
+   * - 4순위: 70-79점 (최후 보충)
    *
    * @param {Array} allStocks - 전체 종목 배열
    * @returns {Array} - TOP 3 종목 (최대 3개)
@@ -2005,43 +2007,60 @@ class StockScreener {
     console.log(`\n🔍 TOP 3 선정 시작...`);
     console.log(`  전체 종목: ${allStocks.length}개`);
 
-    // v3.35: 매수고래 + 비과열 → 점수 내림차순 TOP 3
+    // v3.38: 매수고래 + 비과열 + 이격도/등락률 필터
     const eligible = allStocks.filter(stock => {
       const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
       const isOverheated = stock.recommendation?.grade === '과열';
-      return hasBuyWhale && !isOverheated;
+      const disparity = stock.overheatingV2?.disparity || 100;
+      const changeRate = Math.abs(stock.changeRate || 0);
+      return hasBuyWhale && !isOverheated && changeRate < 25 && disparity < 150;
     });
 
-    console.log(`  └─ TOP 3 후보 (매수고래+비과열): ${eligible.length}개`);
+    console.log(`  └─ TOP 3 후보 (매수고래+비과열+필터): ${eligible.length}개`);
 
-    const top3 = eligible
-      .sort((a, b) => b.totalScore - a.totalScore)
-      .slice(0, 3)
-      .map((stock, i) => {
-        const currentPrice = stock.currentPrice || 0;
-        return {
-          ...stock,
-          top3Meta: {
-            rank: i + 1,
-            stopLoss: {
-              loss5: Math.floor(currentPrice * 0.95),
-              loss7: Math.floor(currentPrice * 0.93),
-              loss10: Math.floor(currentPrice * 0.90)
-            }
+    const top3 = [];
+
+    const addFromRange = (lo, hi) => {
+      const pool = eligible
+        .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
+        .sort((a, b) => b.totalScore - a.totalScore);
+      for (const s of pool) {
+        if (top3.length >= 3) break;
+        top3.push(s);
+      }
+    };
+
+    addFromRange(50, 69);   // 1순위: 스윗스팟
+    addFromRange(80, 89);   // 2순위
+    addFromRange(90, 100);  // 3순위
+    addFromRange(70, 79);   // 4순위: 최후 보충
+
+    // top3Meta 추가
+    const result = top3.map((stock, i) => {
+      const currentPrice = stock.currentPrice || 0;
+      return {
+        ...stock,
+        top3Meta: {
+          rank: i + 1,
+          stopLoss: {
+            loss5: Math.floor(currentPrice * 0.95),
+            loss7: Math.floor(currentPrice * 0.93),
+            loss10: Math.floor(currentPrice * 0.90)
           }
-        };
-      });
+        }
+      };
+    });
 
-    console.log(`\n🏆 TOP 3 선정 완료: ${top3.length}개`);
-    if (top3.length === 0) {
-      console.log(`  ⚠️ TOP 3 선정 실패 - 매수고래 감지 종목 없음`);
+    console.log(`\n🏆 TOP 3 선정 완료: ${result.length}개`);
+    if (result.length === 0) {
+      console.log(`  ⚠️ TOP 3 선정 실패 - 조건 충족 종목 없음`);
     } else {
-      top3.forEach((stock, i) => {
+      result.forEach((stock, i) => {
         console.log(`  ${i + 1}. ${stock.stockName} (${stock.totalScore}점, ${stock.recommendation.grade}등급)`);
       });
     }
 
-    return top3;
+    return result;
   }
 
   /**
