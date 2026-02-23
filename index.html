@@ -3361,7 +3361,7 @@
       };
 
       const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey && !loading) {
+        if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
           analyzeStocks();
         }

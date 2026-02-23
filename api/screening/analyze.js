@@ -1,7 +1,6 @@
 // Vercel Serverless Function
 // GET /api/screening/analyze?codes=005930,000660,402340
 // 종목 분석 - 여러 종목코드를 한 번에 분석 (단일 프로세스, Rate Limiter 공유)
-// v3.42: 불필요한 8개 랭킹 API 제거 → getCurrentPrice 내장 종목명 + Supabase fallback
 
 const screener = require('../../backend/screening');
 const supabase = require('../../backend/supabaseClient');
@@ -26,33 +25,52 @@ module.exports = async function handler(req, res) {
   console.log(`🔍 종목 분석: ${uniqueCodes.length}개 [${uniqueCodes.join(', ')}]`);
 
   try {
-    // 1단계: Supabase에서 종목명 사전 확보 (API 호출 없이 DB 조회만)
+    const kisApi = require('../../backend/kisApi');
+
+    // 1단계: 종목명 사전 확보 (스크리닝 탭과 동일 — 4종 랭킹 × 2시장 = 8 API calls)
     const nameMap = new Map();
     try {
-      const { data: dbNames } = await supabase
-        .from('screening_recommendations')
-        .select('stock_code, stock_name')
-        .in('stock_code', uniqueCodes)
-        .not('stock_name', 'like', '[%')
-        .order('recommended_date', { ascending: false });
-      dbNames?.forEach(r => {
-        if (!nameMap.has(r.stock_code) && r.stock_name) {
-          nameMap.set(r.stock_code, r.stock_name);
-        }
+      const rankResults = await Promise.all([
+        kisApi.getVolumeSurgeRank('KOSPI', 50).catch(() => []),
+        kisApi.getVolumeSurgeRank('KOSDAQ', 50).catch(() => []),
+        kisApi.getTradingValueRank('KOSPI', 50).catch(() => []),
+        kisApi.getTradingValueRank('KOSDAQ', 50).catch(() => []),
+        kisApi.getPriceChangeRank('KOSPI', 50).catch(() => []),
+        kisApi.getPriceChangeRank('KOSDAQ', 50).catch(() => []),
+        kisApi.getVolumeRank('KOSPI', 50).catch(() => []),
+        kisApi.getVolumeRank('KOSDAQ', 50).catch(() => [])
+      ]);
+      rankResults.flat().forEach(item => {
+        if (item.code && item.name) nameMap.set(item.code, item.name);
       });
-      if (nameMap.size > 0) {
-        // kisApi 내부 캐시에 미리 저장 → getCurrentPrice()에서 활용
-        const kisApi = require('../../backend/kisApi');
-        if (!kisApi.stockNameCache) kisApi.stockNameCache = new Map();
-        nameMap.forEach((name, code) => kisApi.stockNameCache.set(code, name));
-      }
-      console.log(`📋 Supabase 종목명 확보: ${nameMap.size}/${uniqueCodes.length}개`);
+      // kisApi 내부 캐시도 채워서 getCurrentPrice()에서 바로 사용
+      if (!kisApi.stockNameCache) kisApi.stockNameCache = new Map();
+      nameMap.forEach((name, code) => kisApi.stockNameCache.set(code, name));
+      console.log(`📋 랭킹 API 종목명 확보: ${nameMap.size}개`);
     } catch (e) {
-      console.warn('⚠️ Supabase 종목명 조회 실패:', e.message);
+      console.warn('⚠️ 랭킹 API 종목명 조회 실패:', e.message);
     }
 
-    // 2단계: 종목 순차 분석 (종목당 3 API: getCurrentPrice + getDailyChart + getInvestorData)
-    // getCurrentPrice 내부에서 hts_kor_isnm → CTPF1002R fallback으로 종목명 자동 확보
+    // 랭킹에 없는 종목은 Supabase에서 보완
+    const missingCodes = uniqueCodes.filter(c => !nameMap.has(c));
+    if (missingCodes.length > 0) {
+      try {
+        const { data: dbNames } = await supabase
+          .from('screening_recommendations')
+          .select('stock_code, stock_name')
+          .in('stock_code', missingCodes)
+          .not('stock_name', 'like', '[%')
+          .order('recommended_date', { ascending: false });
+        dbNames?.forEach(r => {
+          if (!nameMap.has(r.stock_code) && r.stock_name) {
+            nameMap.set(r.stock_code, r.stock_name);
+          }
+        });
+        console.log(`📋 Supabase 보완: +${dbNames?.length || 0}개 → 총 ${nameMap.size}개`);
+      } catch (e) { /* ignore */ }
+    }
+
+    // 2단계: 종목 순차 분석
     const results = [];
     const errors = [];
 
@@ -68,7 +86,7 @@ module.exports = async function handler(req, res) {
         }
 
         if (result) {
-          // 종목명 보완 (getCurrentPrice에서 못 가져온 경우 Supabase fallback)
+          // 종목명 보완
           if (!result.stockName || result.stockName.startsWith('[')) {
             const name = nameMap.get(code);
             if (name) result.stockName = name;
