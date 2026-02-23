@@ -19,6 +19,23 @@
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Malgun Gothic', sans-serif;
+      word-break: keep-all;
+      overflow-wrap: break-word;
+    }
+
+    /* 모바일 테이블 가독성 */
+    @media (max-width: 767px) {
+
+      table th,
+      table td {
+        padding: 6px 8px !important;
+        font-size: 12px !important;
+        line-height: 1.4 !important;
+      }
+
+      table th {
+        font-size: 11px !important;
+      }
     }
 
     .stock-card {
@@ -487,11 +504,10 @@
                       <button
                         key={s.key}
                         onClick={() => setStrategyFilter(s.key)}
-                        className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
-                          strategyFilter === s.key
-                            ? s.key === 'momentum' ? 'bg-red-500 text-white' : s.key === 'defense' ? 'bg-blue-500 text-white' : 'bg-gray-700 text-white'
-                            : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                        }`}
+                        className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${strategyFilter === s.key
+                          ? s.key === 'momentum' ? 'bg-red-500 text-white' : s.key === 'defense' ? 'bg-blue-500 text-white' : 'bg-gray-700 text-white'
+                          : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                          }`}
                         title={s.desc}
                       >
                         {s.label}
@@ -596,7 +612,7 @@
                                   <div key={stock.stockCode} className="bg-white border-2 border-blue-400 rounded-lg p-4 cursor-pointer hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1" onClick={() => fetchStockDetail(stock.stockCode)}>
                                     <div className="flex items-center justify-between mb-2">
                                       <div className="flex items-center gap-2">
-                                        <span className="text-2xl font-bold text-blue-600">#{index + 1}</span>
+                                        <span className="text-xl md:text-2xl font-bold text-blue-600">#{index + 1}</span>
                                         <span className="text-lg font-bold text-gray-800">{stock.stockName}</span>
                                       </div>
                                       <span className={`px-2 py-1 rounded text-xs font-bold ${stock.defenseGrade?.includes('S') ? 'bg-purple-100 text-purple-700' : stock.defenseGrade === 'D-A' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{stock.defenseGrade}</span>
@@ -658,14 +674,14 @@
                         ? (b.defenseScore || 0) - (a.defenseScore || 0)
                         : b.totalScore - a.totalScore)
                       .map((stock, index) => (
-                      <RecommendationCard
-                        key={stock.stockCode}
-                        stock={stock}
-                        rank={index + 1}
-                        onClick={() => fetchStockDetail(stock.stockCode)}
-                        strategyFilter={strategyFilter}
-                      />
-                    ))}
+                        <RecommendationCard
+                          key={stock.stockCode}
+                          stock={stock}
+                          rank={index + 1}
+                          onClick={() => fetchStockDetail(stock.stockCode)}
+                          strategyFilter={strategyFilter}
+                        />
+                      ))}
                   </div>
                 )}
 
@@ -795,7 +811,7 @@
             </div>
 
             {/* 주요 지표 */}
-            <div className="grid grid-cols-3 gap-2 text-sm mt-4">
+            <div className="grid grid-cols-3 gap-1 md:gap-2 text-xs md:text-sm mt-3 md:mt-4">
               <div className="bg-blue-50 p-2 rounded relative group">
                 <p className="text-gray-600 text-xs">거래량 비율 ⓘ</p>
                 <p className="font-bold text-blue-700">{volumeRatio ? `${volumeRatio}x` : 'N/A'}</p>
@@ -1287,7 +1303,7 @@
                     const allIndicators = [];
 
                     // v3.26: 날짜 포맷 헬퍼
-                    const formatWhaleDate = (dateStr) => dateStr ? `${dateStr.slice(4,6)}/${dateStr.slice(6,8)}` : '';
+                    const formatWhaleDate = (dateStr) => dateStr ? `${dateStr.slice(4, 6)}/${dateStr.slice(6, 8)}` : '';
 
                     // 1. 고래 감지
                     const whaleData = stock.advancedAnalysis.indicators.whale;
@@ -1484,39 +1500,39 @@
                     const adpc = s.avgDailyPriceChange || 0;
                     const advc = s.avgDailyVolumeChange || 0;
                     return (
-                  <div className="mt-4 p-4 bg-purple-100 rounded-lg border border-purple-300">
-                    <h4 className="font-bold text-purple-900 mb-2">💡 5일 추세 요약</h4>
-                    <div className="grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-purple-700 font-semibold">총 주가 변동:</span>
-                        <span className={`ml-2 font-bold ${tpc >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
-                          {tpc >= 0 ? '▲' : '▼'}
-                          {Math.abs(tpc).toFixed(2)}%
-                        </span>
+                      <div className="mt-4 p-4 bg-purple-100 rounded-lg border border-purple-300">
+                        <h4 className="font-bold text-purple-900 mb-2">💡 5일 추세 요약</h4>
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <span className="text-purple-700 font-semibold">총 주가 변동:</span>
+                            <span className={`ml-2 font-bold ${tpc >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                              {tpc >= 0 ? '▲' : '▼'}
+                              {Math.abs(tpc).toFixed(2)}%
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-purple-700 font-semibold">총 거래량 변동:</span>
+                            <span className="ml-2 font-bold text-orange-600">
+                              {tvc >= 0 ? '+' : ''}
+                              {tvc}%
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-purple-700 font-semibold">일평균 주가 변동:</span>
+                            <span className="ml-2 font-bold text-gray-700">
+                              {adpc >= 0 ? '+' : ''}
+                              {adpc}%
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-purple-700 font-semibold">일평균 거래량 변동:</span>
+                            <span className="ml-2 font-bold text-gray-700">
+                              {advc >= 0 ? '+' : ''}
+                              {advc}%
+                            </span>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <span className="text-purple-700 font-semibold">총 거래량 변동:</span>
-                        <span className="ml-2 font-bold text-orange-600">
-                          {tvc >= 0 ? '+' : ''}
-                          {tvc}%
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-purple-700 font-semibold">일평균 주가 변동:</span>
-                        <span className="ml-2 font-bold text-gray-700">
-                          {adpc >= 0 ? '+' : ''}
-                          {adpc}%
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-purple-700 font-semibold">일평균 거래량 변동:</span>
-                        <span className="ml-2 font-bold text-gray-700">
-                          {advc >= 0 ? '+' : ''}
-                          {advc}%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
                     );
                   })()}
 
@@ -1775,13 +1791,13 @@
                       <div className="text-xs text-gray-600">수집된 패턴</div>
                     </div>
                     <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
-                      <div className="text-2xl font-bold text-green-600">
+                      <div className="text-xl md:text-2xl font-bold text-green-600">
                         +{patternAnalysis.analysis?.recent30Days?.avgReturn || 0}%
                       </div>
                       <div className="text-xs text-gray-600">최근 30일 평균</div>
                     </div>
                     <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
-                      <div className="text-2xl font-bold text-blue-600">
+                      <div className="text-xl md:text-2xl font-bold text-blue-600">
                         {patternAnalysis.analysis?.recent30Days?.count || 0}개
                       </div>
                       <div className="text-xs text-gray-600">최근 30일 성공</div>
@@ -1890,9 +1906,8 @@
               <button
                 key={s.key}
                 onClick={() => setPerfStrategy(s.key)}
-                className={`px-5 py-2 rounded-lg font-semibold text-sm transition-all ${
-                  perfStrategy === s.key ? `${s.color} text-white` : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                }`}
+                className={`px-5 py-2 rounded-lg font-semibold text-sm transition-all ${perfStrategy === s.key ? `${s.color} text-white` : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                  }`}
               >
                 {s.label}
               </button>
@@ -1959,14 +1974,14 @@
 
                   <div className="bg-white rounded-lg p-4 shadow">
                     <div className="text-sm text-gray-600 mb-1">최고 수익</div>
-                    <div className="text-2xl font-bold text-purple-600">
+                    <div className="text-xl md:text-2xl font-bold text-purple-600">
                       +{top3MaxReturn.toFixed(2)}%
                     </div>
                   </div>
 
                   <div className="bg-white rounded-lg p-4 shadow">
                     <div className="text-sm text-gray-600 mb-1">샘플 수</div>
-                    <div className="text-2xl font-bold text-blue-600">
+                    <div className="text-xl md:text-2xl font-bold text-blue-600">
                       {top3Stocks.length}개
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
@@ -2080,7 +2095,7 @@
                   </div>
                   <div className="bg-white rounded-lg p-4 shadow">
                     <div className="text-sm text-gray-600 mb-1">전적</div>
-                    <div className="text-2xl font-bold text-blue-600">
+                    <div className="text-xl md:text-2xl font-bold text-blue-600">
                       {defWinCount}승 {defFiltered.length - defWinCount}패
                     </div>
                   </div>
@@ -2422,8 +2437,8 @@
 
           {/* 🔥 연속 급등주 (2일 이상 연속 상승) */}
           {perfStrategy === 'momentum' && trackerData.risingStocks && trackerData.risingStocks.length > 0 && (
-            <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-300 rounded-xl shadow-lg p-6">
-              <h3 className="text-2xl font-bold mb-4 text-red-900 flex items-center gap-2">
+            <div className="bg-gradient-to-br from-red-50 to-orange-50 border-2 border-red-300 rounded-xl shadow-lg p-3 md:p-6">
+              <h3 className="text-lg md:text-2xl font-bold mb-3 md:mb-4 text-red-900 flex items-center gap-2 flex-wrap">
                 🔥 연속 급등주
                 <span className="text-sm font-normal text-red-700">
                   (2일 이상 연속 상승 중)
@@ -2482,7 +2497,7 @@
                               // 거래량 증가/감소 근거
                               if (reason.includes('거래량') && details.volumeData) {
                                 const vd = details.volumeData;
-                                supportingData = `(${(vd.avgFirst/10000).toFixed(0)}만주 → ${(vd.avgSecond/10000).toFixed(0)}만주, ${vd.changeRate > 0 ? '+' : ''}${vd.changeRate}%)`;
+                                supportingData = `(${(vd.avgFirst / 10000).toFixed(0)}만주 → ${(vd.avgSecond / 10000).toFixed(0)}만주, ${vd.changeRate > 0 ? '+' : ''}${vd.changeRate}%)`;
                               }
                               // 상승 패턴 근거
                               else if ((reason.includes('급등형') || reason.includes('점진적') || reason.includes('완만한')) && details.returnData) {
@@ -2549,17 +2564,17 @@
                 {/* 요약 통계 */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
-                    <div className="text-2xl font-bold text-purple-700">{patternAnalysis.totalPatterns}</div>
+                    <div className="text-xl md:text-2xl font-bold text-purple-700">{patternAnalysis.totalPatterns}</div>
                     <div className="text-xs text-gray-600">성공 패턴</div>
                   </div>
                   <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
-                    <div className="text-2xl font-bold text-green-600">
+                    <div className="text-xl md:text-2xl font-bold text-green-600">
                       +{patternAnalysis.analysis?.summary?.avgMaxReturn || 0}%
                     </div>
                     <div className="text-xs text-gray-600">평균 최고 수익률</div>
                   </div>
                   <div className="bg-white p-3 rounded-lg border border-purple-200 text-center">
-                    <div className="text-2xl font-bold text-blue-600">
+                    <div className="text-xl md:text-2xl font-bold text-blue-600">
                       {patternAnalysis.analysis?.summary?.avgDaysToSuccess || 0}일
                     </div>
                     <div className="text-xs text-gray-600">평균 달성 소요일</div>
@@ -2590,14 +2605,14 @@
                       </div>
                       {/* 비대칭 비율 */}
                       {patternAnalysis.analysis.volumeIndicators.asymmetricRatio && (
-                      <div className="p-3 bg-blue-50 rounded">
-                        <div className="font-semibold text-blue-900 mb-2">비대칭 비율 (상승/하락일)</div>
+                        <div className="p-3 bg-blue-50 rounded">
+                          <div className="font-semibold text-blue-900 mb-2">비대칭 비율 (상승/하락일)</div>
                           <div className="space-y-1 text-xs">
                             <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.avg}</span></div>
                             <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-blue-700">{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.median}</span></div>
                             <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.min}~{patternAnalysis.analysis.volumeIndicators.asymmetricRatio.max}</span></div>
                           </div>
-                      </div>
+                        </div>
                       )}
                       {/* 고래 감지 */}
                       <div className="p-3 bg-indigo-50 rounded">
@@ -2621,36 +2636,36 @@
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-sm">
                       {/* RSI */}
                       {patternAnalysis.analysis.priceIndicators.rsi && (
-                      <div className="p-3 bg-green-50 rounded">
-                        <div className="font-semibold text-green-900 mb-2">RSI (14일)</div>
+                        <div className="p-3 bg-green-50 rounded">
+                          <div className="font-semibold text-green-900 mb-2">RSI (14일)</div>
                           <div className="space-y-1 text-xs">
                             <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.priceIndicators.rsi.avg}</span></div>
                             <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-green-700">{patternAnalysis.analysis.priceIndicators.rsi.median}</span></div>
                             <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.priceIndicators.rsi.min}~{patternAnalysis.analysis.priceIndicators.rsi.max}</span></div>
                           </div>
-                      </div>
+                        </div>
                       )}
                       {/* MFI */}
                       {patternAnalysis.analysis.priceIndicators.mfi && (
-                      <div className="p-3 bg-teal-50 rounded">
-                        <div className="font-semibold text-teal-900 mb-2">MFI (14일)</div>
+                        <div className="p-3 bg-teal-50 rounded">
+                          <div className="font-semibold text-teal-900 mb-2">MFI (14일)</div>
                           <div className="space-y-1 text-xs">
                             <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.priceIndicators.mfi.avg}</span></div>
                             <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-teal-700">{patternAnalysis.analysis.priceIndicators.mfi.median}</span></div>
                             <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.priceIndicators.mfi.min}~{patternAnalysis.analysis.priceIndicators.mfi.max}</span></div>
                           </div>
-                      </div>
+                        </div>
                       )}
                       {/* 이격도 */}
                       {patternAnalysis.analysis.priceIndicators.disparity && (
-                      <div className="p-3 bg-yellow-50 rounded">
-                        <div className="font-semibold text-yellow-900 mb-2">이격도 (20일)</div>
+                        <div className="p-3 bg-yellow-50 rounded">
+                          <div className="font-semibold text-yellow-900 mb-2">이격도 (20일)</div>
                           <div className="space-y-1 text-xs">
                             <div className="flex justify-between"><span>평균</span><span className="font-bold">{patternAnalysis.analysis.priceIndicators.disparity.avg}%</span></div>
                             <div className="flex justify-between"><span>중앙값</span><span className="font-bold text-yellow-700">{patternAnalysis.analysis.priceIndicators.disparity.median}%</span></div>
                             <div className="flex justify-between"><span>범위</span><span>{patternAnalysis.analysis.priceIndicators.disparity.min}~{patternAnalysis.analysis.priceIndicators.disparity.max}%</span></div>
                           </div>
-                      </div>
+                        </div>
                       )}
                     </div>
                   </details>
@@ -2862,8 +2877,8 @@
 
           {/* 추천일자별 성과 */}
           {perfStrategy === 'momentum' && trackerData.recommendationDates && trackerData.recommendationDates.length > 0 && (
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-2xl font-bold mb-6">📅 추천일자별 성과</h3>
+            <div className="bg-white rounded-xl shadow-lg p-3 md:p-6">
+              <h3 className="text-lg md:text-2xl font-bold mb-4 md:mb-6">📅 추천일자별 성과</h3>
               <div className="space-y-4">
                 {trackerData.recommendationDates.map((dateGroup, idx) => {
                   // 날짜별로 다른 그라데이션 색상 적용
@@ -2879,12 +2894,12 @@
                   const colorClass = gradientColors[idx % gradientColors.length];
 
                   return (
-                    <div key={idx} className={`bg-gradient-to-br ${colorClass} border-2 rounded-xl shadow-lg p-6 hover:shadow-xl transition`}>
+                    <div key={idx} className={`bg-gradient-to-br ${colorClass} border-2 rounded-xl shadow-lg p-3 md:p-6 hover:shadow-xl transition`}>
                       {/* 날짜 헤더 - 서비스카드 스타일 */}
                       <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4 pb-4 border-b-2 border-gray-300">
                         <div className="mb-3 md:mb-0">
-                          <div className="text-2xl font-bold text-gray-900 mb-1">📅 {dateGroup.date}</div>
-                          <div className="text-sm text-gray-700 font-semibold">{dateGroup.stocks.length}개 종목 추천</div>
+                          <div className="text-lg md:text-2xl font-bold text-gray-900 mb-1">📅 {dateGroup.date}</div>
+                          <div className="text-xs md:text-sm text-gray-700 font-semibold">{dateGroup.stocks.length}개 종목 추천</div>
 
                           {/* 등급별 통계 */}
                           {dateGroup.byGrade && Object.keys(dateGroup.byGrade).length > 0 && (
@@ -2905,16 +2920,16 @@
                             </div>
                           )}
                         </div>
-                        <div className="flex gap-4">
-                          <div className="bg-white rounded-lg px-4 py-3 shadow-md border-2 border-gray-200">
+                        <div className="flex gap-3 md:gap-4">
+                          <div className="bg-white rounded-lg px-3 py-2 md:px-4 md:py-3 shadow-md border-2 border-gray-200">
                             <div className="text-xs text-gray-600 font-semibold mb-1">전체 평균 수익률</div>
-                            <div className={`text-2xl font-bold ${dateGroup.avgReturn >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                            <div className={`text-xl md:text-2xl font-bold ${dateGroup.avgReturn >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
                               {dateGroup.avgReturn >= 0 ? '+' : ''}{dateGroup.avgReturn}%
                             </div>
                           </div>
-                          <div className="bg-white rounded-lg px-4 py-3 shadow-md border-2 border-gray-200">
+                          <div className="bg-white rounded-lg px-3 py-2 md:px-4 md:py-3 shadow-md border-2 border-gray-200">
                             <div className="text-xs text-gray-600 font-semibold mb-1">전체 승률</div>
-                            <div className={`text-2xl font-bold ${dateGroup.winRate >= 70 ? 'text-green-600' : dateGroup.winRate >= 50 ? 'text-blue-600' : 'text-gray-600'}`}>
+                            <div className={`text-xl md:text-2xl font-bold ${dateGroup.winRate >= 70 ? 'text-green-600' : dateGroup.winRate >= 50 ? 'text-blue-600' : 'text-gray-600'}`}>
                               {dateGroup.winRate}%
                             </div>
                           </div>
@@ -3101,24 +3116,24 @@
 
                 {/* 일자별 방어 종목 */}
                 {defDates.length > 0 ? (
-                  <div className="bg-white rounded-xl shadow-lg p-6">
-                    <h3 className="text-2xl font-bold mb-6">🛡️ 방어 전략 일자별 성과</h3>
+                  <div className="bg-white rounded-xl shadow-lg p-3 md:p-6">
+                    <h3 className="text-lg md:text-2xl font-bold mb-4 md:mb-6">🛡️ 방어 전략 일자별 성과</h3>
                     <div className="space-y-4">
                       {defDates.map((dg, idx) => (
-                        <div key={idx} className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-6">
+                        <div key={idx} className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-3 md:p-6">
                           <div className="flex flex-col md:flex-row md:justify-between md:items-center mb-4 pb-4 border-b-2 border-blue-200">
                             <div>
-                              <div className="text-2xl font-bold text-gray-900 mb-1">📅 {dg.date}</div>
-                              <div className="text-sm text-gray-700 font-semibold">{dg.defCount}개 방어 종목</div>
+                              <div className="text-lg md:text-2xl font-bold text-gray-900 mb-1">📅 {dg.date}</div>
+                              <div className="text-xs md:text-sm text-gray-700 font-semibold">{dg.defCount}개 방어 종목</div>
                             </div>
                             <div className="flex gap-4 mt-2 md:mt-0">
                               <div className="bg-white rounded-lg px-4 py-3 shadow-md border-2 border-blue-200">
                                 <div className="text-xs text-gray-600 font-semibold mb-1">평균 수익률</div>
-                                <div className={`text-2xl font-bold ${parseFloat(dg.avgReturn) >= 0 ? 'text-red-600' : 'text-blue-600'}`}>{parseFloat(dg.avgReturn) >= 0 ? '+' : ''}{dg.avgReturn}%</div>
+                                <div className={`text-xl md:text-2xl font-bold ${parseFloat(dg.avgReturn) >= 0 ? 'text-red-600' : 'text-blue-600'}`}>{parseFloat(dg.avgReturn) >= 0 ? '+' : ''}{dg.avgReturn}%</div>
                               </div>
                               <div className="bg-white rounded-lg px-4 py-3 shadow-md border-2 border-blue-200">
                                 <div className="text-xs text-gray-600 font-semibold mb-1">승률</div>
-                                <div className={`text-2xl font-bold ${parseFloat(dg.winRate) >= 60 ? 'text-green-600' : 'text-gray-600'}`}>{dg.winRate}%</div>
+                                <div className={`text-xl md:text-2xl font-bold ${parseFloat(dg.winRate) >= 60 ? 'text-green-600' : 'text-gray-600'}`}>{dg.winRate}%</div>
                               </div>
                             </div>
                           </div>
@@ -3132,7 +3147,7 @@
                                   </div>
                                   <span className={`text-lg font-bold ${stock.current_return > 0 ? 'text-red-600' : stock.current_return < 0 ? 'text-blue-600' : 'text-gray-600'}`}>{stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(2)}%</span>
                                 </div>
-                                <div className="flex justify-between text-xs text-gray-500">
+                                <div className="flex flex-wrap justify-between gap-1 text-xs text-gray-500">
                                   <span>방어 {(stock.defense_score || 0).toFixed(0)}점</span>
                                   <span>모멘텀 {(stock.total_score || 0).toFixed(0)}점</span>
                                   <span>{stock.recommended_price?.toLocaleString()} → {stock.current_price?.toLocaleString()}원</span>
@@ -3145,7 +3160,7 @@
                     </div>
                   </div>
                 ) : (
-                  <div className="bg-white rounded-xl shadow-lg p-6 text-center">
+                  <div className="bg-white rounded-xl shadow-lg p-3 md:p-6 text-center">
                     <div className="text-4xl mb-2">🛡️</div>
                     <h4 className="text-lg font-bold text-gray-700">방어 전략 성과 데이터가 없습니다</h4>
                     <p className="text-sm text-gray-500 mt-1">방어 점수가 기록된 종목이 없거나 모두 D-0(당일 추천)입니다.</p>
@@ -3157,26 +3172,26 @@
 
           {/* Phase 3: 포트폴리오 시뮬레이션 */}
           {trackerData.portfolio && (
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-2xl font-bold mb-6 flex items-center gap-2">
+            <div className="bg-white rounded-xl shadow-lg p-3 md:p-6">
+              <h3 className="text-lg md:text-2xl font-bold mb-4 md:mb-6 flex items-center gap-2 flex-wrap">
                 💼 포트폴리오 시뮬레이션 (5종목 균등 분산)
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div className="bg-green-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600">포트폴리오 평균 수익률</p>
-                  <p className="text-2xl font-bold text-green-700">
+                  <p className="text-xl md:text-2xl font-bold text-green-700">
                     {trackerData.portfolio.summary.avgReturn > 0 ? '+' : ''}{trackerData.portfolio.summary.avgReturn}%
                   </p>
                 </div>
                 <div className="bg-blue-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600">총 누적 수익</p>
-                  <p className="text-2xl font-bold text-blue-700">
+                  <p className="text-xl md:text-2xl font-bold text-blue-700">
                     {trackerData.portfolio.summary.totalProfit.toLocaleString()}원
                   </p>
                 </div>
                 <div className="bg-purple-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600">포트폴리오 수</p>
-                  <p className="text-2xl font-bold text-purple-700">
+                  <p className="text-xl md:text-2xl font-bold text-purple-700">
                     {trackerData.portfolio.summary.portfolioCount}개
                   </p>
                 </div>
@@ -3187,7 +3202,7 @@
                 <div className="bg-green-50 border-2 border-green-300 rounded-lg p-4">
                   <h4 className="font-bold text-green-900 mb-2">🏆 최고 성과 포트폴리오</h4>
                   <p className="text-sm text-gray-600 mb-2">날짜: {trackerData.portfolio.summary.bestPortfolio?.date}</p>
-                  <p className="text-2xl font-bold text-green-700 mb-2">
+                  <p className="text-xl md:text-2xl font-bold text-green-700 mb-2">
                     +{trackerData.portfolio.summary.bestPortfolio?.portfolioReturn}%
                   </p>
                   <div className="text-xs text-gray-700">
@@ -3200,7 +3215,7 @@
                 <div className="bg-red-50 border-2 border-red-300 rounded-lg p-4">
                   <h4 className="font-bold text-red-900 mb-2">⚠️ 최저 성과 포트폴리오</h4>
                   <p className="text-sm text-gray-600 mb-2">날짜: {trackerData.portfolio.summary.worstPortfolio?.date}</p>
-                  <p className="text-2xl font-bold text-red-700 mb-2">
+                  <p className="text-xl md:text-2xl font-bold text-red-700 mb-2">
                     {trackerData.portfolio.summary.worstPortfolio?.portfolioReturn}%
                   </p>
                   <div className="text-xs text-gray-700">
@@ -3215,8 +3230,8 @@
 
           {/* Phase 3: 시장 상황별 분석 */}
           {trackerData.byMarket && (
-            <div className="bg-white rounded-xl shadow-lg p-6">
-              <h3 className="text-2xl font-bold mb-6">📊 시장 상황별 성과</h3>
+            <div className="bg-white rounded-xl shadow-lg p-3 md:p-6">
+              <h3 className="text-lg md:text-2xl font-bold mb-4 md:mb-6">📊 시장 상황별 성과</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {Object.entries(trackerData.byMarket).map(([key, mstats]) => (
                   <div key={key} className="bg-gray-50 border-2 border-gray-200 rounded-lg p-4">
@@ -3342,11 +3357,10 @@
               <button
                 onClick={analyzeStocks}
                 disabled={loading || !hasValidCode}
-                className={`px-4 py-2 md:px-8 md:py-3 rounded-lg font-bold text-white transition-all whitespace-nowrap text-sm md:text-base ${
-                  loading || !hasValidCode
-                    ? 'bg-gray-400 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg'
-                }`}
+                className={`px-4 py-2 md:px-8 md:py-3 rounded-lg font-bold text-white transition-all whitespace-nowrap text-sm md:text-base ${loading || !hasValidCode
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg'
+                  }`}
               >
                 {loading ? '분석중...' : '분석'}
               </button>
@@ -3700,13 +3714,13 @@
 
           {/* 추출된 DNA 결과 */}
           {extractedDNA && (
-            <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="bg-white rounded-xl shadow-lg p-3 md:p-6">
               <h3 className="text-xl font-bold text-gray-800 mb-4">✅ 추출된 DNA</h3>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div className="bg-purple-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600">DNA 강도</p>
-                  <p className="text-2xl font-bold text-purple-600">{extractedDNA.dnaStrength}%</p>
+                  <p className="text-xl md:text-2xl font-bold text-purple-600">{extractedDNA.dnaStrength}%</p>
                 </div>
                 <div className="bg-indigo-50 p-4 rounded-lg">
                   <p className="text-sm text-gray-600">분석 종목</p>
@@ -3799,7 +3813,7 @@
 
           {/* 매칭된 종목 결과 */}
           {matchedStocks && (
-            <div className="bg-white rounded-xl shadow-lg p-6">
+            <div className="bg-white rounded-xl shadow-lg p-3 md:p-6">
               <h3 className="text-xl font-bold text-gray-800 mb-4">
                 🎯 DNA 매칭 종목 ({matchedStocks.matchedStocks.length}개)
               </h3>
@@ -3823,7 +3837,7 @@
                           </p>
                         </div>
                         <div className="text-right">
-                          <p className="text-2xl font-bold text-purple-600">
+                          <p className="text-xl md:text-2xl font-bold text-purple-600">
                             {stock.matchScore}점
                           </p>
                           <p className="text-sm text-gray-500">매칭 점수</p>
