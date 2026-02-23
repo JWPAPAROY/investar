@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.40
-- **최종 업데이트**: 2026-02-20
+- **버전**: 3.41
+- **최종 업데이트**: 2026-02-23
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -560,7 +560,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 
 | UTC | KST | 모드 | 동작 |
 |-----|-----|------|------|
-| 06:40 | 15:40 | save | 결산: 스크리닝 → Supabase 저장 + 텔레그램 |
+| 07:10 | 16:10 | save | 결산: 스크리닝 → Supabase 저장 + 텔레그램 |
 | 07:05 | 16:05 | update-prices | 전체 종목 종가 업데이트 (장 마감 후) |
 | 07:20 | 16:20 | patterns | 성공 패턴 수집 |
 | 23:00 | 08:00 | alert | 실시간 스크리닝 TOP 3 알림 |
@@ -660,6 +660,13 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.41 (2026-02-23)
+- **TOP3 로직 완전 통일**: `selectTop3`(백엔드)와 `selectSaveTop3`(텔레그램)을 스윗스팟 우선순위(v3.38)로 통합
+- **결산 cron 시간 조정**: 15:40 → **16:10 KST**로 변경 (16:00 시간외 종가 마감 후 확정 데이터 사용)
+- **프론트엔드 UI 동기화**: 스크리닝 탭도 본문 버튼 클릭 시 실행되도록 변경 (성과검증/DNA 탭과 통일)
+- **강제 새로고침 강화**: 헤더 새로고침 버튼 클릭 시 브라우저 캐시를 무시하는 `window.location.reload(true)` 적용
+- **종목 분석 탭 디자인**: 오렌지-레드 그라데이션 헤더 디자인 적용으로 UI 일관성 확보
 
 ### v3.40 (2026-02-20)
 - **종목 분석 탭**: 종목코드 입력 → 스크리닝 엔진 분석 결과 표시 (RecommendationCard 재사용)
