@@ -659,84 +659,21 @@
                 ) : recommendations.length === 0 ? (
                   <EmptyState onStart={() => { setCachedData(null); fetchRecommendations(); }} loading={loading} />
                 ) : (
-                  <>
-                    {/* 🏆 TOP 3 섹션 */}
-                    {strategyFilter === 'momentum' && top3Recommendations.length > 0 && (
-                      <div className="mt-6">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-xl md:text-2xl">🏆</span>
-                          <h3 className="text-lg md:text-xl font-bold text-gray-800">오늘의 TOP 3</h3>
-                          <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">텔레그램 동일 기준</span>
-                        </div>
-                        <p className="text-xs text-gray-500 mb-4">매수고래 감지 + 스윗스팟 우선순위 (50-69점 승률 72%) — 텔레그램 결산 메시지와 동일한 선정 기준</p>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          {top3Recommendations.map((stock, index) => (
-                            <RecommendationCard
-                              key={'top3-' + stock.stockCode}
-                              stock={stock}
-                              rank={index + 1}
-                              onClick={() => fetchStockDetail(stock.stockCode)}
-                              strategyFilter={strategyFilter}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 🛡️ 방어 TOP 3 섹션 */}
-                    {strategyFilter === 'defense' && defenseTop3Recommendations.length > 0 && (
-                      <div className="mt-6">
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className="text-xl md:text-2xl">🛡️</span>
-                          <h3 className="text-lg md:text-xl font-bold text-gray-800">방어 전략 TOP 3</h3>
-                          <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">기관 수급 기반</span>
-                        </div>
-                        <p className="text-xs text-gray-500 mb-4">기관/외국인 연속 매수 + 과매도 반등 신호 기반 선별</p>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          {defenseTop3Recommendations.map((stock, index) => (
-                            <RecommendationCard
-                              key={'def-top3-' + stock.stockCode}
-                              stock={stock}
-                              rank={index + 1}
-                              onClick={() => fetchStockDetail(stock.stockCode)}
-                              strategyFilter={strategyFilter}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* 전체 종목 리스트 (TOP3 제외, 점수 내림차순) */}
-                    {(() => {
-                      const top3Codes = strategyFilter === 'defense'
-                        ? defenseTop3Recommendations.map(s => s.stockCode)
-                        : top3Recommendations.map(s => s.stockCode);
-                      const restStocks = [...recommendations]
-                        .filter(s => !top3Codes.includes(s.stockCode))
-                        .sort((a, b) => strategyFilter === 'defense'
-                          ? (b.defenseScore || 0) - (a.defenseScore || 0)
-                          : b.totalScore - a.totalScore);
-                      return restStocks.length > 0 && (
-                        <>
-                          <div className="flex items-center gap-2 mt-8 mb-3">
-                            <span className="text-lg md:text-xl">📋</span>
-                            <h3 className="text-base md:text-lg font-bold text-gray-700">전체 종목 ({restStocks.length}개, 점수순)</h3>
-                          </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {restStocks.map((stock, index) => (
-                              <RecommendationCard
-                                key={stock.stockCode}
-                                stock={stock}
-                                rank={index + 1}
-                                onClick={() => fetchStockDetail(stock.stockCode)}
-                                strategyFilter={strategyFilter}
-                              />
-                            ))}
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-8">
+                    {[...recommendations]
+                      .sort((a, b) => strategyFilter === 'defense'
+                        ? (b.defenseScore || 0) - (a.defenseScore || 0)
+                        : b.totalScore - a.totalScore)
+                      .map((stock, index) => (
+                        <RecommendationCard
+                          key={stock.stockCode}
+                          stock={stock}
+                          rank={index + 1}
+                          onClick={() => fetchStockDetail(stock.stockCode)}
+                          strategyFilter={strategyFilter}
+                        />
+                      ))}
+                  </div>
                 )}
 
                 {/* 종목 상세 모달 */}
