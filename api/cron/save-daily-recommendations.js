@@ -1121,6 +1121,20 @@ module.exports = async (req, res) => {
               priceDate = priceData[0].tracking_date;
             }
 
+            // v3.43: DB 종가가 추천일과 같은 경우(= 다음날 가격 미업데이트) KIS API fallback
+            if (priceDate === prevDate) {
+              try {
+                const priceInfo = await kisApi.getCurrentPrice(stock.stock_code);
+                if (priceInfo?.currentPrice) {
+                  latestPrice = priceInfo.currentPrice;
+                  priceDate = today;
+                  console.log(`  📈 ${stock.stock_name} 실시간가: ${latestPrice.toLocaleString()}원`);
+                }
+              } catch (e) {
+                console.warn(`  ⚠️ ${stock.stock_name} 실시간가 조회 실패: ${e.message}`);
+              }
+            }
+
             const returnRate = ((latestPrice - stock.recommended_price) / stock.recommended_price) * 100;
 
             dayStocks.push({
