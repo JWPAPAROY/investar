@@ -27,48 +27,42 @@ module.exports = async function handler(req, res) {
   try {
     const kisApi = require('../../backend/kisApi');
 
-    // 1단계: 종목명 사전 확보 (스크리닝 탭과 동일 — 4종 랭킹 × 2시장 = 8 API calls)
+    // 1단계: 종목명 사전 확보 — Supabase 우선, 없으면 KIS API getStockName fallback
     const nameMap = new Map();
+
+    // 1-1: Supabase에서 종목명 일괄 조회 (가장 빠르고 안정적)
     try {
-      const rankResults = await Promise.all([
-        kisApi.getVolumeSurgeRank('KOSPI', 50).catch(() => []),
-        kisApi.getVolumeSurgeRank('KOSDAQ', 50).catch(() => []),
-        kisApi.getTradingValueRank('KOSPI', 50).catch(() => []),
-        kisApi.getTradingValueRank('KOSDAQ', 50).catch(() => []),
-        kisApi.getPriceChangeRank('KOSPI', 50).catch(() => []),
-        kisApi.getPriceChangeRank('KOSDAQ', 50).catch(() => []),
-        kisApi.getVolumeRank('KOSPI', 50).catch(() => []),
-        kisApi.getVolumeRank('KOSDAQ', 50).catch(() => [])
-      ]);
-      rankResults.flat().forEach(item => {
-        if (item.code && item.name) nameMap.set(item.code, item.name);
+      const { data: dbNames } = await supabase
+        .from('screening_recommendations')
+        .select('stock_code, stock_name')
+        .in('stock_code', uniqueCodes)
+        .not('stock_name', 'is', null)
+        .order('recommendation_date', { ascending: false });
+      dbNames?.forEach(r => {
+        if (!nameMap.has(r.stock_code) && r.stock_name && !r.stock_name.startsWith('[')) {
+          nameMap.set(r.stock_code, r.stock_name);
+        }
       });
-      // kisApi 내부 캐시도 채워서 getCurrentPrice()에서 바로 사용
-      if (!kisApi.stockNameCache) kisApi.stockNameCache = new Map();
-      nameMap.forEach((name, code) => kisApi.stockNameCache.set(code, name));
-      console.log(`📋 랭킹 API 종목명 확보: ${nameMap.size}개`);
+      console.log(`📋 Supabase 종목명: ${nameMap.size}개`);
     } catch (e) {
-      console.warn('⚠️ 랭킹 API 종목명 조회 실패:', e.message);
+      console.warn('⚠️ Supabase 종목명 조회 실패:', e.message);
     }
 
-    // 랭킹에 없는 종목은 Supabase에서 보완
+    // 1-2: Supabase에 없는 종목은 KIS API getStockName으로 개별 조회
     const missingCodes = uniqueCodes.filter(c => !nameMap.has(c));
-    if (missingCodes.length > 0) {
+    for (const code of missingCodes) {
       try {
-        const { data: dbNames } = await supabase
-          .from('screening_recommendations')
-          .select('stock_code, stock_name')
-          .in('stock_code', missingCodes)
-          .not('stock_name', 'like', '[%')
-          .order('recommended_date', { ascending: false });
-        dbNames?.forEach(r => {
-          if (!nameMap.has(r.stock_code) && r.stock_name) {
-            nameMap.set(r.stock_code, r.stock_name);
-          }
-        });
-        console.log(`📋 Supabase 보완: +${dbNames?.length || 0}개 → 총 ${nameMap.size}개`);
+        const name = await kisApi.getStockName(code);
+        if (name) {
+          nameMap.set(code, name);
+          console.log(`📋 KIS API 종목명: ${code} → ${name}`);
+        }
       } catch (e) { /* ignore */ }
     }
+
+    // kisApi 내부 캐시에도 저장 (getCurrentPrice에서 활용)
+    if (!kisApi.stockNameCache) kisApi.stockNameCache = new Map();
+    nameMap.forEach((name, code) => kisApi.stockNameCache.set(code, name));
 
     // 2단계: 종목 순차 분석
     const results = [];
@@ -86,8 +80,8 @@ module.exports = async function handler(req, res) {
         }
 
         if (result) {
-          // 종목명 보완
-          if (!result.stockName || result.stockName.startsWith('[')) {
+          // 종목명 보완: 없거나 [코드] 형태이거나 6자리 숫자(코드 자체)인 경우
+          if (!result.stockName || result.stockName.startsWith('[') || /^\d{6}$/.test(result.stockName)) {
             const name = nameMap.get(code);
             if (name) result.stockName = name;
           }
