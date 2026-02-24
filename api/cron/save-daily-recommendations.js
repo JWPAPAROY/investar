@@ -923,9 +923,15 @@ function isKRXHoliday(dateStr) {
 
 /**
  * 거래일 여부 판별 (주말 + KRX 공휴일 제외)
+ * v3.43: getUTCDay() 사용 — Vercel(UTC 서버)에서 getDay()는 로컬 타임존 기반이라
+ *        KST +09:00 날짜가 UTC로 전날로 변환되어 요일이 틀려지는 버그 수정
  */
 function isTradingDay(dateStr) {
-  const day = new Date(dateStr + 'T00:00:00+09:00').getDay();
+  // dateStr은 'YYYY-MM-DD' 형태의 KST 날짜
+  // UTC 자정으로 파싱하여 요일 판별 (KST 날짜 자체의 요일을 구하기 위함)
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const utcDate = new Date(Date.UTC(y, m - 1, d));
+  const day = utcDate.getUTCDay();
   if (day === 0 || day === 6) return false;
   return !KRX_HOLIDAYS.has(dateStr);
 }
