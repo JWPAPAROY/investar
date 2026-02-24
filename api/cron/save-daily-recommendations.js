@@ -524,6 +524,22 @@ function isMarketDefensive(sentiment) {
 }
 
 /**
+ * v3.43: DB에 저장된 is_top3/is_defense_top3 플래그 기반 TOP3 조회
+ * 결산(save) 시점에 저장된 TOP3를 그대로 사용하여 불일치 방지
+ * fallback: is_top3 미저장 시 기존 선별 로직 사용
+ */
+function getTop3FromDb(stocks, field = 'is_top3') {
+  const dbTop3 = (stocks || [])
+    .filter(s => s[field])
+    .sort((a, b) => (b.total_score || 0) - (a.total_score || 0));
+  if (dbTop3.length > 0) return dbTop3.slice(0, 3);
+  // fallback: is_top3 미저장 시 기존 로직
+  return field === 'is_defense_top3'
+    ? selectDefenseAlertTop3(stocks || [])
+    : selectAlertTop3(stocks || []).slice(0, 3);
+}
+
+/**
  * v3.34: 방어 TOP 3 텔레그램 메시지 포맷 (공통)
  */
 function formatDefenseTop3Section(defenseTop3, mode = 'save') {
@@ -1034,9 +1050,9 @@ module.exports = async (req, res) => {
         .eq('is_active', true)
         .order('total_score', { ascending: false });
 
-      // Step 2: TOP 3 선별 (모멘텀 + 방어)
-      const top3 = selectAlertTop3(savedStocks || []).slice(0, 3);
-      const defenseAlertTop3 = selectDefenseAlertTop3(savedStocks || []);
+      // Step 2: TOP 3 선별 (모멘텀 + 방어) — DB is_top3 플래그 기반 (v3.43)
+      const top3 = getTop3FromDb(savedStocks, 'is_top3');
+      const defenseAlertTop3 = getTop3FromDb(savedStocks, 'is_defense_top3');
       console.log(`✅ TOP 3 선정: ${top3.length}개, 방어 TOP 3: ${defenseAlertTop3.length}개`);
 
       // v3.33: 종목 정보 보완 (통합 함수)
@@ -1074,8 +1090,8 @@ module.exports = async (req, res) => {
             .eq('is_active', true)
             .order('total_score', { ascending: false });
 
-          // TOP 3만 선별 (selectSaveTop3와 동일한 기준 적용)
-          const prevTop3 = selectAlertTop3(prevStocks || []).slice(0, 3);
+          // TOP 3: DB is_top3 플래그 기반 (v3.43)
+          const prevTop3 = getTop3FromDb(prevStocks, 'is_top3');
           if (prevTop3.length === 0) continue;
 
           // v3.33: 과거 추천 종목 정보 보완 (종목명 + 시장)
@@ -1207,7 +1223,7 @@ module.exports = async (req, res) => {
           .eq('is_active', true)
           .order('total_score', { ascending: false });
 
-        const top3 = selectAlertTop3(savedStocks || []).slice(0, 3);
+        const top3 = getTop3FromDb(savedStocks, 'is_top3');
         if (top3.length === 0) continue;
 
         // v3.33: 종목 정보 보완 (통합 함수)
@@ -1374,8 +1390,8 @@ module.exports = async (req, res) => {
     if (existingData && existingData.length > 0 && !skipDbSave) {
       console.log(`⚡ 기존 결산 데이터 발견 (${existingData.length}개) - 재스크리닝 건너뜀`);
 
-      // 기존 데이터로 메시지 생성
-      const top3ForAlert = selectAlertTop3(existingData).slice(0, 3);
+      // 기존 데이터로 메시지 생성 — DB is_top3 플래그 기반 (v3.43)
+      const top3ForAlert = getTop3FromDb(existingData, 'is_top3');
 
       // v3.33: 종목 정보 보완 (통합 함수)
       await supplementStockInfo(top3ForAlert);
@@ -1400,7 +1416,7 @@ module.exports = async (req, res) => {
             .eq('is_active', true)
             .order('total_score', { ascending: false });
 
-          const prevTop3 = selectAlertTop3(prevStocks || []).slice(0, 3);
+          const prevTop3 = getTop3FromDb(prevStocks, 'is_top3');
           await supplementStockInfo(prevTop3);
 
           for (const s of prevTop3) {
@@ -1520,8 +1536,8 @@ module.exports = async (req, res) => {
         }
       }));
 
-      // v3.34: 방어 TOP 3도 cached 경로에서 선별
-      const defenseAlertTop3 = selectDefenseAlertTop3(existingData);
+      // v3.34: 방어 TOP 3도 cached 경로에서 선별 — DB 플래그 기반 (v3.43)
+      const defenseAlertTop3 = getTop3FromDb(existingData, 'is_defense_top3');
       const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, defenseAlertTop3);
       const sent = await sendTelegramMessage(message);
 
@@ -1788,7 +1804,7 @@ module.exports = async (req, res) => {
           .eq('is_active', true) : { data: null };
 
         if (yestStocks && yestStocks.length > 0) {
-          const yestTop3 = selectAlertTop3(yestStocks).slice(0, 3);
+          const yestTop3 = getTop3FromDb(yestStocks, 'is_top3');
 
           // v3.33: 종목 정보 보완 (통합 함수)
           await supplementStockInfo(yestTop3);
