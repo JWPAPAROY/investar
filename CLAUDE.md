@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.41
-- **최종 업데이트**: 2026-02-23
+- **버전**: 3.43
+- **최종 업데이트**: 2026-02-24
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -681,6 +681,12 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.43 (2026-02-24)
+- **TOP3 불일치 해결**: 알림/추적/과거성과에서 `selectAlertTop3()` 재선별 → DB `is_top3` 플래그 직접 사용 (`getTop3FromDb()` 헬퍼)
+- **`isTradingDay()` UTC 타임존 버그 수정**: Vercel(UTC)에서 `getDay()`가 KST 날짜를 전날로 판정 → `Date.UTC()` + `getUTCDay()`로 수정
+- **알림 과거 추천성과 D-1 가격 0% 수정**: DB에 최신 종가 미업데이트 시 KIS API 실시간가 fallback 추가
+- **종목 분석 탭 종목명 안정화**: 8개 랭킹 API 제거 → Supabase 일괄 조회 + KIS `getStockName` fallback, Supabase 컬럼명 오타 수정 (`recommended_date` → `recommendation_date`)
 
 ### v3.42 (2026-02-23)
 - **종목 분석 탭 API 최적화**: 불필요한 8개 랭킹 API 동시호출 제거 → Supabase + getCurrentPrice 내장 종목명으로 대체 (종목당 11→3 API)
