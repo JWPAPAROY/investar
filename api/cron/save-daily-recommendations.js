@@ -1161,6 +1161,7 @@ module.exports = async (req, res) => {
         success: true,
         mode: 'alert',
         date: today,
+        latestSaveDate,
         top3Count: top3.length,
         telegramSent: sent,
         stocks: top3.map(s => ({
