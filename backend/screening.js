@@ -1856,23 +1856,36 @@ class StockScreener {
     const results = [];
     let analyzed = 0;
 
-    // 전체 100개 분석
-    for (const stockCode of finalStockList) {
-      try {
-        const analysis = await this.analyzeStock(stockCode);
+    // 병렬 배치 분석 (2개씩 동시 처리, KIS API 초당 20회 제한 내)
+    const BATCH_SIZE = 2;
+    for (let i = 0; i < finalStockList.length; i += BATCH_SIZE) {
+      const batch = finalStockList.slice(i, i + BATCH_SIZE);
+
+      const batchResults = await Promise.allSettled(
+        batch.map(stockCode => this.analyzeStock(stockCode))
+      );
+
+      for (let j = 0; j < batchResults.length; j++) {
+        const result = batchResults[j];
+        const stockCode = batch[j];
         analyzed++;
 
+        if (result.status === 'rejected') {
+          console.error(`❌ 분석 실패 [${stockCode}]:`, result.reason?.message);
+          continue;
+        }
+
+        const analysis = result.value;
+
         // 🆕 v3.13: 지속적 폭락 필터
-        // 목적: 유일에너테크 같은 폭락 중 종목 추천 방지
         if (analysis && analysis.crashCheck && analysis.crashCheck.isCrashing) {
           console.log(`❌ [${analysis.stockName}] ${analysis.crashCheck.message} - 종목 제외`);
-          continue; // 폭락 종목은 완전 차단
+          continue;
         }
 
         // skipScoreFilter가 true면 점수 무시, false면 20점 이상만 (C등급 이상)
         if (analysis && (skipScoreFilter || analysis.totalScore >= 20)) {
           analysis.market = marketMap?.get(stockCode) || null;
-          // nameMap에서 종목명 보완 (getCurrentPrice에서 누락된 경우)
           if (!analysis.stockName || analysis.stockName === stockCode || analysis.stockName.startsWith('[')) {
             const poolName = stockNameMap?.get(stockCode);
             if (poolName && poolName !== stockCode && !poolName.startsWith('[')) {
@@ -1882,16 +1895,14 @@ class StockScreener {
           results.push(analysis);
           console.log(`✅ [${results.length}] ${analysis.stockName} (${analysis.stockCode}) - 점수: ${analysis.totalScore.toFixed(1)}`);
         }
+      }
 
-        // API 호출 간격 (100ms) - Vercel 60초 타임아웃 대응
-        await new Promise(resolve => setTimeout(resolve, 100));
+      // 배치 간 간격 (100ms) - KIS API rate limit 준수
+      await new Promise(resolve => setTimeout(resolve, 100));
 
-        // 진행률 로그
-        if (analyzed % 10 === 0) {
-          console.log(`📊 분석: ${analyzed}/${finalStockList.length}, 발견: ${results.length}개`);
-        }
-      } catch (error) {
-        console.error(`❌ 분석 실패 [${stockCode}]:`, error.message);
+      // 진행률 로그
+      if (analyzed % 10 === 0) {
+        console.log(`📊 분석: ${analyzed}/${finalStockList.length}, 발견: ${results.length}개`);
       }
     }
 
