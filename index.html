@@ -129,6 +129,7 @@
       const [lastUpdate, setLastUpdate] = useState(null);
       const [activeTab, setActiveTab] = useState('screening'); // screening, performance, analyze, dna
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
+      const [screeningDuration, setScreeningDuration] = useState(null); // 스크리닝 소요 시간(초)
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
       const [defenseTop3Recommendations, setDefenseTop3Recommendations] = useState([]); // v3.34: 방어 TOP 3
       const [strategyFilter, setStrategyFilter] = useState('momentum'); // v3.34: momentum, defense, all
@@ -181,6 +182,8 @@
         try {
           setLoading(true);
           setError(null);
+          setScreeningDuration(null);
+          const startTime = Date.now();
 
           const url = `${API_BASE_URL}/screening/recommend`;
 
@@ -195,6 +198,7 @@
             setTop3Recommendations(result.top3 || []); // 🆕 TOP 3 추천 종목 저장
             setDefenseTop3Recommendations(result.defenseTop3 || []); // v3.34
             setScreeningMetadata(result.metadata || null);
+            setScreeningDuration(((Date.now() - startTime) / 1000).toFixed(1));
             setLastUpdate(new Date());
 
             // 캐시에 저장
@@ -477,9 +481,18 @@
                           </div>
                         </>
                       )}
+                      {screeningDuration && (
+                        <>
+                          <div className="text-gray-400">|</div>
+                          <div>
+                            <span className="text-gray-600">소요:</span>
+                            <span className="font-bold text-orange-600 ml-1">{screeningDuration}초</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                     <p className="text-xs text-gray-500 text-center mt-2">
-                      종목 풀: 등락률·거래량급증·거래량·거래대금 상위 50개 × KOSPI+KOSDAQ (400개) → ETF/ETN 제거 → 중복 제거 → 분석 대상 (매 조회 시 시장 상황에 따라 변동)
+                      종목 풀: 거래량증가율(200) + 거래량순위(100) + 거래대금(50) × KOSPI+KOSDAQ (700개) → ETF/ETN 제거 → 중복 제거 → 분석 대상
                     </p>
                   </div>
                 )}
