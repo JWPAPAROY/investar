@@ -801,26 +801,7 @@
               </div>
             </div>
 
-            {/* 방어 전략 요약 (모멘텀 모드에서만 추가 표시) */}
-            {!isDefense && stock.defenseScore > 0 && (
-              <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-sm font-bold text-blue-700">🛡️ 방어 전략</span>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-2 py-1 rounded text-xs font-bold ${stock.defenseGrade?.includes('S') ? 'bg-purple-100 text-purple-700' : stock.defenseGrade === 'D-A' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{stock.defenseGrade}</span>
-                    <span className="font-bold text-blue-600">{stock.defenseScore.toFixed(0)}점</span>
-                  </div>
-                </div>
-                {stock.defenseBreakdown && (
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs">기관수급 {stock.defenseBreakdown.smartMoney?.total || 0}</span>
-                    <span className="px-2 py-1 bg-green-50 text-green-700 rounded text-xs">반등 {stock.defenseBreakdown.recovery?.total || 0}</span>
-                    <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs">안정 {stock.defenseBreakdown.stability?.total || 0}</span>
-                    <span className="px-2 py-1 bg-orange-50 text-orange-700 rounded text-xs">안전 {stock.defenseBreakdown.safety?.total || 0}</span>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* 방어 전략 요약은 방어 모드 토글에서만 표시 (모멘텀 카드에서 제거) */}
 
             {/* 주요 지표 */}
             <div className="grid grid-cols-3 gap-1 md:gap-2 text-xs md:text-sm mt-3 md:mt-4">
@@ -910,13 +891,18 @@
       );
     }
 
-    // 로딩 화면
+    // 로딩 화면 (실시간 초 카운팅)
     function LoadingScreen() {
+      const [elapsed, setElapsed] = useState(0);
+      useEffect(() => {
+        const timer = setInterval(() => setElapsed(s => s + 1), 1000);
+        return () => clearInterval(timer);
+      }, []);
       return (
         <div className="text-center py-12 md:py-20">
           <div className="inline-block animate-spin rounded-full h-12 w-12 md:h-16 md:w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
           <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">AI가 종목을 분석하고 있습니다...</h3>
-          <p className="text-sm md:text-base text-gray-600">전체 종목 스크리닝 중 (수 분 소요)</p>
+          <p className="text-sm md:text-base text-gray-600">전체 종목 스크리닝 중 <span className="font-mono font-bold text-indigo-600">{elapsed}초</span></p>
         </div>
       );
     }
