@@ -79,59 +79,69 @@ async function collectSuccessPatterns(req, res) {
 
   console.log(`   활성 추천: ${recommendations.length}개`);
 
-  // 2. 각 추천의 최고 수익률 확인
+  // 2. 이미 수집된 패턴 ID 일괄 조회
+  let existingRecIds = new Set();
+  const recIds = recommendations.map(r => r.id);
+  for (let b = 0; b < recIds.length; b += 300) {
+    const { data: existingData } = await supabase
+      .from('success_patterns')
+      .select('recommendation_id')
+      .in('recommendation_id', recIds.slice(b, b + 300));
+    if (existingData) existingData.forEach(e => existingRecIds.add(e.recommendation_id));
+  }
+  console.log(`   기존 패턴: ${existingRecIds.size}개 (스킵)`);
+
+  // 이미 수집된 것 제외
+  const uncollectedRecs = recommendations.filter(r => !existingRecIds.has(r.id));
+  console.log(`   미수집 추천: ${uncollectedRecs.length}개 확인 대상`);
+
+  // 3. 일별 가격 일괄 조회 (배치)
+  let allPrices = [];
+  const uncollectedIds = uncollectedRecs.map(r => r.id);
+  for (let b = 0; b < uncollectedIds.length; b += 300) {
+    const { data: priceData } = await supabase
+      .from('recommendation_daily_prices')
+      .select('recommendation_id, tracking_date, cumulative_return')
+      .in('recommendation_id', uncollectedIds.slice(b, b + 300))
+      .order('tracking_date', { ascending: true });
+    if (priceData) allPrices = allPrices.concat(priceData);
+  }
+
+  // recommendation_id별로 그룹핑
+  const priceMap = new Map();
+  allPrices.forEach(p => {
+    if (!priceMap.has(p.recommendation_id)) priceMap.set(p.recommendation_id, []);
+    priceMap.get(p.recommendation_id).push(p);
+  });
+
+  // 4. 각 추천의 최고 수익률 확인
   const successPatterns = [];
 
-  for (const rec of recommendations) {
-    // 해당 추천의 일별 가격 조회
-    const { data: prices, error: priceError } = await supabase
-      .from('recommendation_daily_prices')
-      .select('*')
-      .eq('recommendation_id', rec.id)
-      .order('tracking_date', { ascending: true });
+  for (const rec of uncollectedRecs) {
+    const prices = priceMap.get(rec.id);
+    if (!prices || prices.length === 0) continue;
 
-    if (priceError || !prices || prices.length === 0) continue;
-
-    // 최고 수익률 계산
     const maxReturn = Math.max(...prices.map(p => p.cumulative_return || 0));
     const currentReturn = prices[prices.length - 1]?.cumulative_return || 0;
 
-    // 10% 이상 달성 여부 확인
     if (maxReturn >= SUCCESS_THRESHOLD) {
-      // 이미 수집된 패턴인지 확인
-      const { data: existing } = await supabase
-        .from('success_patterns')
-        .select('id')
-        .eq('recommendation_id', rec.id)
-        .single();
-
-      if (existing) continue; // 이미 수집됨
-
-      // 10% 최초 달성일 찾기
       const successPrice = prices.find(p => p.cumulative_return >= SUCCESS_THRESHOLD);
       const successDate = successPrice?.tracking_date || today;
       const daysToSuccess = Math.round(
         (new Date(successDate) - new Date(rec.recommendation_date)) / (24 * 60 * 60 * 1000)
       );
 
-      // 성공 패턴 데이터 구성
-      const pattern = {
+      successPatterns.push({
         recommendation_id: rec.id,
         stock_code: rec.stock_code,
         stock_name: rec.stock_name,
-
-        // 성공 기준 정보
         success_date: successDate,
         recommendation_date: rec.recommendation_date,
         days_to_success: daysToSuccess,
         max_return: parseFloat(maxReturn.toFixed(2)),
         final_return: parseFloat(currentReturn.toFixed(2)),
-
-        // 추천 등급/점수
         recommendation_grade: rec.recommendation_grade,
         total_score: rec.total_score,
-
-        // 거래량 기준 지표
         volume_ratio: rec.volume_ratio,
         volume_acceleration_score: rec.volume_acceleration_score,
         volume_acceleration_trend: rec.volume_acceleration_trend,
@@ -143,8 +153,6 @@ async function collectSuccessPatterns(req, res) {
         whale_confirmed: rec.whale_confirmed,
         whale_volume_ratio: rec.whale_volume_ratio,
         whale_price_change: rec.whale_price_change,
-
-        // 시세 기준 지표
         rsi: rec.rsi,
         mfi: rec.mfi,
         disparity: rec.disparity,
@@ -154,19 +162,13 @@ async function collectSuccessPatterns(req, res) {
         escape_velocity: rec.escape_velocity,
         escape_closing_strength: rec.escape_closing_strength,
         upper_shadow_ratio: rec.upper_shadow_ratio,
-
-        // 수급 기준 지표
         institution_buy_days: rec.institution_buy_days,
         foreign_buy_days: rec.foreign_buy_days,
-
-        // 복합 지표
         accumulation_detected: rec.accumulation_detected,
         vpd_score: rec.vpd_score,
         vpd_raw: rec.vpd_raw,
         market_cap: rec.market_cap
-      };
-
-      successPatterns.push(pattern);
+      });
       console.log(`   ✅ ${rec.stock_name} (+${maxReturn.toFixed(1)}%, ${daysToSuccess}일)`);
     }
   }
