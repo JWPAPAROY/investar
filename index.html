@@ -2664,8 +2664,28 @@
                 <p className="text-purple-800 mb-2">아직 수집된 성공 패턴이 없습니다.</p>
                 <p className="text-sm text-purple-600">+10% 수익 달성 종목이 발생하면 자동으로 패턴이 수집됩니다.</p>
                 <button
-                  onClick={() => fetch(`${apiBaseUrl}/patterns`, { method: 'POST' }).then(() => window.location.reload())}
-                  className="mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm"
+                  onClick={async (e) => {
+                    const btn = e.currentTarget;
+                    btn.disabled = true;
+                    btn.textContent = '⏳ 수집 중...';
+                    try {
+                      const resp = await fetch(`${apiBaseUrl}/patterns`, { method: 'POST' });
+                      const data = await resp.json();
+                      if (data.collected > 0) {
+                        btn.textContent = `✅ ${data.collected}개 패턴 수집 완료`;
+                        setTimeout(() => window.location.reload(), 1500);
+                      } else {
+                        btn.textContent = '아직 +10% 달성 종목이 없습니다';
+                        btn.disabled = false;
+                        setTimeout(() => { btn.textContent = '🔄 패턴 수집 실행'; }, 3000);
+                      }
+                    } catch (err) {
+                      btn.textContent = '❌ 수집 실패: ' + err.message;
+                      btn.disabled = false;
+                      setTimeout(() => { btn.textContent = '🔄 패턴 수집 실행'; }, 3000);
+                    }
+                  }}
+                  className="mt-3 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 text-sm disabled:opacity-50"
                 >
                   🔄 패턴 수집 실행
                 </button>
