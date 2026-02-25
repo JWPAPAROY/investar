@@ -731,12 +731,13 @@ class StockScreener {
     const rsi = this.calculateRSI(chartData, 14);
     const disparity = this.calculateDisparity(chartData, currentPrice, 20);
 
-    // v3.18.1: OR→AND 변경 (RSI와 이격도 모두 과열이어야 과열 판정)
-    const overheated = (rsi > 80) && (disparity > 115);
+    // v3.44: RSI 80→85로 완화 (RSI 80-85 구간 승률 83.3%, 최고수익 +48.49%)
+    // 이격도 115→120으로 완화 (강한 모멘텀 종목 과도 필터링 방지)
+    const overheated = (rsi > 85) && (disparity > 120);
     let reason = 'normal';
 
-    if (rsi > 80 && disparity > 115) {
-      reason = `과열 (RSI ${rsi.toFixed(1)} > 80 AND 이격도 ${disparity.toFixed(1)} > 115)`;
+    if (rsi > 85 && disparity > 120) {
+      reason = `과열 (RSI ${rsi.toFixed(1)} > 85 AND 이격도 ${disparity.toFixed(1)} > 120)`;
     }
 
     return {
@@ -2018,13 +2019,17 @@ class StockScreener {
     console.log(`\n🔍 TOP 3 선정 시작...`);
     console.log(`  전체 종목: ${allStocks.length}개`);
 
-    // v3.38: 매수고래 + 비과열 + 이격도/등락률 필터
+    // v3.44: 고래 OR 거래량비율≥1.5 + 비과열 + 이격도/등락률 필터
+    // 고래 필터 완화: 고래 미감지 종목도 거래량 증가 시 후보 허용 (백테스트 승률 63.6%)
     const eligible = allStocks.filter(stock => {
       const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+      const volMA20 = stock.volumeAnalysis?.current?.volumeMA20 || 0;
+      const volumeRatio = volMA20 > 0 ? stock.volume / volMA20 : 0;
+      const hasVolumeSignal = volumeRatio >= 1.5;
       const isOverheated = stock.recommendation?.grade === '과열';
       const disparity = stock.overheatingV2?.disparity || 100;
       const changeRate = Math.abs(stock.changeRate || 0);
-      return hasBuyWhale && !isOverheated && changeRate < 25 && disparity < 150;
+      return (hasBuyWhale || hasVolumeSignal) && !isOverheated && changeRate < 25 && disparity < 150;
     });
 
     console.log(`  └─ TOP 3 후보 (매수고래+비과열+필터): ${eligible.length}개`);
