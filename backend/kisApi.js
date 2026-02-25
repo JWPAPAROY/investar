@@ -670,7 +670,7 @@ class KISApi {
     console.log('📊 동적 종목 리스트 생성 시작 (ETF/ETN 제외)...');
 
     const stockMap = new Map(); // code -> name 매핑 (중복 제거 + 이름 캐싱)
-    const badgeMap = new Map(); // code -> { volumeSurge, tradingValue, volume } 뱃지 정보
+    const badgeMap = new Map(); // code -> { volumeSurge, volume, tradingValue } 뱃지 정보
     const marketMap = new Map(); // code -> 'KOSPI' 또는 'KOSDAQ'
     const markets = market === 'ALL' ? ['KOSPI', 'KOSDAQ'] : [market];
     const apiCallResults = []; // 각 API 호출 결과 추적
@@ -680,42 +680,18 @@ class KISApi {
     this._apiErrors = [];
 
     try {
-      // 전략: 4가지 순위 API 조합 (각 30개 제한)
+      // 전략: 3가지 순위 API 조합 (VPD 철학 최적화)
       // KOSPI/KOSDAQ 각각:
-      //   - 등락률 상승 30개
-      //   - 거래량 증가율 30개 (거래량 등락률)
-      //   - 거래량 순위 30개
-      //   - 거래대금 순위 30개
-      // = 120개/시장 * 2시장 = 240개 (중복 제거 후 ~100개 목표)
+      //   - 거래량 증가율 70개 (핵심 VPD 신호)
+      //   - 거래량 순위 50개 (대형주 안전판)
+      //   - 거래대금 순위 30개 (메가캡 보완)
+      // = 150개/시장 * 2시장 = 300개 (중복 제거 후 ~80-100개 목표)
+      // ※ 등락률 상승 제거: VPD 철학("가격 미반영") 역행, 승률 72.9% vs 나머지 87.3%
       for (const mkt of markets) {
         console.log(`\n📊 ${mkt} 시장 데이터 수집 중...`);
 
-        // 1. 등락률 상승 순위 (50개) - 가격 급등
-        const priceChange = await this.getPriceChangeRank(mkt, 50);
-        const filteredPriceChange = priceChange.filter(item => {
-          if (this.isNonStockItem(item.name)) {
-            filteredCount++;
-            return false;
-          }
-          return true;
-        });
-        apiCallResults.push({ market: mkt, api: 'priceChange', count: filteredPriceChange.length, target: 50, filtered: priceChange.length - filteredPriceChange.length });
-        console.log(`  - 등락률 상승: ${filteredPriceChange.length}/50 (${priceChange.length - filteredPriceChange.length}개 필터링)`);
-
-        filteredPriceChange.forEach(item => {
-          if (!stockMap.has(item.code)) {
-            if (item.name && item.name.trim() !== '') {
-              stockMap.set(item.code, item.name);
-            }
-            marketMap.set(item.code, mkt);
-            badgeMap.set(item.code, { priceChange: true, volumeSurge: false, volume: false, tradingValue: false });
-          } else {
-            badgeMap.get(item.code).priceChange = true;
-          }
-        });
-
-        // 2. 거래량 증가율 순위 (50개) - 거래량 급증
-        const volumeSurge = await this.getVolumeSurgeRank(mkt, 50);
+        // 1. 거래량 증가율 순위 (70개) - 핵심 VPD 신호
+        const volumeSurge = await this.getVolumeSurgeRank(mkt, 70);
         const filteredVolumeSurge = volumeSurge.filter(item => {
           if (this.isNonStockItem(item.name)) {
             filteredCount++;
@@ -723,8 +699,8 @@ class KISApi {
           }
           return true;
         });
-        apiCallResults.push({ market: mkt, api: 'volumeSurge', count: filteredVolumeSurge.length, target: 50, filtered: volumeSurge.length - filteredVolumeSurge.length });
-        console.log(`  - 거래량 증가율: ${filteredVolumeSurge.length}/50 (${volumeSurge.length - filteredVolumeSurge.length}개 필터링)`);
+        apiCallResults.push({ market: mkt, api: 'volumeSurge', count: filteredVolumeSurge.length, target: 70, filtered: volumeSurge.length - filteredVolumeSurge.length });
+        console.log(`  - 거래량 증가율: ${filteredVolumeSurge.length}/70 (${volumeSurge.length - filteredVolumeSurge.length}개 필터링)`);
 
         filteredVolumeSurge.forEach(item => {
           if (!stockMap.has(item.code)) {
@@ -732,13 +708,13 @@ class KISApi {
               stockMap.set(item.code, item.name);
             }
             marketMap.set(item.code, mkt);
-            badgeMap.set(item.code, { priceChange: false, volumeSurge: true, volume: false, tradingValue: false });
+            badgeMap.set(item.code, { volumeSurge: true, volume: false, tradingValue: false });
           } else {
             badgeMap.get(item.code).volumeSurge = true;
           }
         });
 
-        // 3. 거래량 순위 (50개) - 절대 거래량
+        // 2. 거래량 순위 (50개) - 절대 거래량
         const volume = await this.getVolumeRank(mkt, 50);
         const filteredVolume = volume.filter(item => {
           if (this.isNonStockItem(item.name)) {
@@ -756,14 +732,14 @@ class KISApi {
               stockMap.set(item.code, item.name);
             }
             marketMap.set(item.code, mkt);
-            badgeMap.set(item.code, { priceChange: false, volumeSurge: false, volume: true, tradingValue: false });
+            badgeMap.set(item.code, { volumeSurge: false, volume: true, tradingValue: false });
           } else {
             badgeMap.get(item.code).volume = true;
           }
         });
 
-        // 4. 거래대금 순위 (50개) - 대형주 활동성
-        const tradingValue = await this.getTradingValueRank(mkt, 50);
+        // 3. 거래대금 순위 (30개) - 메가캡 보완
+        const tradingValue = await this.getTradingValueRank(mkt, 30);
         const filteredTradingValue = tradingValue.filter(item => {
           if (this.isNonStockItem(item.name)) {
             filteredCount++;
@@ -771,8 +747,8 @@ class KISApi {
           }
           return true;
         });
-        apiCallResults.push({ market: mkt, api: 'tradingValue', count: filteredTradingValue.length, target: 50, filtered: tradingValue.length - filteredTradingValue.length });
-        console.log(`  - 거래대금 순위: ${filteredTradingValue.length}/50 (${tradingValue.length - filteredTradingValue.length}개 필터링)`);
+        apiCallResults.push({ market: mkt, api: 'tradingValue', count: filteredTradingValue.length, target: 30, filtered: tradingValue.length - filteredTradingValue.length });
+        console.log(`  - 거래대금 순위: ${filteredTradingValue.length}/30 (${tradingValue.length - filteredTradingValue.length}개 필터링)`);
 
         filteredTradingValue.forEach(item => {
           if (!stockMap.has(item.code)) {
@@ -780,7 +756,7 @@ class KISApi {
               stockMap.set(item.code, item.name);
             }
             marketMap.set(item.code, mkt);
-            badgeMap.set(item.code, { priceChange: false, volumeSurge: false, volume: false, tradingValue: true });
+            badgeMap.set(item.code, { volumeSurge: false, volume: false, tradingValue: true });
           } else {
             badgeMap.get(item.code).tradingValue = true;
           }
