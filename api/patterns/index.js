@@ -740,6 +740,12 @@ async function getPatternAnalysis(req, res) {
     });
   }
 
+  // 각 인사이트에 needsReview 플래그 추가 (검토/완화/재검토/축소/상향/과대/과도 키워드 포함 시)
+  const reviewKeywords = ['검토', '완화', '재검토', '축소', '상향', '과대', '과도', '연장'];
+  insights.forEach(ins => {
+    ins.needsReview = reviewKeywords.some(kw => ins.suggestion.includes(kw));
+  });
+
   analysis.insights = insights;
 
   // 5. 최근 패턴 목록 (stock_code 기준 중복 제거, 최신 성공만 상위 20개)
