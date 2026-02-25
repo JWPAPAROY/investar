@@ -801,6 +801,27 @@
               </div>
             </div>
 
+            {/* 방어 전략 요약 (모멘텀 모드에서만 추가 표시) */}
+            {!isDefense && stock.defenseScore > 0 && (
+              <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-bold text-blue-700">🛡️ 방어 전략</span>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-2 py-1 rounded text-xs font-bold ${stock.defenseGrade?.includes('S') ? 'bg-purple-100 text-purple-700' : stock.defenseGrade === 'D-A' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{stock.defenseGrade}</span>
+                    <span className="font-bold text-blue-600">{stock.defenseScore.toFixed(0)}점</span>
+                  </div>
+                </div>
+                {stock.defenseBreakdown && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    <span className="px-2 py-1 bg-blue-50 text-blue-700 rounded text-xs">기관수급 {stock.defenseBreakdown.smartMoney?.total || 0}</span>
+                    <span className="px-2 py-1 bg-green-50 text-green-700 rounded text-xs">반등 {stock.defenseBreakdown.recovery?.total || 0}</span>
+                    <span className="px-2 py-1 bg-purple-50 text-purple-700 rounded text-xs">안정 {stock.defenseBreakdown.stability?.total || 0}</span>
+                    <span className="px-2 py-1 bg-orange-50 text-orange-700 rounded text-xs">안전 {stock.defenseBreakdown.safety?.total || 0}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* 주요 지표 */}
             <div className="grid grid-cols-3 gap-1 md:gap-2 text-xs md:text-sm mt-3 md:mt-4">
               <div className="bg-blue-50 p-2 rounded relative group">
@@ -1239,6 +1260,67 @@
                       );
                     })()}
                   </div>
+                </div>
+              )}
+
+              {/* 방어 전략 상세 분석 */}
+              {stock.defenseScore > 0 && stock.defenseBreakdown && (
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-3 md:p-6">
+                  <div className="flex items-center justify-between mb-3 md:mb-4">
+                    <h3 className="text-lg md:text-xl font-bold">🛡️ 방어 전략 상세 분석</h3>
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-1 rounded text-sm font-bold ${stock.defenseGrade?.includes('S') ? 'bg-purple-100 text-purple-700' : stock.defenseGrade === 'D-A' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{stock.defenseGrade}</span>
+                      <span className="text-xl md:text-2xl font-bold text-blue-600">{stock.defenseScore.toFixed(0)}점</span>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600 mb-4">{stock.defenseBreakdown.formula || 'Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20) + SignalAdj'}</p>
+
+                  {/* 4-컬럼 점수 구성 */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-4">
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-green-200">
+                      <p className="text-gray-600 text-[10px] md:text-xs mb-1">Recovery (0-30)</p>
+                      <p className="text-lg md:text-2xl font-bold text-green-600">{stock.defenseBreakdown.recovery?.total || 0}</p>
+                      <div className="text-[10px] text-gray-500 mt-1 space-y-0.5">
+                        <div>RSI 과매도: {stock.defenseBreakdown.recovery?.rsi || 0} <span className="text-gray-400">(RSI {stock.defenseBreakdown.recovery?.rsiValue || '-'})</span></div>
+                        <div>MFI 회복: {stock.defenseBreakdown.recovery?.mfi || 0} <span className="text-gray-400">(MFI {stock.defenseBreakdown.recovery?.mfiValue || '-'})</span></div>
+                        <div>이격도 할인: {stock.defenseBreakdown.recovery?.disparity || 0} <span className="text-gray-400">({stock.defenseBreakdown.recovery?.disparityValue || '-'}%)</span></div>
+                      </div>
+                    </div>
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-blue-200">
+                      <p className="text-gray-600 text-[10px] md:text-xs mb-1">SmartMoney (0-25)</p>
+                      <p className="text-lg md:text-2xl font-bold text-blue-600">{stock.defenseBreakdown.smartMoney?.total || 0}</p>
+                      <div className="text-[10px] text-gray-500 mt-1 space-y-0.5">
+                        <div>기관 연속매수: {stock.defenseBreakdown.smartMoney?.institution || 0} <span className="text-gray-400">({stock.defenseBreakdown.smartMoney?.instBuyDays || 0}일)</span></div>
+                        <div>외국인 연속매수: {stock.defenseBreakdown.smartMoney?.foreign || 0} <span className="text-gray-400">({stock.defenseBreakdown.smartMoney?.foreignBuyDays || 0}일)</span></div>
+                        <div>쌍방 보너스: {stock.defenseBreakdown.smartMoney?.dualBonus || 0}</div>
+                      </div>
+                    </div>
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-purple-200">
+                      <p className="text-gray-600 text-[10px] md:text-xs mb-1">Stability (0-25)</p>
+                      <p className="text-lg md:text-2xl font-bold text-purple-600">{stock.defenseBreakdown.stability?.total || 0}</p>
+                      <div className="text-[10px] text-gray-500 mt-1 space-y-0.5">
+                        <div>거래량 안정성: {stock.defenseBreakdown.stability?.volumeStability || 0} <span className="text-gray-400">(CV {stock.defenseBreakdown.stability?.volumeCV || '-'})</span></div>
+                        <div>변동성 수축: {stock.defenseBreakdown.stability?.volatility || 0} <span className="text-gray-400">(수축비 {stock.defenseBreakdown.stability?.contractionRatio || '-'})</span></div>
+                        <div>바닥 형성: {stock.defenseBreakdown.stability?.bottomFormation || 0}</div>
+                      </div>
+                    </div>
+                    <div className="bg-white p-2 md:p-3 rounded-lg border border-orange-200">
+                      <p className="text-gray-600 text-[10px] md:text-xs mb-1">Safety (0-20)</p>
+                      <p className="text-lg md:text-2xl font-bold text-orange-600">{stock.defenseBreakdown.safety?.total || 0}</p>
+                      <div className="text-[10px] text-gray-500 mt-1 space-y-0.5">
+                        <div>시총 안전성: {stock.defenseBreakdown.safety?.marketCap || 0}</div>
+                        <div>위험조정 수익률: {stock.defenseBreakdown.safety?.sharpe || 0}</div>
+                        <div>낙폭 포지셔닝: {stock.defenseBreakdown.safety?.drawdown || 0} <span className="text-gray-400">({stock.defenseBreakdown.safety?.drawdownPct || '-'}%)</span></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Signal Adj */}
+                  {stock.defenseBreakdown.signalAdj !== 0 && (
+                    <div className="mt-2 text-sm text-gray-600">
+                      <span className="font-semibold">Signal Adj:</span> <span className={stock.defenseBreakdown.signalAdj > 0 ? 'text-green-600 font-bold' : 'text-red-600 font-bold'}>{stock.defenseBreakdown.signalAdj > 0 ? '+' : ''}{stock.defenseBreakdown.signalAdj}</span>
+                    </div>
+                  )}
                 </div>
               )}
 
