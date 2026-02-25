@@ -2108,24 +2108,29 @@
                     {top3Stocks
                       .sort((a, b) => b.current_return - a.current_return)
                       .slice(0, top3Expanded ? top3Stocks.length : 10)
-                      .map((stock, index) => (
-                        <div key={stock.stock_code} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded gap-2">
+                      .map((stock, index) => {
+                        const recDate = stock.recommendation_date ? new Date(stock.recommendation_date) : null;
+                        const today = new Date();
+                        const recLabel = recDate ? `${recDate.getMonth()+1}/${recDate.getDate()}` : '-';
+                        const todayLabel = `${today.getMonth()+1}/${today.getDate()}`;
+                        return (
+                        <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded gap-2">
                           <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
                             <span className="font-bold text-orange-600 text-sm">#{index + 1}</span>
                             <span className="font-semibold text-sm truncate">{stock.stock_name}</span>
-                            <span className="text-[10px] md:text-xs text-gray-500 hidden md:inline">{stock.stock_code}</span>
                             {stock.is_rising && <span className="text-[10px] md:text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">🔥</span>}
                           </div>
                           <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
+                            <span className="text-[10px] md:text-xs text-gray-400">
+                              {recLabel}→{todayLabel}
+                            </span>
                             <span className={`font-bold text-sm ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
                               {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
                             </span>
-                            <span className="text-[10px] md:text-xs text-gray-500">
-                              {stock.days_since_recommendation}일
-                            </span>
                           </div>
                         </div>
-                      ))}
+                        );
+                      })}
                   </div>
                   {top3Stocks.length > 10 && (
                     <button
@@ -2182,7 +2187,7 @@
                     <div className="min-w-0">
                       <h3 className="text-lg md:text-2xl font-bold text-blue-800">방어 전략 성과</h3>
                       <p className="text-xs md:text-sm text-blue-600 mt-1">
-                        기관/외국인 수급 기반 과매도 반등 (최근 3일)
+                        기관/외국인 수급 기반 과매도 반등 (최근 5거래일)
                       </p>
                     </div>
                   </div>
@@ -2216,18 +2221,28 @@
                   {defFiltered
                     .sort((a, b) => (b.defense_score || 0) - (a.defense_score || 0))
                     .slice(0, 5)
-                    .map((stock, index) => (
+                    .map((stock, index) => {
+                      const recDate = stock.recommendation_date ? new Date(stock.recommendation_date) : null;
+                      const today = new Date();
+                      const recLabel = recDate ? `${recDate.getMonth()+1}/${recDate.getDate()}` : '-';
+                      const todayLabel = `${today.getMonth()+1}/${today.getDate()}`;
+                      return (
                       <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between bg-white rounded-lg px-2 md:px-4 py-2 shadow-sm gap-2">
                         <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
                           <span className="text-[10px] md:text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 md:px-2 md:py-1 rounded font-bold">{stock.defense_grade || 'D-D'}</span>
                           <span className="font-semibold text-gray-800 text-sm md:text-base truncate">{stock.stock_name}</span>
-                          <span className="text-[10px] md:text-xs text-gray-500">{(stock.defense_score || 0).toFixed(0)}점</span>
                         </div>
-                        <span className={`font-bold flex-shrink-0 text-sm md:text-base ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
-                          {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
-                        </span>
+                        <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
+                          <span className="text-[10px] md:text-xs text-gray-400">
+                            {recLabel}→{todayLabel}
+                          </span>
+                          <span className={`font-bold text-sm md:text-base ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
+                            {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
+                          </span>
+                        </div>
                       </div>
-                    ))}
+                      );
+                    })}
                 </div>
               </div>
             ) : null;
