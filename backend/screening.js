@@ -1883,8 +1883,8 @@ class StockScreener {
           console.log(`✅ [${results.length}] ${analysis.stockName} (${analysis.stockCode}) - 점수: ${analysis.totalScore.toFixed(1)}`);
         }
 
-        // API 호출 간격 (200ms)
-        await new Promise(resolve => setTimeout(resolve, 200));
+        // API 호출 간격 (100ms) - Vercel 60초 타임아웃 대응
+        await new Promise(resolve => setTimeout(resolve, 100));
 
         // 진행률 로그
         if (analyzed % 10 === 0) {
