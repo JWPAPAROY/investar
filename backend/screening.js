@@ -2019,17 +2019,14 @@ class StockScreener {
     console.log(`\n🔍 TOP 3 선정 시작...`);
     console.log(`  전체 종목: ${allStocks.length}개`);
 
-    // v3.44: 고래 OR 거래량비율≥1.5 + 비과열 + 이격도/등락률 필터
-    // 고래 필터 완화: 고래 미감지 종목도 거래량 증가 시 후보 허용 (백테스트 승률 63.6%)
+    // v3.44: 매수고래 + 비과열 + 이격도/등락률 필터
+    // 고래 감지 임계값 자체를 완화했으므로 (2.5/2.0/1.5 → 2.0/1.5/1.2) 별도 대안 불필요
     const eligible = allStocks.filter(stock => {
       const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-      const volMA20 = stock.volumeAnalysis?.current?.volumeMA20 || 0;
-      const volumeRatio = volMA20 > 0 ? stock.volume / volMA20 : 0;
-      const hasVolumeSignal = volumeRatio >= 1.5;
       const isOverheated = stock.recommendation?.grade === '과열';
       const disparity = stock.overheatingV2?.disparity || 100;
       const changeRate = Math.abs(stock.changeRate || 0);
-      return (hasBuyWhale || hasVolumeSignal) && !isOverheated && changeRate < 25 && disparity < 150;
+      return hasBuyWhale && !isOverheated && changeRate < 25 && disparity < 150;
     });
 
     console.log(`  └─ TOP 3 후보 (매수고래+비과열+필터): ${eligible.length}개`);

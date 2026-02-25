@@ -16,13 +16,13 @@ function detectWhale(chartData, marketCap = 0) {
   const recentData = chartData.slice(0, 10); // 최근 10일 (chartData[0]=오늘, 내림차순)
   const avgVolume = chartData.slice(10, 30).reduce((sum, d) => sum + d.volume, 0) / Math.min(20, chartData.slice(10, 30).length || 1);
 
-  // v3.16: 시총 기반 거래량 기준 차등 적용
-  // 대형주는 거래대금 자체가 크므로 낮은 배수도 의미 있음
-  let volumeThreshold = 2.5; // 소형주 (<1조): 기본 2.5배
+  // v3.44: 시총 기반 거래량 기준 차등 적용 (임계값 완화)
+  // 백테스트: 고래 미감지 종목 중 vol>=1.5 승률 63.6% → 임계값 낮춰 자연 감지 확대
+  let volumeThreshold = 2.0; // 소형주 (<1조): 2.5→2.0배
   if (marketCap >= 10000000000000) {       // 대형주 (10조+)
-    volumeThreshold = 1.5;
+    volumeThreshold = 1.2;                 // 1.5→1.2배
   } else if (marketCap >= 1000000000000) { // 중형주 (1조~10조)
-    volumeThreshold = 2.0;
+    volumeThreshold = 1.5;                 // 2.0→1.5배
   }
 
   const whaleSignals = [];
@@ -43,8 +43,8 @@ function detectWhale(chartData, marketCap = 0) {
       ? ((data.high - data.close) / data.high) * 100
       : 0;
 
-    // 고래 감지 조건 (시총별 차등):
-    // 대형주(10조+): 1.5배, 중형주(1~10조): 2.0배, 소형주(<1조): 2.5배
+    // 고래 감지 조건 (시총별 차등, v3.44 완화):
+    // 대형주(10조+): 1.2배, 중형주(1~10조): 1.5배, 소형주(<1조): 2.0배
     if (volumeRatio >= volumeThreshold && priceChange >= 3) {
       const isUpWhale = data.close > data.open; // 상승 고래 vs 하락 고래
 
