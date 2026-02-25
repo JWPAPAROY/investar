@@ -1856,8 +1856,8 @@ class StockScreener {
     const results = [];
     let analyzed = 0;
 
-    // 병렬 배치 분석 (2개씩 동시 처리, KIS API 초당 20회 제한 내)
-    const BATCH_SIZE = 2;
+    // 병렬 배치 분석 (3개씩 동시 처리, KIS API 초당 20회 제한 내)
+    const BATCH_SIZE = 3;
     for (let i = 0; i < finalStockList.length; i += BATCH_SIZE) {
       const batch = finalStockList.slice(i, i + BATCH_SIZE);
 

@@ -682,16 +682,16 @@ class KISApi {
     try {
       // 전략: 3가지 순위 API 조합 (VPD 철학 최적화)
       // KOSPI/KOSDAQ 각각:
-      //   - 거래량 증가율 70개 (핵심 VPD 신호)
+      //   - 거래량 증가율 100개 (핵심 VPD 신호)
       //   - 거래량 순위 50개 (대형주 안전판)
       //   - 거래대금 순위 30개 (메가캡 보완)
-      // = 150개/시장 * 2시장 = 300개 (중복 제거 후 ~80-100개 목표)
+      // = 180개/시장 * 2시장 = 360개 (중복 제거 후 ~90-110개 목표)
       // ※ 등락률 상승 제거: VPD 철학("가격 미반영") 역행, 승률 72.9% vs 나머지 87.3%
       for (const mkt of markets) {
         console.log(`\n📊 ${mkt} 시장 데이터 수집 중...`);
 
-        // 1. 거래량 증가율 순위 (70개) - 핵심 VPD 신호
-        const volumeSurge = await this.getVolumeSurgeRank(mkt, 70);
+        // 1. 거래량 증가율 순위 (100개) - 핵심 VPD 신호
+        const volumeSurge = await this.getVolumeSurgeRank(mkt, 100);
         const filteredVolumeSurge = volumeSurge.filter(item => {
           if (this.isNonStockItem(item.name)) {
             filteredCount++;
@@ -699,8 +699,8 @@ class KISApi {
           }
           return true;
         });
-        apiCallResults.push({ market: mkt, api: 'volumeSurge', count: filteredVolumeSurge.length, target: 70, filtered: volumeSurge.length - filteredVolumeSurge.length });
-        console.log(`  - 거래량 증가율: ${filteredVolumeSurge.length}/70 (${volumeSurge.length - filteredVolumeSurge.length}개 필터링)`);
+        apiCallResults.push({ market: mkt, api: 'volumeSurge', count: filteredVolumeSurge.length, target: 100, filtered: volumeSurge.length - filteredVolumeSurge.length });
+        console.log(`  - 거래량 증가율: ${filteredVolumeSurge.length}/100 (${volumeSurge.length - filteredVolumeSurge.length}개 필터링)`);
 
         filteredVolumeSurge.forEach(item => {
           if (!stockMap.has(item.code)) {
