@@ -533,6 +533,213 @@ async function getPatternAnalysis(req, res) {
     });
   }
 
+  // 기관 매수일 인사이트
+  const instStats = calcStats(patterns.map(p => p.institution_buy_days));
+  if (instStats?.median !== null && instStats?.median !== undefined) {
+    const inst3plus = patterns.filter(p => p.institution_buy_days >= 3).length;
+    const inst0 = patterns.filter(p => !p.institution_buy_days || p.institution_buy_days === 0).length;
+    insights.push({
+      indicator: '기관 매수일',
+      current: 'Supply Score 0-10점',
+      finding: `성공 종목 중앙값: ${instStats.median}일 (3일+: ${inst3plus}개, 0일: ${inst0}개)`,
+      suggestion: instStats.median >= 2
+        ? '기관 연속매수가 성공과 높은 상관관계 - 현재 가점 유지'
+        : '기관 매수 없이도 성공 가능 - 다른 신호와 병행'
+    });
+  }
+
+  // 외국인 매수일 인사이트
+  const foreignStats = calcStats(patterns.map(p => p.foreign_buy_days));
+  if (foreignStats?.median !== null && foreignStats?.median !== undefined) {
+    const for3plus = patterns.filter(p => p.foreign_buy_days >= 3).length;
+    insights.push({
+      indicator: '외국인 매수일',
+      current: 'Supply Score 0-8점',
+      finding: `성공 종목 중앙값: ${foreignStats.median}일 (3일+: ${for3plus}개)`,
+      suggestion: foreignStats.median >= 2
+        ? '외국인 매수 지속이 성공 신호'
+        : '외국인 매수 단독으로는 예측력 제한적'
+    });
+  }
+
+  // 쌍방수급 인사이트
+  const dualBuy = patterns.filter(p => (p.institution_buy_days || 0) >= 2 && (p.foreign_buy_days || 0) >= 2);
+  const singleBuy = patterns.filter(p =>
+    ((p.institution_buy_days || 0) >= 2 || (p.foreign_buy_days || 0) >= 2) &&
+    !((p.institution_buy_days || 0) >= 2 && (p.foreign_buy_days || 0) >= 2)
+  );
+  if (patterns.length > 0) {
+    const dualAvgReturn = dualBuy.length > 0
+      ? (dualBuy.reduce((s, p) => s + (p.max_return || 0), 0) / dualBuy.length).toFixed(1)
+      : 0;
+    const singleAvgReturn = singleBuy.length > 0
+      ? (singleBuy.reduce((s, p) => s + (p.max_return || 0), 0) / singleBuy.length).toFixed(1)
+      : 0;
+    insights.push({
+      indicator: '쌍방수급 (기관+외국인)',
+      current: '동시 매수 시 보너스 0-7점',
+      finding: `쌍방: ${dualBuy.length}개(평균+${dualAvgReturn}%) vs 단독: ${singleBuy.length}개(평균+${singleAvgReturn}%)`,
+      suggestion: parseFloat(dualAvgReturn) > parseFloat(singleAvgReturn)
+        ? '쌍방수급이 단독 대비 수익률 우위 - 보너스 유지'
+        : '단독 수급도 충분한 성과 - 쌍방 보너스 축소 검토'
+    });
+  }
+
+  // 연속 상승일 인사이트
+  const riseStats = calcStats(patterns.map(p => p.consecutive_rise_days));
+  if (riseStats?.median !== null && riseStats?.median !== undefined) {
+    insights.push({
+      indicator: '연속 상승일',
+      current: '4일+ → +10점 (Momentum)',
+      finding: `성공 종목 중앙값: ${riseStats.median}일 (범위: ${riseStats.min}~${riseStats.max})`,
+      suggestion: riseStats.median <= 2
+        ? '초기 상승(1-2일)에 진입하는 것이 최적'
+        : riseStats.median >= 4
+          ? '연속 상승 후 진입도 유효 - 추세 추종'
+          : '2-3일 상승이 최적 진입 구간'
+    });
+  }
+
+  // 시가총액 인사이트
+  const capStats = calcStats(patterns.map(p => p.market_cap));
+  if (capStats?.median) {
+    const capBillion = (capStats.median / 100000000).toFixed(0);
+    const largeCap = patterns.filter(p => (p.market_cap || 0) >= 1000000000000).length;  // 1조+
+    const smallCap = patterns.filter(p => (p.market_cap || 0) < 300000000000).length;  // 3000억 미만
+    insights.push({
+      indicator: '시가총액',
+      current: '1조↑ +7점, 3000억↓ -2점',
+      finding: `성공 종목 중앙값: ${capBillion}억 (1조+: ${largeCap}개, 3000억↓: ${smallCap}개)`,
+      suggestion: largeCap > smallCap
+        ? '대형주 중심으로 성공 - 시총 가점 유효'
+        : '소형주에서도 성공 빈번 - 시총 페널티 완화 검토'
+    });
+  }
+
+  // VPD 원시값 인사이트
+  const vpdStats = calcStats(patterns.map(p => p.vpd_raw));
+  if (vpdStats?.median !== null && vpdStats?.median !== undefined) {
+    insights.push({
+      indicator: 'VPD (거래량-가격 괴리)',
+      current: '≥3.0 → 7점, ≥2.0 → 5점',
+      finding: `성공 종목 중앙값: ${vpdStats.median} (범위: ${vpdStats.min}~${vpdStats.max})`,
+      suggestion: vpdStats.median >= 2.0
+        ? 'VPD 높은 종목이 성공 확률↑ - 핵심 지표 확인'
+        : vpdStats.median >= 1.0
+          ? 'VPD 1.0 이상이면 충분 - 하한 완화 가능'
+          : 'VPD 단독 예측력 낮음 - 다른 지표와 병행'
+    });
+  }
+
+  // 탈출속도 인사이트
+  const escapeDetected = patterns.filter(p => p.escape_velocity);
+  const escapeNot = patterns.filter(p => !p.escape_velocity);
+  if (escapeDetected.length > 0 || escapeNot.length > 0) {
+    const escAvg = escapeDetected.length > 0
+      ? (escapeDetected.reduce((s, p) => s + (p.max_return || 0), 0) / escapeDetected.length).toFixed(1)
+      : 0;
+    const noEscAvg = escapeNot.length > 0
+      ? (escapeNot.reduce((s, p) => s + (p.max_return || 0), 0) / escapeNot.length).toFixed(1)
+      : 0;
+    insights.push({
+      indicator: '탈출속도',
+      current: '달성 시 +5점',
+      finding: `달성: ${escapeDetected.length}개(평균+${escAvg}%) vs 미달성: ${escapeNot.length}개(평균+${noEscAvg}%)`,
+      suggestion: parseFloat(escAvg) > parseFloat(noEscAvg)
+        ? '탈출속도 달성이 높은 수익과 상관 - 가점 유지'
+        : '탈출속도 미달성도 성공 가능 - 가점 과대 여부 검토'
+    });
+  }
+
+  // 윗꼬리 비율 인사이트
+  const shadowStats = calcStats(patterns.map(p => p.upper_shadow_ratio));
+  if (shadowStats?.median !== null && shadowStats?.median !== undefined) {
+    const highShadow = patterns.filter(p => (p.upper_shadow_ratio || 0) >= 30).length;
+    insights.push({
+      indicator: '윗꼬리 비율',
+      current: '≥30% → 고래 강도 50% 감소',
+      finding: `성공 종목 중앙값: ${shadowStats.median}% (30%↑: ${highShadow}개/${patterns.length}개)`,
+      suggestion: highShadow === 0
+        ? '성공 종목에서 윗꼬리 과다 없음 - 현재 페널티 유효'
+        : `윗꼬리 30%+ 중 ${highShadow}개 성공 - 페널티 과도 여부 검토`
+    });
+  }
+
+  // 당일 등락률 인사이트
+  const changeStats = calcStats(patterns.map(p => p.daily_change_rate));
+  if (changeStats?.median !== null && changeStats?.median !== undefined) {
+    insights.push({
+      indicator: '진입 시 당일 등락률',
+      current: '≥10% → -15점 페널티',
+      finding: `성공 종목 중앙값: ${changeStats.median > 0 ? '+' : ''}${changeStats.median}% (범위: ${changeStats.min}~${changeStats.max}%)`,
+      suggestion: changeStats.median < 5
+        ? '소폭 상승(0-5%) 시 진입이 최적'
+        : changeStats.median >= 10
+          ? '급등 중 진입도 성공 가능 - 페널티 기준 상향 검토'
+          : '중간 상승(5-10%) 진입이 최적 구간'
+    });
+  }
+
+  // 점수 구간별 수익률 인사이트
+  const scoreRanges = [
+    { label: '90+', min: 90, max: 101 },
+    { label: '70-89', min: 70, max: 90 },
+    { label: '50-69', min: 50, max: 70 },
+    { label: '50 미만', min: 0, max: 50 }
+  ];
+  const rangeResults = scoreRanges.map(r => {
+    const group = patterns.filter(p => (p.total_score || 0) >= r.min && (p.total_score || 0) < r.max);
+    return {
+      label: r.label,
+      count: group.length,
+      avgReturn: group.length > 0 ? (group.reduce((s, p) => s + (p.max_return || 0), 0) / group.length).toFixed(1) : 0
+    };
+  }).filter(r => r.count > 0);
+  if (rangeResults.length > 0) {
+    const bestRange = rangeResults.reduce((best, r) => parseFloat(r.avgReturn) > parseFloat(best.avgReturn) ? r : best);
+    insights.push({
+      indicator: '점수 구간별 수익률',
+      current: 'TOP3: 50-69 → 80-89 우선',
+      finding: rangeResults.map(r => `${r.label}점: ${r.count}개(+${r.avgReturn}%)`).join(' | '),
+      suggestion: `${bestRange.label}점 구간이 평균 +${bestRange.avgReturn}%로 최고 수익률`
+    });
+  }
+
+  // 달성 소요일 인사이트
+  const daysStats = calcStats(patterns.map(p => p.days_to_success));
+  if (daysStats?.median !== null && daysStats?.median !== undefined) {
+    const fast = patterns.filter(p => (p.days_to_success || 0) <= 5).length;
+    const slow = patterns.filter(p => (p.days_to_success || 0) > 14).length;
+    insights.push({
+      indicator: '+10% 달성 소요일',
+      current: '추적 기간 3일 (텔레그램)',
+      finding: `중앙값: ${daysStats.median}일 (5일 이내: ${fast}개, 14일+: ${slow}개)`,
+      suggestion: daysStats.median <= 5
+        ? '대부분 5일 내 달성 - 단기 추적 전략 유효'
+        : daysStats.median <= 14
+          ? '1-2주 보유가 최적 - 추적 기간 연장 고려'
+          : '장기 보유 필요 - 손절/익절 기준 재검토'
+    });
+  }
+
+  // 고래 확인 vs 미확인 인사이트
+  const whaleConfirmed = patterns.filter(p => p.whale_confirmed);
+  const whaleUnconfirmed = patterns.filter(p => p.whale_detected && !p.whale_confirmed);
+  if (whaleConfirmed.length > 0 || whaleUnconfirmed.length > 0) {
+    const confAvg = whaleConfirmed.length > 0
+      ? (whaleConfirmed.reduce((s, p) => s + (p.max_return || 0), 0) / whaleConfirmed.length).toFixed(1) : 0;
+    const unconfAvg = whaleUnconfirmed.length > 0
+      ? (whaleUnconfirmed.reduce((s, p) => s + (p.max_return || 0), 0) / whaleUnconfirmed.length).toFixed(1) : 0;
+    insights.push({
+      indicator: '고래 확인 vs 미확인',
+      current: '확인 +30점, 미확인 +15점',
+      finding: `확인: ${whaleConfirmed.length}개(+${confAvg}%) vs 미확인: ${whaleUnconfirmed.length}개(+${unconfAvg}%)`,
+      suggestion: parseFloat(confAvg) > parseFloat(unconfAvg)
+        ? '확인된 고래가 수익률 우위 - 30점/15점 차등 유효'
+        : '미확인 고래도 수익률 양호 - 차등 축소 검토'
+    });
+  }
+
   analysis.insights = insights;
 
   // 5. 최근 패턴 목록 (stock_code 기준 중복 제거, 최신 성공만 상위 20개)
