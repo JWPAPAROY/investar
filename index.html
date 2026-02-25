@@ -3404,6 +3404,7 @@
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
       const [selectedStock, setSelectedStock] = useState(null);
+      const [strategyFilter, setStrategyFilter] = useState('momentum');
 
       const analyzeStocks = async () => {
         // 쉼표/공백/줄바꿈으로 분리 → 6자리 숫자만 추출
@@ -3513,18 +3514,37 @@
                   </div>
                   <div className="text-gray-400">|</div>
                   <div>
-                    <span className="text-gray-600">점수순 정렬</span>
+                    <span className="text-gray-600">{strategyFilter === 'defense' ? '방어점수순 정렬' : '점수순 정렬'}</span>
                   </div>
                 </div>
               </div>
+              <div className="flex justify-center gap-2 mb-4">
+                {[
+                  { key: 'momentum', label: '🔴 모멘텀', desc: '상승 모멘텀' },
+                  { key: 'defense', label: '🛡️ 방어', desc: '하락 방어' },
+                ].map(s => (
+                  <button key={s.key} onClick={() => setStrategyFilter(s.key)}
+                    className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
+                      strategyFilter === s.key
+                        ? s.key === 'momentum' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white'
+                        : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                    }`} title={s.desc}>
+                    {s.label}
+                  </button>
+                ))}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {results.map((stock, index) => (
+                {results
+                  .sort((a, b) => strategyFilter === 'defense'
+                    ? (b.defenseScore || 0) - (a.defenseScore || 0)
+                    : b.totalScore - a.totalScore)
+                  .map((stock, index) => (
                   <RecommendationCard
                     key={stock.stockCode}
                     stock={stock}
                     rank={index + 1}
                     onClick={() => setSelectedStock(stock)}
-                    strategyFilter="momentum"
+                    strategyFilter={strategyFilter}
                   />
                 ))}
               </div>
