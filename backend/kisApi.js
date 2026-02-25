@@ -489,6 +489,59 @@ class KISApi {
   }
 
   /**
+   * 거래회전율 순위 조회
+   * @param {number} limit - 조회 개수 (API 최대 30)
+   */
+  async getTurnoverRank(limit = 30) {
+    try {
+      const token = await this.getAccessToken();
+
+      const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/volume-rank`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'authorization': `Bearer ${token}`,
+          'appkey': this.appKey,
+          'appsecret': this.appSecret,
+          'tr_id': 'FHPST01710000'
+        },
+        params: {
+          FID_COND_MRKT_DIV_CODE: 'J',
+          FID_COND_SCR_DIV_CODE: '20171',
+          FID_INPUT_ISCD: '0000',
+          FID_DIV_CLS_CODE: '0',
+          FID_BLNG_CLS_CODE: '2',  // 2: 거래회전율
+          FID_TRGT_CLS_CODE: '111111111',
+          FID_TRGT_EXLS_CLS_CODE: '0000000000',
+          FID_INPUT_PRICE_1: '',
+          FID_INPUT_PRICE_2: '',
+          FID_VOL_CNT: '',
+          FID_INPUT_DATE_1: ''
+        }
+      });
+
+      if (response.data.rt_cd === '0') {
+        return response.data.output.slice(0, limit).map(item => ({
+          code: item.mksc_shrn_iscd,
+          name: item.hts_kor_isnm,
+          currentPrice: parseInt(item.stck_prpr),
+          volume: parseInt(item.acml_vol)
+        }));
+      } else {
+        throw new Error(`API 오류: ${response.data.msg1}`);
+      }
+    } catch (error) {
+      const errorMsg = error.response?.data || error.message;
+      console.error(`❌ 거래회전율 순위 조회 실패:`, errorMsg);
+      if (!this._apiErrors) this._apiErrors = [];
+      this._apiErrors.push({
+        method: 'getTurnoverRank',
+        error: typeof errorMsg === 'object' ? JSON.stringify(errorMsg) : errorMsg
+      });
+      return [];
+    }
+  }
+
+  /**
    * 등락률 상승 순위 조회 (가격 급등 = 거래량 급등 가능성)
    * @param {string} market - 시장구분 ('KOSPI', 'KOSDAQ')
    * @param {number} limit - 조회 개수 (최대 30)
@@ -525,7 +578,7 @@ class KISApi {
 
       if (response.data.rt_cd === '0') {
         return response.data.output.slice(0, limit).map(item => ({
-          code: item.mksc_shrn_iscd,
+          code: item.stck_shrn_iscd,  // 등락률 API는 stck_shrn_iscd 사용 (volume-rank와 다름)
           name: item.hts_kor_isnm,
           currentPrice: parseInt(item.stck_prpr),
           changeRate: parseFloat(item.prdy_ctrt),  // 등락률
@@ -680,88 +733,77 @@ class KISApi {
     this._apiErrors = [];
 
     try {
-      // 전략: 3가지 순위 API 조합 (VPD 철학 최적화)
-      // KOSPI/KOSDAQ 각각:
-      //   - 거래량 증가율 200개 (핵심 VPD 신호)
-      //   - 거래량 순위 100개 (대형주 안전판)
-      //   - 거래대금 순위 50개 (메가캡 보완)
-      // = 350개/시장 * 2시장 = 700개 (중복 제거 후 ~150-180개 목표)
-      // ※ 등락률 상승 제거: VPD 철학("가격 미반영") 역행, 승률 72.9% vs 나머지 87.3%
-      for (const mkt of markets) {
-        console.log(`\n📊 ${mkt} 시장 데이터 수집 중...`);
+      // 전략: 5가지 순위 API × 1회 호출 (시장 루프 제거)
+      // API는 FID_DIV_CLS_CODE와 무관하게 KOSPI+KOSDAQ 통합 30개를 반환
+      // → 시장 구분은 종목코드 기반으로 자동 태깅
+      //
+      // 1. 거래량 증가율 30개 (핵심 VPD 신호)
+      // 2. 거래량 순위    30개 (절대 거래량)
+      // 3. 거래대금 순위  30개 (메가캡 보완)
+      // 4. 거래회전율     30개 (유통량 대비 거래 활발)
+      // 5. 등락률 상승    30개 (풀 다양성 확보)
+      // = 150개 → ETF/중복 제거 → ~70-80개
+      console.log(`\n📊 종목 풀 수집 중 (5개 API × 1회)...`);
 
-        // 1. 거래량 증가율 순위 (200개) - 핵심 VPD 신호
-        const volumeSurge = await this.getVolumeSurgeRank(mkt, 200);
-        const filteredVolumeSurge = volumeSurge.filter(item => {
+      const addToPool = (items, badgeKey) => {
+        const filtered = items.filter(item => {
           if (this.isNonStockItem(item.name)) {
             filteredCount++;
             return false;
           }
           return true;
         });
-        apiCallResults.push({ market: mkt, api: 'volumeSurge', count: filteredVolumeSurge.length, target: 200, filtered: volumeSurge.length - filteredVolumeSurge.length });
-        console.log(`  - 거래량 증가율: ${filteredVolumeSurge.length}/200 (${volumeSurge.length - filteredVolumeSurge.length}개 필터링)`);
-
-        filteredVolumeSurge.forEach(item => {
+        filtered.forEach(item => {
           if (!stockMap.has(item.code)) {
             if (item.name && item.name.trim() !== '') {
               stockMap.set(item.code, item.name);
             }
+            // 종목코드 기반 시장 구분: 0xxxxx = KOSPI, 나머지 = KOSDAQ
+            const mkt = item.code.startsWith('0') ? 'KOSPI' : 'KOSDAQ';
             marketMap.set(item.code, mkt);
-            badgeMap.set(item.code, { volumeSurge: true, volume: false, tradingValue: false });
+            badgeMap.set(item.code, { volumeSurge: false, volume: false, tradingValue: false, turnover: false, priceChange: false, [badgeKey]: true });
           } else {
-            badgeMap.get(item.code).volumeSurge = true;
+            badgeMap.get(item.code)[badgeKey] = true;
           }
         });
+        return { count: filtered.length, raw: items.length, filtered: items.length - filtered.length };
+      };
 
-        // 2. 거래량 순위 (100개) - 절대 거래량
-        const volume = await this.getVolumeRank(mkt, 100);
-        const filteredVolume = volume.filter(item => {
-          if (this.isNonStockItem(item.name)) {
-            filteredCount++;
-            return false;
-          }
-          return true;
-        });
-        apiCallResults.push({ market: mkt, api: 'volume', count: filteredVolume.length, target: 100, filtered: volume.length - filteredVolume.length });
-        console.log(`  - 거래량 순위: ${filteredVolume.length}/100 (${volume.length - filteredVolume.length}개 필터링)`);
+      const apiDelay = () => new Promise(r => setTimeout(r, 200));
 
-        filteredVolume.forEach(item => {
-          if (!stockMap.has(item.code)) {
-            if (item.name && item.name.trim() !== '') {
-              stockMap.set(item.code, item.name);
-            }
-            marketMap.set(item.code, mkt);
-            badgeMap.set(item.code, { volumeSurge: false, volume: true, tradingValue: false });
-          } else {
-            badgeMap.get(item.code).volume = true;
-          }
-        });
+      // 1. 거래량 증가율
+      const volumeSurge = await this.getVolumeSurgeRank('KOSPI', 30);
+      const r1 = addToPool(volumeSurge, 'volumeSurge');
+      apiCallResults.push({ api: 'volumeSurge', count: r1.count, target: 30, filtered: r1.filtered });
+      console.log(`  - 거래량 증가율: ${r1.count}/30 (${r1.filtered}개 필터링)`);
+      await apiDelay();
 
-        // 3. 거래대금 순위 (50개) - 메가캡 보완
-        const tradingValue = await this.getTradingValueRank(mkt, 50);
-        const filteredTradingValue = tradingValue.filter(item => {
-          if (this.isNonStockItem(item.name)) {
-            filteredCount++;
-            return false;
-          }
-          return true;
-        });
-        apiCallResults.push({ market: mkt, api: 'tradingValue', count: filteredTradingValue.length, target: 50, filtered: tradingValue.length - filteredTradingValue.length });
-        console.log(`  - 거래대금 순위: ${filteredTradingValue.length}/50 (${tradingValue.length - filteredTradingValue.length}개 필터링)`);
+      // 2. 거래량 순위
+      const volume = await this.getVolumeRank('KOSPI', 30);
+      const r2 = addToPool(volume, 'volume');
+      apiCallResults.push({ api: 'volume', count: r2.count, target: 30, filtered: r2.filtered });
+      console.log(`  - 거래량 순위: ${r2.count}/30 (${r2.filtered}개 필터링)`);
+      await apiDelay();
 
-        filteredTradingValue.forEach(item => {
-          if (!stockMap.has(item.code)) {
-            if (item.name && item.name.trim() !== '') {
-              stockMap.set(item.code, item.name);
-            }
-            marketMap.set(item.code, mkt);
-            badgeMap.set(item.code, { volumeSurge: false, volume: false, tradingValue: true });
-          } else {
-            badgeMap.get(item.code).tradingValue = true;
-          }
-        });
-      }
+      // 3. 거래대금 순위
+      const tradingValue = await this.getTradingValueRank('KOSPI', 30);
+      const r3 = addToPool(tradingValue, 'tradingValue');
+      apiCallResults.push({ api: 'tradingValue', count: r3.count, target: 30, filtered: r3.filtered });
+      console.log(`  - 거래대금 순위: ${r3.count}/30 (${r3.filtered}개 필터링)`);
+      await apiDelay();
+
+      // 4. 거래회전율
+      const turnover = await this.getTurnoverRank(30);
+      const r4 = addToPool(turnover, 'turnover');
+      apiCallResults.push({ api: 'turnover', count: r4.count, target: 30, filtered: r4.filtered });
+      console.log(`  - 거래회전율: ${r4.count}/30 (${r4.filtered}개 필터링)`);
+      await apiDelay();
+
+      // 5. 등락률 상승
+      const priceChange = await this.getPriceChangeRank('KOSPI', 30);
+      const r5 = addToPool(priceChange, 'priceChange');
+      apiCallResults.push({ api: 'priceChange', count: r5.count, target: 30, filtered: r5.filtered });
+      console.log(`  - 등락률 상승: ${r5.count}/30 (${r5.filtered}개 필터링)`);
 
       const codes = Array.from(stockMap.keys());
 
@@ -770,9 +812,11 @@ class KISApi {
         throw new Error('API 호출 성공했으나 종목 리스트가 비어있음 - fallback 사용');
       }
 
-      console.log(`\n✅ 동적 API 종목 확보: ${codes.length}개`);
-      console.log(`  - 시장: ${market}`);
-      console.log(`  - 처리한 시장 수: ${markets.length}`);
+      // 시장별 카운트
+      const kospiCount = codes.filter(c => c.startsWith('0')).length;
+      const kosdaqCount = codes.length - kospiCount;
+      console.log(`\n✅ 동적 API 종목 확보: ${codes.length}개 (KOSPI ${kospiCount} + KOSDAQ ${kosdaqCount})`);
+      console.log(`  - API 호출: 5회 (거래량증가율+거래량+거래대금+거래회전율+등락률)`);
       console.log(`  - ETF/ETN 제외: ${filteredCount}개`);
       console.log(`  - 종목 코드 샘플: ${codes.slice(0, 5).join(', ')}`);
 
