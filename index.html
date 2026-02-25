@@ -229,7 +229,7 @@
 
         try {
           // Supabase 기반 실전 추천 종목 성과 조회
-          const perfRes = await fetch(`${API_BASE_URL}/recommendations/performance?days=7`);
+          const perfRes = await fetch(`${API_BASE_URL}/recommendations/performance?days=10`);
 
           if (!perfRes.ok) {
             throw new Error(`API 오류: ${perfRes.status}`);
@@ -2026,14 +2026,14 @@
           </div>
 
           {perfStrategy === 'momentum' && (() => {
-            // 🆕 TOP 3 조건에 맞는 종목 필터링 (최근 3일치만 - 텔레그램 추적과 싱크)
+            // 🆕 TOP 3 조건에 맞는 종목 필터링 (최근 5거래일)
             const uniqueDates = trackerData.stocks
               ? [...new Set(trackerData.stocks.map(s => s.recommendation_date))].sort().reverse()
               : [];
-            const recent3Dates = uniqueDates.slice(0, 3);
+            const recent5Dates = uniqueDates.slice(0, 5);
 
             const top3Stocks = trackerData.stocks ? trackerData.stocks.filter(stock => {
-              const isRecent = recent3Dates.includes(stock.recommendation_date);
+              const isRecent = recent5Dates.includes(stock.recommendation_date);
               const isNotDayZero = (stock.days_since_recommendation || 0) > 0;
               return stock.is_top3 && isRecent && isNotDayZero;
             }) : [];
@@ -2159,9 +2159,9 @@
             const defUniDates = trackerData.stocks
               ? [...new Set(trackerData.stocks.map(s => s.recommendation_date))].sort().reverse()
               : [];
-            const defRecent3 = defUniDates.slice(0, 3);
+            const defRecent5 = defUniDates.slice(0, 5);
             const defFiltered = trackerData.stocks ? trackerData.stocks.filter(stock => {
-              const isRecent = defRecent3.includes(stock.recommendation_date);
+              const isRecent = defRecent5.includes(stock.recommendation_date);
               const hasSmartMoney = (stock.institution_buy_days >= 3 || stock.foreign_buy_days >= 3);
               const hasMinMc = stock.market_cap ? (stock.market_cap / 100000000) >= 5000 : false;
               const isNotOverheated = stock.recommendation_grade !== '과열';
