@@ -439,7 +439,7 @@ async function getPatternAnalysis(req, res) {
   const insights = [];
 
   // 거래량 비율 인사이트
-  if (analysis.volumeIndicators.volumeRatio.median) {
+  if (analysis.volumeIndicators.volumeRatio?.median) {
     const vr = analysis.volumeIndicators.volumeRatio;
     insights.push({
       indicator: '거래량 비율',
@@ -452,7 +452,7 @@ async function getPatternAnalysis(req, res) {
   }
 
   // MFI 인사이트
-  if (analysis.priceIndicators.mfi.median) {
+  if (analysis.priceIndicators.mfi?.median) {
     const mfi = analysis.priceIndicators.mfi;
     insights.push({
       indicator: 'MFI',
@@ -465,20 +465,20 @@ async function getPatternAnalysis(req, res) {
   }
 
   // RSI 인사이트
-  if (analysis.priceIndicators.rsi.median) {
+  if (analysis.priceIndicators.rsi?.median) {
     const rsi = analysis.priceIndicators.rsi;
     insights.push({
       indicator: 'RSI',
-      current: '80↑ 과열 기준',
+      current: '85↑ 과열 기준',
       finding: `성공 종목 중앙값: ${rsi.median} (범위: ${rsi.min}~${rsi.max})`,
-      suggestion: rsi.max < 80
-        ? '성공 종목 대부분 RSI 80 미만 - 과열 기준 유효'
+      suggestion: rsi.max < 85
+        ? '성공 종목 대부분 RSI 85 미만 - 과열 기준 유효'
         : '일부 고RSI 종목도 성공'
     });
   }
 
   // 비대칭 비율 인사이트
-  if (analysis.volumeIndicators.asymmetricRatio.median) {
+  if (analysis.volumeIndicators.asymmetricRatio?.median) {
     const ar = analysis.volumeIndicators.asymmetricRatio;
     insights.push({
       indicator: '비대칭 비율',
@@ -491,40 +491,42 @@ async function getPatternAnalysis(req, res) {
   }
 
   // 고래 감지 인사이트
-  const whaleRate = (analysis.volumeIndicators.whaleStats.detected / patterns.length * 100).toFixed(1);
-  insights.push({
-    indicator: '고래 감지',
-    current: '감지 시 +15~30점',
-    finding: `성공 종목 중 ${whaleRate}%가 고래 감지`,
-    suggestion: parseFloat(whaleRate) > 50
-      ? '고래 감지가 성공과 높은 상관관계'
-      : '고래 미감지 종목도 성공 가능'
-  });
+  if (analysis.volumeIndicators.whaleStats) {
+    const whaleRate = (analysis.volumeIndicators.whaleStats.detected / patterns.length * 100).toFixed(1);
+    insights.push({
+      indicator: '고래 감지',
+      current: '감지 시 +15~30점',
+      finding: `성공 종목 중 ${whaleRate}%가 고래 감지`,
+      suggestion: parseFloat(whaleRate) > 50
+        ? '고래 감지가 성공과 높은 상관관계'
+        : '고래 미감지 종목도 성공 가능'
+    });
+  }
 
   // 이격도 인사이트
   if (analysis.priceIndicators.disparity?.median) {
     const disp = analysis.priceIndicators.disparity;
     insights.push({
       indicator: '이격도(20일)',
-      current: '115↑ 과열 기준',
+      current: '120↑ 과열 기준',
       finding: `성공 종목 중앙값: ${disp.median} (범위: ${disp.min}~${disp.max})`,
       suggestion: disp.median < 110
         ? '성공 종목 대부분 이격도 110 미만 - 과열 전 진입이 유리'
-        : disp.median > 115
+        : disp.median > 120
           ? '고이격도 종목도 성공 가능 - 기준 완화 검토'
-          : '현재 과열 기준(115) 적절'
+          : '현재 과열 기준(120) 적절'
     });
   }
 
   // 거래량 가속도 인사이트
-  if (analysis.volumeIndicators.volumeAcceleration) {
-    const va = analysis.volumeIndicators.volumeAcceleration;
+  if (analysis.volumeIndicators.volumeAcceleration?.distribution) {
+    const va = analysis.volumeIndicators.volumeAcceleration.distribution;
     const total = patterns.length;
-    const accelRate = ((va.strong_acceleration + va.acceleration) / total * 100).toFixed(1);
+    const accelRate = (((va.strong_acceleration || 0) + (va.acceleration || 0)) / total * 100).toFixed(1);
     insights.push({
       indicator: '거래량 가속도',
       current: '가속 시 Momentum 가점',
-      finding: `성공 종목 중 ${accelRate}%가 가속 패턴 (강한: ${va.strong_acceleration}개, 일반: ${va.acceleration}개)`,
+      finding: `성공 종목 중 ${accelRate}%가 가속 패턴 (강한: ${va.strong_acceleration || 0}개, 일반: ${va.acceleration || 0}개)`,
       suggestion: parseFloat(accelRate) > 60
         ? '거래량 가속이 성공과 높은 상관관계'
         : '가속 없이도 성공 가능 - 다른 지표와 병행 판단'
