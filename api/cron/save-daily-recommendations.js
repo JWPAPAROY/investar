@@ -538,9 +538,23 @@ function getTop3FromDb(stocks, field = 'is_top3') {
 }
 
 /**
+ * v3.46: 기대수익 구간 매칭
+ */
+function getExpectedReturn(stock, expectations) {
+  if (!expectations || expectations.length === 0) return null;
+  const grade = stock.recommendation?.grade || stock.recommendation_grade || stock.grade;
+  const whale = stock.advancedAnalysis?.indicators?.whale?.some(w => w.type === '매수고래')
+    || stock.whale_detected || false;
+  let match = expectations.find(e => e.grade === grade && e.whale_detected === whale);
+  if (!match) match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
+  if (!match || match.median <= 0 || match.sample_count < 30) return null;
+  return { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count };
+}
+
+/**
  * v3.34: 방어 TOP 3 텔레그램 메시지 포맷 (공통)
  */
-function formatDefenseTop3Section(defenseTop3, mode = 'save') {
+function formatDefenseTop3Section(defenseTop3, mode = 'save', expectations = []) {
   if (!defenseTop3 || defenseTop3.length === 0) return '';
 
   let msg = `\n━━━━━━━━━━━━━━━━━━━━\n\n`;
@@ -573,7 +587,14 @@ function formatDefenseTop3Section(defenseTop3, mode = 'save') {
     msg += `${medal} <b>${displayName}</b> ${marketTag} (${grade}, ${score.toFixed ? score.toFixed(0) : score}점)\n`;
     msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
     msg += `   🛡️ 손절: ${slWarning.toLocaleString()}원(${slWarningPct}) / ${slExit.toLocaleString()}원(${slExitPct})\n`;
-    msg += `   📊 기관 ${instDays}일 연속매수 | 외국인 ${foreignDays}일\n\n`;
+    msg += `   📊 기관 ${instDays}일 연속매수 | 외국인 ${foreignDays}일\n`;
+
+    // v3.46: 기대수익 구간
+    const er = getExpectedReturn(stock, expectations);
+    if (er) {
+      msg += `   📈 기대수익(${er.days}일): +${er.p25.toFixed(1)}% ~ +${er.median.toFixed(1)}% ~ +${er.p75.toFixed(1)}% (승률 ${er.winRate.toFixed(0)}%)\n`;
+    }
+    msg += `\n`;
   });
 
   return msg;
@@ -583,7 +604,7 @@ function formatDefenseTop3Section(defenseTop3, mode = 'save') {
  * v3.27: SAVE 메시지 (오후 16:10)
  * 🌆 오늘의 결산 (오전 추천 성과 + 내일 TOP 3)
  */
-function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = []) {
+function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = [], expectations = []) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n`;
@@ -647,6 +668,15 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
       msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
       msg += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
 
+      // v3.46: 기대수익 구간 + 손익비
+      const er = getExpectedReturn(stock, expectations);
+      if (er) {
+        const riskPct = 5;
+        const rrRatio = (er.median / riskPct).toFixed(1);
+        msg += `   📈 기대수익(${er.days}일): +${er.p25.toFixed(1)}% ~ <b>+${er.median.toFixed(1)}%</b> ~ +${er.p75.toFixed(1)}%\n`;
+        msg += `   ⚖️ 손익비 1:${rrRatio} | 승률 ${er.winRate.toFixed(0)}% (N=${er.sampleCount})\n`;
+      }
+
       // 최근 주가
       const chart = stock.trendAnalysis?.dailyData || [];
       if (chart.length >= 2) {
@@ -668,7 +698,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
 
   // v3.34: 방어 TOP 3 (시장 공포 시에만)
   if (defenseTop3 && defenseTop3.length > 0 && isMarketDefensive(options.sentiment)) {
-    msg += formatDefenseTop3Section(defenseTop3, 'save');
+    msg += formatDefenseTop3Section(defenseTop3, 'save', expectations);
   }
 
   return msg;
@@ -678,7 +708,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
  * v3.27: ALERT 메시지 (아침 08:30)
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
-function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = []) {
+function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = []) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
@@ -708,6 +738,15 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       message += `   📊 ${(stock.total_score || 0).toFixed(0)}점 | ${grade}등급\n`;
       message += `   💰 현재가: ${price.toLocaleString()}원\n`;
       message += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
+
+      // v3.46: 기대수익 구간 + 손익비
+      const er = getExpectedReturn(stock, expectations);
+      if (er) {
+        const riskPct = 5;
+        const rrRatio = (er.median / riskPct).toFixed(1);
+        message += `   📈 기대수익(${er.days}일): +${er.p25.toFixed(1)}% ~ <b>+${er.median.toFixed(1)}%</b> ~ +${er.p75.toFixed(1)}%\n`;
+        message += `   ⚖️ 손익비 1:${rrRatio} | 승률 ${er.winRate.toFixed(0)}% (N=${er.sampleCount})\n`;
+      }
 
       // 최근 주가 (Alert 모드에서 추가된 부분)
       if (stock.dailyData && stock.dailyData.length >= 2) {
@@ -766,7 +805,7 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
 
   // v3.34: 방어 TOP 3 (시장 공포 시에만)
   if (defenseTop3 && defenseTop3.length > 0 && isMarketDefensive(sentiment)) {
-    message += formatDefenseTop3Section(defenseTop3, 'alert');
+    message += formatDefenseTop3Section(defenseTop3, 'alert', expectations);
   }
 
   return message;
@@ -791,7 +830,7 @@ function getReturnSignal(r) {
   return r >= 0 ? '✅' : '❌';
 }
 
-function formatTrackMessage(dayResults, timeStr, sentiment = null) {
+function formatTrackMessage(dayResults, timeStr, sentiment = null, expectations = []) {
   let msg = `📊 <b>주가 추적</b> (${timeStr})\n\n`;
 
   // v3.32: 시장 심리 지수
@@ -834,6 +873,13 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null) {
           const displayName = getDisplayName(stock);
           msg += `${medal} <b>${displayName}</b> ${marketTag} (${gradeDisplay})\n`;
           msg += `   💰 ${recPrice} → ${stock.current_price.toLocaleString()}원 (${returnStr}) ${signal}\n`;
+
+          // v3.46: 기대 진행률
+          const er = getExpectedReturn(stock, expectations);
+          if (er && er.median > 0) {
+            const progress = Math.min(100, Math.max(0, (r / er.median * 100))).toFixed(0);
+            msg += `   📈 기대수익 진행: ${progress}% (목표 +${er.median.toFixed(1)}%, ${er.days}일)\n`;
+          }
         } else {
           const marketTag = formatMarketTag(stock.market);
           const displayName = getDisplayName(stock);
@@ -1017,6 +1063,136 @@ module.exports = async (req, res) => {
     }
 
     // =============================================
+    // 📈 CALC-EXPECTATIONS 모드: 기대수익 통계 산출 (16:30 KST)
+    // v3.46: grade×whale별 실제 수익률 분포 산출 → expected_return_stats UPSERT
+    // =============================================
+    if (mode === 'calc-expectations') {
+      console.log('📈 기대수익 통계 산출 모드 시작...');
+
+      // Step 1: 페이지네이션으로 screening_recommendations 전체 조회
+      let allRecs = [];
+      let from = 0;
+      const PAGE_SIZE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('screening_recommendations')
+          .select('id, recommendation_grade, whale_detected')
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) { console.error('❌ recs 조회 실패:', error.message); break; }
+        if (!data || data.length === 0) break;
+        allRecs = allRecs.concat(data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      console.log(`📊 추천 종목 조회: ${allRecs.length}건`);
+
+      // Step 2: 페이지네이션으로 recommendation_daily_prices 조회 (days 1~15)
+      let allPrices = [];
+      from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from('recommendation_daily_prices')
+          .select('recommendation_id, days_since_recommendation, cumulative_return')
+          .gte('days_since_recommendation', 1)
+          .lte('days_since_recommendation', 15)
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) { console.error('❌ prices 조회 실패:', error.message); break; }
+        if (!data || data.length === 0) break;
+        allPrices = allPrices.concat(data);
+        if (data.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      console.log(`📊 일별 가격 조회: ${allPrices.length}건`);
+
+      // Step 3: rec ID → grade+whale 매핑
+      const recMap = new Map();
+      allRecs.forEach(r => recMap.set(r.id, { grade: r.recommendation_grade, whale: r.whale_detected || false }));
+
+      // Step 4: grade+whale+day별 수익률 그룹핑
+      const groups = {}; // key: "grade|whale|day" → [returns]
+      allPrices.forEach(p => {
+        const rec = recMap.get(p.recommendation_id);
+        if (!rec || p.cumulative_return == null) return;
+        const key = `${rec.grade}|${rec.whale}|${p.days_since_recommendation}`;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(p.cumulative_return);
+      });
+
+      // Step 5: 각 grade+whale 조합에서 median이 가장 높은 day = optimal_days
+      const gradeWhaleKeys = new Set();
+      Object.keys(groups).forEach(k => {
+        const [grade, whale] = k.split('|');
+        gradeWhaleKeys.add(`${grade}|${whale}`);
+      });
+
+      const stats = [];
+      gradeWhaleKeys.forEach(gw => {
+        const [grade, whaleStr] = gw.split('|');
+        const whale = whaleStr === 'true';
+        let bestDay = null;
+        let bestMedian = -Infinity;
+
+        for (let day = 1; day <= 15; day++) {
+          const key = `${grade}|${whaleStr}|${day}`;
+          const returns = groups[key];
+          if (!returns || returns.length < 30) continue;
+          const sorted = [...returns].sort((a, b) => a - b);
+          const med = sorted[Math.floor(sorted.length / 2)];
+          if (med > bestMedian) {
+            bestMedian = med;
+            bestDay = day;
+          }
+        }
+
+        if (bestDay === null) return;
+
+        const key = `${grade}|${whaleStr}|${bestDay}`;
+        const returns = groups[key];
+        const sorted = [...returns].sort((a, b) => a - b);
+        const n = sorted.length;
+        const p25 = sorted[Math.floor(n * 0.25)];
+        const median = sorted[Math.floor(n * 0.5)];
+        const p75 = sorted[Math.floor(n * 0.75)];
+        const winRate = (sorted.filter(r => r > 0).length / n * 100);
+
+        stats.push({
+          grade,
+          whale_detected: whale,
+          optimal_days: bestDay,
+          p25: parseFloat(p25.toFixed(2)),
+          median: parseFloat(median.toFixed(2)),
+          p75: parseFloat(p75.toFixed(2)),
+          win_rate: parseFloat(winRate.toFixed(2)),
+          sample_count: n,
+          updated_at: new Date().toISOString()
+        });
+      });
+
+      console.log(`📊 산출 결과: ${stats.length}개 조합`);
+      stats.forEach(s => console.log(`  ${s.grade}|whale=${s.whale_detected}: day=${s.optimal_days}, median=${s.median}%, p25=${s.p25}%, p75=${s.p75}%, winRate=${s.win_rate}%, N=${s.sample_count}`));
+
+      // Step 6: UPSERT
+      if (stats.length > 0) {
+        const { error: upsertErr } = await supabase
+          .from('expected_return_stats')
+          .upsert(stats, { onConflict: 'grade,whale_detected' });
+        if (upsertErr) {
+          console.error('❌ UPSERT 실패:', upsertErr.message);
+          return res.status(500).json({ success: false, error: upsertErr.message });
+        }
+        console.log(`✅ expected_return_stats UPSERT 완료: ${stats.length}건`);
+      }
+
+      return res.status(200).json({
+        success: true,
+        mode: 'calc-expectations',
+        stats: stats.length,
+        totalRecs: allRecs.length,
+        totalPrices: allPrices.length
+      });
+    }
+
+    // =============================================
     // 🔔 ALERT 모드: 아침 알림 (08:30 KST)
     // v3.30: 전날 SAVE 결과 사용 + D-2부터 과거 성과
     // =============================================
@@ -1171,8 +1347,12 @@ module.exports = async (req, res) => {
         console.warn('⚠️ 시장 심리 지수 조회 실패:', sentErr.message);
       }
 
+      // v3.46: 기대수익 통계 조회
+      let expectations = [];
+      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch(e) {}
+
       // Step 5: 텔레그램 알림 전송
-      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3);
+      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations);
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -1330,8 +1510,12 @@ module.exports = async (req, res) => {
         console.warn('⚠️ 시장 심리 지수 조회 실패:', sentErr.message);
       }
 
+      // v3.46: 기대수익 통계 조회
+      let expectations = [];
+      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch(e) {}
+
       // Step 3: 메시지 포맷 및 전송
-      const trackMsg = formatTrackMessage(dayResults, kstTimeStr, sentiment);
+      const trackMsg = formatTrackMessage(dayResults, kstTimeStr, sentiment, expectations);
       const sent = await sendTelegramMessage(trackMsg);
 
       return res.status(200).json({
@@ -1557,7 +1741,12 @@ module.exports = async (req, res) => {
 
       // v3.34: 방어 TOP 3도 cached 경로에서 선별 — DB 플래그 기반 (v3.43)
       const defenseAlertTop3 = getTop3FromDb(existingData, 'is_defense_top3');
-      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, defenseAlertTop3);
+
+      // v3.46: 기대수익 통계 조회
+      let expectations = [];
+      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch(e) {}
+
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, defenseAlertTop3, expectations);
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -1911,9 +2100,13 @@ module.exports = async (req, res) => {
         console.warn('⚠️ 시장 심리 지수 조회 실패:', sentErr.message);
       }
 
+      // v3.46: 기대수익 통계 조회
+      let expectations = [];
+      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch(e) {}
+
       // 3. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment }, defenseTop3);
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment }, defenseTop3, expectations);
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {

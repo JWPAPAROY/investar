@@ -38,6 +38,10 @@
       "schedule": "20 7 * * 1-5"
     },
     {
+      "path": "/api/cron/save-daily-recommendations?mode=calc-expectations",
+      "schedule": "30 7 * * 1-5"
+    },
+    {
       "path": "/api/cron/save-daily-recommendations?mode=track&time=1",
       "schedule": "0 1 * * 1-5"
     },

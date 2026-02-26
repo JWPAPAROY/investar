@@ -27,6 +27,13 @@ module.exports = async function handler(req, res) {
   try {
     const kisApi = require('../../backend/kisApi');
 
+    // v3.46: 기대수익 통계 조회
+    let expectations = [];
+    try {
+      const { data } = await supabase.from('expected_return_stats').select('*');
+      expectations = data || [];
+    } catch(e) {}
+
     // 1단계: 종목명 사전 확보 — Supabase 우선, 없으면 KIS API getStockName fallback
     const nameMap = new Map();
 
@@ -84,6 +91,16 @@ module.exports = async function handler(req, res) {
           if (!result.stockName || result.stockName.startsWith('[') || /^\d{6}$/.test(result.stockName)) {
             const name = nameMap.get(code);
             if (name) result.stockName = name;
+          }
+          // v3.46: 기대수익 구간 매칭
+          if (expectations.length > 0) {
+            const grade = result.recommendation?.grade;
+            const whale = result.advancedAnalysis?.indicators?.whale?.some(w => w.type === '매수고래') || false;
+            let match = expectations.find(e => e.grade === grade && e.whale_detected === whale);
+            if (!match) match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
+            if (match && match.median > 0 && match.sample_count >= 30) {
+              result.expectedReturn = { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count };
+            }
           }
           results.push(result);
         } else {
