@@ -546,7 +546,9 @@ function getExpectedReturn(stock, expectations) {
   const whale = stock.advancedAnalysis?.indicators?.whale?.some(w => w.type === '매수고래')
     || stock.whale_detected || false;
   let match = expectations.find(e => e.grade === grade && e.whale_detected === whale);
-  if (!match) match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
+  if (!match || match.median <= 0 || match.sample_count < 30) {
+    match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
+  }
   if (!match || match.median <= 0 || match.sample_count < 30) return null;
   return { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count };
 }
