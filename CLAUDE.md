@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.45
-- **최종 업데이트**: 2026-02-25
+- **버전**: 3.46
+- **최종 업데이트**: 2026-02-27
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -567,6 +567,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 | 07:10 | 16:10 | save | 결산: 스크리닝 → Supabase 저장 + 텔레그램 |
 | 07:05 | 16:05 | update-prices | 전체 종목 종가 업데이트 (장 마감 후) |
 | 07:20 | 16:20 | patterns | 성공 패턴 수집 |
+| 07:30 | 16:30 | calc-expectations | 기대수익 통계 산출 (grade×whale별) |
 | 23:00 | 08:00 | alert | 실시간 스크리닝 TOP 3 알림 |
 | 01:00 | 10:00 | track | 장중 주가 추적 |
 | 02:30 | 11:30 | track | 장중 주가 추적 |
@@ -604,6 +605,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 ### 테이블 구조
 - `screening_recommendations`: 추천 종목 이력 (20개+ 지표 포함)
 - `recommendation_daily_prices`: 일별 가격 추적
+- `expected_return_stats`: 등급×고래별 기대수익 통계 (v3.46)
 - `success_patterns`: +10% 달성 종목 지표 특징
 - `recommendation_statistics` (뷰): 종목별 성과 통계
 - `overall_performance` (뷰): 전체 성과 요약
@@ -715,6 +717,16 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.46 (2026-02-27)
+- **기대수익 구간 기능**: 등급별×고래여부별 실제 수익률 분포(p25/median/p75) 산출 → 손절가와 세트로 기대수익 구간 + 손익비(Risk-Reward) + 승률 제공
+- **`expected_return_stats` 테이블 추가**: grade, whale_detected, optimal_days, p25, median, p75, win_rate, sample_count
+- **`calc-expectations` 크론 모드**: 16:30 KST, SAVE 완료 후 실행. 페이지네이션으로 전체 추천/가격 조회 → grade×whale×day별 그룹핑 → median 최고 day를 optimal_days로 선택 → UPSERT
+- **`getExpectedReturn()` 헬퍼**: 정확 매칭(grade+whale) → median ≤ 0이면 반대 whale로 fallback → N<30이면 null
+- **텔레그램 메시지 기대수익 표시**: SAVE/ALERT 모드에 `📈 기대수익(N일): +p25% ~ +median% ~ +p75%` + `⚖️ 손익비 1:X | 승률 Y%` 라인 추가, TRACK 모드에 `📈 기대수익 진행: X%` 표시
+- **recommend/analyze API**: `expectedReturn` 필드 매칭 (각 종목에 days/p25/median/p75/winRate/sampleCount 부착)
+- **프론트엔드 UI**: RecommendationCard에 초록 그라데이션 기대수익 카드(3컬럼 p25/median/p75 + 원화 금액 + 손익비 + 승률 바), StockDetailModal에 상세 기대수익 섹션 추가
+- **기대수익 매칭 fallback 버그 수정**: 정확 매칭 존재 시 median ≤ 0이어도 fallback 안 타던 문제 수정
 
 ### v3.45 (2026-02-25)
 - **종목 풀 5-API 체계 전환**: 시장 루프 제거(동일 결과 중복 조회 해소), 거래회전율+등락률 추가 → API 6→5회, 풀 49→76개
