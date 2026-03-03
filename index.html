@@ -327,14 +327,39 @@
             >
               <div className="font-bold mb-1">{tooltip.d.date}</div>
               <div className="flex justify-between gap-3">
-                <span className="text-blue-300">예측:</span>
+                <span className="text-blue-300">예측 스코어:</span>
                 <span className="font-mono">{tooltip.d.score >= 0 ? '+' : ''}{tooltip.d.score.toFixed(3)}</span>
               </div>
+              {tooltip.d.expectedChange && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-blue-200">예측 범위:</span>
+                  <span className="font-mono text-blue-200">
+                    {tooltip.d.expectedChange.min >= 0 ? '+' : ''}{tooltip.d.expectedChange.min}% ~ {tooltip.d.expectedChange.max >= 0 ? '+' : ''}{tooltip.d.expectedChange.max}%
+                  </span>
+                </div>
+              )}
+              {tooltip.d.kospiClose != null && tooltip.d.expectedChange && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-blue-200">예측 지수:</span>
+                  <span className="font-mono text-blue-200">
+                    {Math.round(tooltip.d.kospiClose * (1 + tooltip.d.expectedChange.min / 100)).toLocaleString()} ~ {Math.round(tooltip.d.kospiClose * (1 + tooltip.d.expectedChange.max / 100)).toLocaleString()}
+                  </span>
+                </div>
+              )}
+              <div className="border-t border-gray-600 my-1"></div>
               {tooltip.d.kospiChange != null && (
                 <div className="flex justify-between gap-3">
-                  <span className="text-gray-300">KOSPI:</span>
+                  <span className="text-gray-300">실제 변동:</span>
                   <span className={`font-mono ${tooltip.d.kospiChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                     {tooltip.d.kospiChange >= 0 ? '+' : ''}{tooltip.d.kospiChange.toFixed(2)}%
+                  </span>
+                </div>
+              )}
+              {tooltip.d.kospiClose != null && tooltip.d.kospiChange != null && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-gray-300">KOSPI 종가:</span>
+                  <span className={`font-mono font-bold ${tooltip.d.kospiChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {Math.round(tooltip.d.kospiClose * (1 + tooltip.d.kospiChange / 100)).toLocaleString()}
                   </span>
                 </div>
               )}

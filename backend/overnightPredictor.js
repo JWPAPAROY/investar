@@ -36,12 +36,23 @@ const DEFAULT_WEIGHTS = {
 
 // ─── 신호 판정 테이블 ───
 const SIGNAL_TABLE = [
-  { min:  0.5, signal: 'strong_bullish', emoji: '🟢🟢', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간', expectedChange: { min: 0.5, max: 2.5 } },
-  { min:  0.2, signal: 'mild_bullish',   emoji: '🟢',   label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간', expectedChange: { min: 0.1, max: 0.8 } },
-  { min: -0.2, signal: 'neutral',        emoji: '⚪',   label: '중립',     guidance: '방향 불명확, 관망 또는 소량 포지션', expectedChange: { min: -0.3, max: 0.3 } },
-  { min: -0.5, signal: 'mild_bearish',   emoji: '🔴',   label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려', expectedChange: { min: -0.8, max: -0.1 } },
-  { min: -Infinity, signal: 'strong_bearish', emoji: '🔴🔴', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비', expectedChange: { min: -2.5, max: -0.5 } },
+  { min:  0.5, signal: 'strong_bullish', emoji: '🟢🟢', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
+  { min:  0.2, signal: 'mild_bullish',   emoji: '🟢',   label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
+  { min: -0.2, signal: 'neutral',        emoji: '⚪',   label: '중립',     guidance: '방향 불명확, 관망 또는 소량 포지션' },
+  { min: -0.5, signal: 'mild_bearish',   emoji: '🔴',   label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
+  { min: -Infinity, signal: 'strong_bearish', emoji: '🔴🔴', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비' },
 ];
+
+/**
+ * 스코어 기반 예측 변동폭 계산
+ * 스코어 자체를 예상 변동률 중심점으로 사용, ±0.5% 밴드
+ * (고정 신호 등급별 범위 대신 스코어에 비례하는 정밀 예측)
+ */
+function calcExpectedChange(score) {
+  const band = 0.5;
+  const center = +score.toFixed(2);
+  return { min: +(center - band).toFixed(2), max: +(center + band).toFixed(2) };
+}
 
 /**
  * Yahoo Finance chart API (v8) 직접 호출
@@ -182,7 +193,7 @@ function calculatePrediction(data, weights) {
     vixAlert,
     factors,
     guidance: sig.guidance,
-    expectedChange: sig.expectedChange,
+    expectedChange: calcExpectedChange(score),
   };
 }
 
@@ -415,7 +426,7 @@ async function getAccuracy() {
  * 최근 30일 예측 히스토리 조회 (차트용)
  * @returns {Array} [{ date, score, signal, hit, kospiCloseChange }]
  */
-async function getRecentHistory() {
+async function getRecentHistory(previousKospi) {
   if (!supabase) return [];
 
   try {
@@ -428,12 +439,33 @@ async function getRecentHistory() {
     if (error || !data) return [];
 
     // 차트용 오름차순으로 뒤집기
-    return data.reverse().map(d => ({
+    const rows = data.reverse();
+
+    // KOSPI 절대 지수 역산: 최신 날 종가 = previousKospi, 역방향으로 변동률 적용
+    // null인 날은 건너뛰고 다음 유효한 날부터 이어서 역산
+    const kospiCloses = new Array(rows.length).fill(null);
+    if (previousKospi && rows.length > 0) {
+      kospiCloses[rows.length - 1] = previousKospi;
+      for (let i = rows.length - 2; i >= 0; i--) {
+        // i+1 날의 변동률로 i 날의 종가를 역산
+        const nextChange = rows[i + 1].kospi_close_change;
+        if (nextChange != null && kospiCloses[i + 1] != null) {
+          kospiCloses[i] = Math.round(kospiCloses[i + 1] / (1 + nextChange / 100));
+        } else if (kospiCloses[i + 1] != null) {
+          // 변동률 없으면 동일 값으로 근사 (체인 유지)
+          kospiCloses[i] = kospiCloses[i + 1];
+        }
+      }
+    }
+
+    return rows.map((d, i) => ({
       date: d.prediction_date,
       score: +d.score,
       signal: d.signal,
       hit: d.hit,
       kospiChange: d.kospi_close_change != null ? +d.kospi_close_change : null,
+      kospiClose: kospiCloses[i],
+      expectedChange: calcExpectedChange(+d.score),
     }));
   } catch (err) {
     return [];
@@ -482,7 +514,7 @@ async function fetchAndPredict() {
 
         // 신호 판정 재계산
         const sig = SIGNAL_TABLE.find(s => existing.score >= s.min);
-        const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory()]);
+        const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
 
         return {
           score: +existing.score,
@@ -495,10 +527,10 @@ async function fetchAndPredict() {
           guidance: sig.guidance,
           weightsSource: existing.weights ? 'calibrated_60d' : 'default',
           previousKospi,
-          expectedChange: sig.expectedChange,
-          estimatedKospi: previousKospi && sig.expectedChange ? {
-            min: Math.round(previousKospi * (1 + sig.expectedChange.min / 100)),
-            max: Math.round(previousKospi * (1 + sig.expectedChange.max / 100)),
+          expectedChange: calcExpectedChange(+existing.score),
+          estimatedKospi: previousKospi ? {
+            min: Math.round(previousKospi * (1 + calcExpectedChange(+existing.score).min / 100)),
+            max: Math.round(previousKospi * (1 + calcExpectedChange(+existing.score).max / 100)),
           } : null,
           accuracy,
           history,
@@ -526,17 +558,17 @@ async function fetchAndPredict() {
   await savePrediction(prediction, weights, source);
 
   // 적중률 + 히스토리 조회
-  const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory()]);
+  const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
 
   const sig = SIGNAL_TABLE.find(s => prediction.score >= s.min);
   return {
     ...prediction,
     weightsSource: source,
     previousKospi,
-    expectedChange: sig.expectedChange,
-    estimatedKospi: previousKospi && sig.expectedChange ? {
-      min: Math.round(previousKospi * (1 + sig.expectedChange.min / 100)),
-      max: Math.round(previousKospi * (1 + sig.expectedChange.max / 100)),
+    expectedChange: calcExpectedChange(prediction.score),
+    estimatedKospi: previousKospi ? {
+      min: Math.round(previousKospi * (1 + calcExpectedChange(prediction.score).min / 100)),
+      max: Math.round(previousKospi * (1 + calcExpectedChange(prediction.score).max / 100)),
     } : null,
     accuracy,
     history,
