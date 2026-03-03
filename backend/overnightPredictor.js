@@ -16,22 +16,22 @@ const supabase = require('./supabaseClient');
 
 // ─── 기본 가중치 ───
 const DEFAULT_WEIGHTS = {
-  // ── 현물 지수 ──
-  '^GSPC':     { name: 'S&P 500',    weight: +0.15 },
-  '^IXIC':     { name: 'NASDAQ',     weight: +0.12 },
-  '^SOX':      { name: 'SOX 반도체',  weight: +0.10 },
+  // ── 선물 (장 마감 후 최신 움직임 반영 → 높은 가중치) ──
+  'ES=F':      { name: 'S&P500 선물', weight: +0.18 },
+  'NQ=F':      { name: '나스닥 선물',  weight: +0.15 },
+  'GC=F':      { name: '금 선물',     weight: -0.04 },
+  'HG=F':      { name: '구리 선물',   weight: +0.05 },
+  // ── 현물 지수 (장 마감 시점 확정가) ──
+  '^GSPC':     { name: 'S&P 500',    weight: +0.10 },
+  '^IXIC':     { name: 'NASDAQ',     weight: +0.08 },
+  '^SOX':      { name: 'SOX 반도체',  weight: +0.08 },
   '^VIX':      { name: 'VIX 공포',    weight: -0.08 },
-  '^DJI':      { name: '다우존스',     weight: +0.05 },
+  '^DJI':      { name: '다우존스',     weight: +0.03 },
   'USDKRW=X':  { name: '달러/원',     weight: -0.08 },
   '^TNX':      { name: '미국10년물',   weight: -0.05 },
   '^N225':     { name: '닛케이',      weight: +0.04 },
   'CL=F':      { name: 'WTI 원유',    weight: +0.02 },
   'DX-Y.NYB':  { name: '달러인덱스',   weight: -0.02 },
-  // ── 선물 (장 마감 후 움직임 반영) ──
-  'ES=F':      { name: 'S&P500 선물', weight: +0.12 },
-  'NQ=F':      { name: '나스닥 선물',  weight: +0.10 },
-  'GC=F':      { name: '금 선물',     weight: -0.03 },
-  'HG=F':      { name: '구리 선물',   weight: +0.04 },
 };
 
 // ─── 신호 판정 테이블 ───
