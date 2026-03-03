@@ -9,12 +9,12 @@
  * - updateActualResult(date): 당일 실제 결과 업데이트 (장 마감 후)
  */
 
-// yahoo-finance2 v2.x는 ESM 전용 — dynamic import 사용
+// yahoo-finance2 v2.x는 ESM 전용 — dynamic import + instance 필요
 let _yahooFinance = null;
 async function getYahooFinance() {
   if (!_yahooFinance) {
     const mod = await import('yahoo-finance2');
-    _yahooFinance = mod.default;
+    _yahooFinance = new mod.default();
   }
   return _yahooFinance;
 }

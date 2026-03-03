@@ -319,6 +319,19 @@
       const [patternAnalysis, setPatternAnalysis] = useState(null);
       const [patternLoading, setPatternLoading] = useState(false);
 
+      // 해외 전망 자동 로드 (페이지 진입 시)
+      useEffect(() => {
+        if (prediction) return; // 이미 로드됨
+        fetch(`${API_BASE_URL}/screening/prediction`)
+          .then(r => r.json())
+          .then(result => {
+            if (result.success && result.prediction) {
+              setPrediction(result.prediction);
+            }
+          })
+          .catch(() => {}); // 실패 무시
+      }, []);
+
       // 추천 종목을 Supabase에 저장 (성과 추적용)
       // ⚠️ v3.10.3부터 프론트엔드 자동 저장 제거 - Cron만 저장
       // 실제 저장 기준: 50점+ (save-daily-recommendations.js, v3.35에서 상한 제거)
@@ -629,7 +642,7 @@
                 )}
 
                 {/* 해외 시장 기반 전망 카드 */}
-                {prediction && recommendations.length > 0 && (() => {
+                {prediction && (() => {
                   const bgClass = prediction.signal.includes('bullish')
                     ? 'from-green-50 to-emerald-50 border-green-300'
                     : prediction.signal.includes('bearish')
