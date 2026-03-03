@@ -30,11 +30,11 @@ const DEFAULT_WEIGHTS = {
 
 // ─── 신호 판정 테이블 ───
 const SIGNAL_TABLE = [
-  { min:  0.5, signal: 'strong_bullish', emoji: '🟢🟢', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
-  { min:  0.2, signal: 'mild_bullish',   emoji: '🟢',   label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
-  { min: -0.2, signal: 'neutral',        emoji: '⚪',   label: '중립',     guidance: '방향 불명확, 관망 또는 소량 포지션' },
-  { min: -0.5, signal: 'mild_bearish',   emoji: '🔴',   label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
-  { min: -Infinity, signal: 'strong_bearish', emoji: '🔴🔴', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비' },
+  { min:  0.5, signal: 'strong_bullish', emoji: '🟢🟢', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간', expectedChange: { min: 0.5, max: 2.5 } },
+  { min:  0.2, signal: 'mild_bullish',   emoji: '🟢',   label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간', expectedChange: { min: 0.1, max: 0.8 } },
+  { min: -0.2, signal: 'neutral',        emoji: '⚪',   label: '중립',     guidance: '방향 불명확, 관망 또는 소량 포지션', expectedChange: { min: -0.3, max: 0.3 } },
+  { min: -0.5, signal: 'mild_bearish',   emoji: '🔴',   label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려', expectedChange: { min: -0.8, max: -0.1 } },
+  { min: -Infinity, signal: 'strong_bearish', emoji: '🔴🔴', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비', expectedChange: { min: -2.5, max: -0.5 } },
 ];
 
 /**
@@ -138,6 +138,8 @@ function calculatePrediction(data, weights) {
       change: +change.toFixed(2),
       weight: w,
       contribution: +contribution.toFixed(4),
+      price: d.price ? +d.price.toFixed(2) : null,
+      previousClose: d.previousClose ? +d.previousClose.toFixed(2) : null,
     });
   }
 
@@ -174,6 +176,7 @@ function calculatePrediction(data, weights) {
     vixAlert,
     factors,
     guidance: sig.guidance,
+    expectedChange: sig.expectedChange,
   };
 }
 
@@ -438,6 +441,15 @@ async function getRecentHistory() {
 async function fetchAndPredict() {
   const today = getTodayKST();
 
+  // KOSPI 전일 종가 (예상 지수 산출용)
+  let previousKospi = null;
+  try {
+    const kd = await yahooQuote('^KS11');
+    previousKospi = kd.previousClose ? +kd.previousClose.toFixed(2) : null;
+  } catch (e) {
+    console.warn('⚠️ KOSPI 전일 종가 조회 실패:', e.message);
+  }
+
   // 캐시 확인: 오늘 이미 예측 저장되어 있으면 읽기
   if (supabase) {
     try {
@@ -471,6 +483,12 @@ async function fetchAndPredict() {
           factors: existing.factors || [],
           guidance: sig.guidance,
           weightsSource: existing.weights ? 'calibrated_60d' : 'default',
+          previousKospi,
+          expectedChange: sig.expectedChange,
+          estimatedKospi: previousKospi && sig.expectedChange ? {
+            min: Math.round(previousKospi * (1 + sig.expectedChange.min / 100)),
+            max: Math.round(previousKospi * (1 + sig.expectedChange.max / 100)),
+          } : null,
           accuracy,
           history,
           todayResult: existing.hit != null ? {
@@ -499,9 +517,16 @@ async function fetchAndPredict() {
   // 적중률 + 히스토리 조회
   const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory()]);
 
+  const sig = SIGNAL_TABLE.find(s => prediction.score >= s.min);
   return {
     ...prediction,
     weightsSource: source,
+    previousKospi,
+    expectedChange: sig.expectedChange,
+    estimatedKospi: previousKospi && sig.expectedChange ? {
+      min: Math.round(previousKospi * (1 + sig.expectedChange.min / 100)),
+      max: Math.round(previousKospi * (1 + sig.expectedChange.max / 100)),
+    } : null,
     accuracy,
     history,
     todayResult: null,

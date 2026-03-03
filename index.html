@@ -158,8 +158,10 @@
         const toX = (i) => pad.left + (i / (history.length - 1)) * chartW;
         const toY = (v) => pad.top + (1 - (v - minVal) / range) * chartH;
 
-        // 좌표 매핑 저장 (툴팁용)
-        chartMapRef.current = { padLeft: pad.left, chartW, len: history.length, toX, toY };
+        // 각 데이터 포인트의 실제 좌표 저장 (툴팁용)
+        chartMapRef.current = history.map((d, i) => ({
+          x: toX(i), y: toY(d.score),
+        }));
 
         ctx.fillStyle = '#fafafa';
         ctx.fillRect(0, 0, w, h);
@@ -278,21 +280,29 @@
       }, [history]);
 
       const handleMouseMove = useCallback((e) => {
-        const map = chartMapRef.current;
+        const points = chartMapRef.current;
         const canvas = canvasRef.current;
-        if (!map || !canvas || !history || history.length < 2) return;
+        if (!points || !canvas || !history || history.length < 2) return;
 
-        const offsetX = e.nativeEvent.offsetX;
-        const step = map.chartW / (map.len - 1);
-        const idx = Math.round((offsetX - map.padLeft) / step);
-        if (idx < 0 || idx >= map.len) { setTooltip(null); return; }
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        // rect.width = 렌더된 CSS 크기, clientWidth = 요소 CSS 크기 (동일해야 하지만 안전하게)
+        const scale = canvas.clientWidth / rect.width;
+        const scaledX = mouseX * scale;
 
-        const dist = Math.abs(offsetX - map.toX(idx));
-        if (dist > 25) { setTooltip(null); return; }
+        // 가장 가까운 데이터 포인트 찾기
+        let nearestIdx = 0, minDist = Infinity;
+        points.forEach((p, i) => {
+          const dist = Math.abs(scaledX - p.x);
+          if (dist < minDist) { minDist = dist; nearestIdx = i; }
+        });
 
-        const d = history[idx];
-        // canvas p-2 = 8px offset within container
-        setTooltip({ x: map.toX(idx) + 8, y: map.toY(d.score) + 8, d });
+        if (minDist > 25) { setTooltip(null); return; }
+
+        const d = history[nearestIdx];
+        const pt = points[nearestIdx];
+        // +8px = canvas의 p-2 컨테이너 패딩 보정
+        setTooltip({ x: pt.x + 8, y: pt.y + 8, d });
       }, [history]);
 
       if (!history || history.length < 2) return null;
@@ -957,6 +967,14 @@
                   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
                   const displayFactors = isMobile ? factors.slice(0, 5) : factors;
                   const sign = prediction.score >= 0 ? '+' : '';
+                  const todayDateStr = (() => {
+                    const d = new Date();
+                    d.setMinutes(d.getMinutes() + d.getTimezoneOffset() + 540);
+                    return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+                  })();
+                  const prevKospi = prediction.previousKospi;
+                  const estKospi = prediction.estimatedKospi;
+                  const expChange = prediction.expectedChange;
 
                   return (
                     <div>
@@ -965,7 +983,10 @@
                         <div className="flex items-center justify-between mb-3">
                           <div className="flex items-center gap-2">
                             <span className="text-3xl">🌏</span>
-                            <h2 className={`text-xl md:text-2xl font-bold ${textClass}`}>오늘의 시장 전망</h2>
+                            <div>
+                              <h2 className={`text-xl md:text-2xl font-bold ${textClass}`}>오늘의 시장 전망</h2>
+                              <span className="text-xs text-gray-500">{todayDateStr} (전일 해외장 마감 기준)</span>
+                            </div>
                           </div>
                           <div className={`${textClass} font-bold text-xl md:text-2xl`}>
                             {prediction.emoji} {prediction.label}
@@ -974,10 +995,29 @@
 
                         <div className={`text-center mb-2 ${textClass}`}>
                           <span className="text-3xl font-bold">{sign}{prediction.score.toFixed(2)}</span>
+                          <span className="text-sm ml-2 opacity-60">스코어</span>
                         </div>
                         <p className="text-xs text-center text-gray-500 mb-3">
-                          전일 해외 지수 변동률의 가중합산 스코어 (🟢🟢≥+0.5 / 🟢≥+0.2 / ⚪±0.2 / 🔴≤-0.2 / 🔴🔴≤-0.5)
+                          해외 10개 지수 변동률 × 가중치 합산 (🟢🟢≥+0.5 / 🟢≥+0.2 / ⚪±0.2 / 🔴≤-0.2 / 🔴🔴≤-0.5)
                         </p>
+
+                        {/* 예상 KOSPI 범위 */}
+                        {prevKospi && estKospi && expChange && (
+                          <div className="bg-white bg-opacity-60 rounded-lg p-3 mb-3">
+                            <div className="text-center">
+                              <span className="text-xs text-gray-500">전일 KOSPI 종가</span>
+                              <span className="font-bold text-gray-800 ml-2">{prevKospi.toLocaleString()}</span>
+                              <span className="text-gray-400 mx-2">→</span>
+                              <span className="text-xs text-gray-500">예상 범위</span>
+                              <span className={`font-bold ml-2 ${textClass}`}>
+                                {estKospi.min.toLocaleString()} ~ {estKospi.max.toLocaleString()}
+                              </span>
+                            </div>
+                            <p className="text-xs text-gray-400 text-center mt-1">
+                              예상 변동: {expChange.min >= 0 ? '+' : ''}{expChange.min}% ~ {expChange.max >= 0 ? '+' : ''}{expChange.max}%
+                            </p>
+                          </div>
+                        )}
 
                         {prediction.summary && (
                           <p className={`text-sm md:text-base text-center mb-2 ${textClass} opacity-90`}>
@@ -1051,47 +1091,72 @@
                       {hasFactorData && (
                         <div className="bg-white border border-gray-200 rounded-xl p-3 md:p-4 shadow-sm">
                           <h3 className="text-sm font-semibold text-gray-700 mb-1">📊 해외 지수 변동 상세 (전일 마감 기준)</h3>
-                          <p className="text-xs text-gray-400 mb-3">각 지수의 전일 변동률에 가중치를 곱해 스코어 기여도를 계산합니다</p>
-                          {/* 헤더 */}
-                          <div className="flex items-center gap-2 text-xs text-gray-400 mb-1 px-1">
-                            <span className="w-20 md:w-28 text-right flex-shrink-0">지수</span>
-                            <span className="w-16 md:w-18 text-right flex-shrink-0">변동률</span>
-                            <span className="flex-1 text-center">기여도 바</span>
-                            <span className="w-12 text-right flex-shrink-0 hidden md:block">가중치</span>
-                            <span className="w-14 text-right flex-shrink-0">기여도</span>
+                          <p className="text-xs text-gray-400 mb-3">스코어 = 각 지수의 (변동률 × 가중치) 합산. 양의 가중치: 상승→KOSPI↑ / 음의 가중치: 상승→KOSPI↓</p>
+                          {/* 테이블 헤더 */}
+                          <div className="hidden md:flex items-center gap-2 text-xs text-gray-400 mb-1.5 border-b border-gray-100 pb-1">
+                            <span className="w-24 text-left">지수</span>
+                            <span className="w-20 text-right">현재가</span>
+                            <span className="w-16 text-right">변동률</span>
+                            <span className="w-12 text-right">가중치</span>
+                            <span className="flex-1"></span>
+                            <span className="w-16 text-right">기여도</span>
                           </div>
-                          <div className="space-y-2">
+                          <div className="space-y-1.5">
                             {displayFactors.map((f, i) => {
                               const barWidth = Math.min(Math.abs(f.contribution) / maxAbsContrib * 100, 100);
                               const isPositive = f.contribution >= 0;
                               const changeSign = f.change >= 0 ? '+' : '';
                               const weightPct = (Math.abs(f.weight) * 100).toFixed(0);
                               const weightSign = f.weight >= 0 ? '+' : '-';
+                              const priceStr = f.price ? (f.price >= 1000 ? f.price.toLocaleString(undefined, {maximumFractionDigits: 0}) : f.price.toFixed(2)) : '-';
                               return (
-                                <div key={i} className="flex items-center gap-2 text-xs md:text-sm">
-                                  <span className="w-20 md:w-28 text-right text-gray-600 truncate flex-shrink-0">{f.name}</span>
-                                  <span className={`w-16 md:w-18 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                    {changeSign}{f.change}%
-                                  </span>
-                                  <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
-                                    <div
-                                      className={`h-full rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}
-                                      style={{width: barWidth + '%'}}
-                                    />
+                                <div key={i}>
+                                  {/* 데스크탑 */}
+                                  <div className="hidden md:flex items-center gap-2 text-sm">
+                                    <span className="w-24 text-left text-gray-700 truncate flex-shrink-0 font-medium">{f.name}</span>
+                                    <span className="w-20 text-right font-mono text-gray-500 flex-shrink-0 text-xs">{priceStr}</span>
+                                    <span className={`w-16 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                      {changeSign}{f.change}%
+                                    </span>
+                                    <span className="w-12 text-right font-mono text-xs text-gray-400 flex-shrink-0">
+                                      {weightSign}{weightPct}%
+                                    </span>
+                                    <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
+                                        style={{width: barWidth + '%'}}
+                                      />
+                                    </div>
+                                    <span className={`w-16 text-right font-mono text-xs font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                      {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
+                                    </span>
                                   </div>
-                                  <span className="w-12 text-right font-mono text-xs text-gray-400 flex-shrink-0 hidden md:block">
-                                    {weightSign}{weightPct}%
-                                  </span>
-                                  <span className={`w-14 text-right font-mono text-xs flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
-                                    {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
-                                  </span>
+                                  {/* 모바일 */}
+                                  <div className="flex md:hidden items-center gap-1.5 text-xs">
+                                    <div className="w-16 flex-shrink-0">
+                                      <div className="text-gray-700 font-medium truncate">{f.name}</div>
+                                      <div className="text-gray-400 font-mono" style={{fontSize:'10px'}}>{priceStr}</div>
+                                    </div>
+                                    <span className={`w-14 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                      {changeSign}{f.change}%
+                                    </span>
+                                    <span className="w-9 text-right font-mono text-gray-400 flex-shrink-0" style={{fontSize:'10px'}}>
+                                      {weightSign}{weightPct}%
+                                    </span>
+                                    <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
+                                        style={{width: barWidth + '%'}}
+                                      />
+                                    </div>
+                                    <span className={`w-12 text-right font-mono font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`} style={{fontSize:'10px'}}>
+                                      {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
+                                    </span>
+                                  </div>
                                 </div>
                               );
                             })}
                           </div>
-                          <p className="text-xs text-gray-400 mt-3 text-center">
-                            스코어 = 각 지수의 (변동률 × 가중치) 합산 | 양의 가중치: 지수 상승→KOSPI 상승 | 음의 가중치: 지수 상승→KOSPI 하락
-                          </p>
                         </div>
                       )}
 
