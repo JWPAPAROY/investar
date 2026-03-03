@@ -1,24 +1,17 @@
 /**
- * 해외 지수 기반 한국 시장 당일 방향 예측 (v1.0)
+ * 해외 지수 기반 한국 시장 당일 방향 예측 (v1.1)
  *
  * 전날 미국장 마감 데이터(S&P500, NASDAQ, VIX 등)를 기반으로
  * 가중 스코어를 계산하여 한국 시장 방향을 예측한다.
+ *
+ * Yahoo Finance chart API (v8) 직접 호출 — API 키 불필요, Vercel 호환
  *
  * 주요 함수:
  * - fetchAndPredict(): 메인 — 해외 데이터 수집 + 예측
  * - updateActualResult(date): 당일 실제 결과 업데이트 (장 마감 후)
  */
 
-// yahoo-finance2 v2.x는 ESM 전용 — dynamic import + instance 필요
-let _yahooFinance = null;
-async function getYahooFinance() {
-  if (!_yahooFinance) {
-    const mod = await import('yahoo-finance2');
-    _yahooFinance = new mod.default();
-  }
-  return _yahooFinance;
-}
-
+const https = require('https');
 const supabase = require('./supabaseClient');
 
 // ─── 기본 가중치 ───
@@ -45,24 +38,69 @@ const SIGNAL_TABLE = [
 ];
 
 /**
- * 2-1. yahoo-finance2로 해외 지수 데이터 수집
- * @returns {Object} { ticker: { name, change, price } }
+ * Yahoo Finance chart API (v8) 직접 호출
+ * API 키 불필요, Vercel 서버리스 호환
+ */
+function yahooQuote(symbol) {
+  return new Promise((resolve, reject) => {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=2d&interval=1d`;
+    https.get(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+    }, (res) => {
+      let data = '';
+      res.on('data', chunk => data += chunk);
+      res.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          const result = json.chart?.result?.[0];
+          if (!result) { reject(new Error('No chart result')); return; }
+
+          const meta = result.meta || {};
+          const closes = result.indicators?.quote?.[0]?.close || [];
+          const opens = result.indicators?.quote?.[0]?.open || [];
+
+          // 최신 2일 데이터에서 변동률 계산
+          if (closes.length >= 2) {
+            const prevClose = closes[closes.length - 2];
+            const currClose = closes[closes.length - 1];
+            const currOpen = opens[opens.length - 1];
+            if (prevClose && currClose) {
+              const change = ((currClose - prevClose) / prevClose) * 100;
+              resolve({
+                price: currClose,
+                previousClose: prevClose,
+                open: currOpen || currClose,
+                change: +change.toFixed(4),
+              });
+              return;
+            }
+          }
+
+          // fallback: meta 데이터
+          const price = meta.regularMarketPrice || 0;
+          const prevClose = meta.chartPreviousClose || meta.previousClose || 0;
+          const change = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
+          resolve({ price, previousClose: prevClose, open: price, change: +change.toFixed(4) });
+        } catch (e) {
+          reject(e);
+        }
+      });
+    }).on('error', reject);
+  });
+}
+
+/**
+ * 해외 지수 데이터 수집 (병렬 호출)
+ * @returns {Object} { ticker: { ticker, change, price, previousClose } }
  */
 async function fetchOvernightData() {
   const tickers = Object.keys(DEFAULT_WEIGHTS);
   const results = {};
 
-  // 병렬 호출 (5초 이내 완료 목표)
   const promises = tickers.map(async (ticker) => {
     try {
-      const yf = await getYahooFinance();
-      const quote = await yf.quote(ticker);
-      return {
-        ticker,
-        change: quote.regularMarketChangePercent || 0,
-        price: quote.regularMarketPrice || 0,
-        previousClose: quote.regularMarketPreviousClose || 0,
-      };
+      const quote = await yahooQuote(ticker);
+      return { ticker, ...quote };
     } catch (err) {
       console.warn(`⚠️ ${ticker} 데이터 수집 실패: ${err.message}`);
       return { ticker, change: 0, price: 0, previousClose: 0 };
@@ -282,31 +320,21 @@ async function updateActualResult(date) {
     let kospiChange = null, kosdaqChange = null;
     let kospiCloseChange = null, kosdaqCloseChange = null;
 
-    const yf = await getYahooFinance();
     try {
-      const kospiQuote = await yf.quote('^KS11');
-      if (kospiQuote) {
-        kospiChange = kospiQuote.regularMarketChangePercent || 0;
-        // 시가 대비 변동률 = (시가 - 전일종가) / 전일종가 * 100
-        if (kospiQuote.regularMarketOpen && kospiQuote.regularMarketPreviousClose) {
-          const openChange = ((kospiQuote.regularMarketOpen - kospiQuote.regularMarketPreviousClose) / kospiQuote.regularMarketPreviousClose) * 100;
-          kospiChange = +openChange.toFixed(3);
-        }
-        kospiCloseChange = +(kospiQuote.regularMarketChangePercent || 0).toFixed(3);
+      const kospiQuote = await yahooQuote('^KS11');
+      if (kospiQuote.previousClose) {
+        kospiChange = +((kospiQuote.open - kospiQuote.previousClose) / kospiQuote.previousClose * 100).toFixed(3);
+        kospiCloseChange = +kospiQuote.change.toFixed(3);
       }
     } catch (e) {
       console.warn('⚠️ KOSPI 데이터 수집 실패:', e.message);
     }
 
     try {
-      const kosdaqQuote = await yf.quote('^KQ11');
-      if (kosdaqQuote) {
-        kosdaqChange = kosdaqQuote.regularMarketChangePercent || 0;
-        if (kosdaqQuote.regularMarketOpen && kosdaqQuote.regularMarketPreviousClose) {
-          const openChange = ((kosdaqQuote.regularMarketOpen - kosdaqQuote.regularMarketPreviousClose) / kosdaqQuote.regularMarketPreviousClose) * 100;
-          kosdaqChange = +openChange.toFixed(3);
-        }
-        kosdaqCloseChange = +(kosdaqQuote.regularMarketChangePercent || 0).toFixed(3);
+      const kosdaqQuote = await yahooQuote('^KQ11');
+      if (kosdaqQuote.previousClose) {
+        kosdaqChange = +((kosdaqQuote.open - kosdaqQuote.previousClose) / kosdaqQuote.previousClose * 100).toFixed(3);
+        kosdaqCloseChange = +kosdaqQuote.change.toFixed(3);
       }
     } catch (e) {
       console.warn('⚠️ KOSDAQ 데이터 수집 실패:', e.message);
