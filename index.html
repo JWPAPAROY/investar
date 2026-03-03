@@ -127,6 +127,9 @@
      */
     function PredictionChart({ history }) {
       const canvasRef = useRef(null);
+      const containerRef = useRef(null);
+      const chartMapRef = useRef(null);
+      const [tooltip, setTooltip] = useState(null);
 
       useEffect(() => {
         if (!history || history.length < 2) return;
@@ -141,7 +144,6 @@
         canvas.height = h * dpr;
         ctx.scale(dpr, dpr);
 
-        // 데이터 범위 계산
         const scores = history.map(d => d.score);
         const kospiChanges = history.filter(d => d.kospiChange != null).map(d => d.kospiChange);
         const allVals = [...scores, ...kospiChanges];
@@ -156,7 +158,9 @@
         const toX = (i) => pad.left + (i / (history.length - 1)) * chartW;
         const toY = (v) => pad.top + (1 - (v - minVal) / range) * chartH;
 
-        // 배경
+        // 좌표 매핑 저장 (툴팁용)
+        chartMapRef.current = { padLeft: pad.left, chartW, len: history.length, toX, toY };
+
         ctx.fillStyle = '#fafafa';
         ctx.fillRect(0, 0, w, h);
 
@@ -171,7 +175,6 @@
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // +0.5, -0.5 기준선 (신호 경계)
         [0.5, -0.5, 0.2, -0.2].forEach((v, i) => {
           if (v > maxVal || v < minVal) return;
           const y = toY(v);
@@ -185,7 +188,6 @@
           ctx.setLineDash([]);
         });
 
-        // Y축 레이블
         ctx.fillStyle = '#9ca3af';
         ctx.font = '10px monospace';
         ctx.textAlign = 'right';
@@ -195,7 +197,6 @@
           ctx.fillText(label, pad.left - 4, toY(v));
         });
 
-        // X축 날짜 레이블 (처음, 중간, 마지막)
         ctx.fillStyle = '#9ca3af';
         ctx.font = '9px sans-serif';
         ctx.textAlign = 'center';
@@ -206,7 +207,7 @@
           ctx.fillText(d.slice(5).replace('-', '/'), toX(i), h - pad.bottom + 6);
         });
 
-        // KOSPI 실제 변동률 선 (회색, 결과 있는 것만)
+        // KOSPI 실제 변동률 선
         ctx.strokeStyle = '#d1d5db';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -220,7 +221,7 @@
         });
         ctx.stroke();
 
-        // 예측 스코어 선 (파란색)
+        // 예측 스코어 선
         ctx.strokeStyle = '#3b82f6';
         ctx.lineWidth = 2;
         ctx.beginPath();
@@ -238,13 +239,9 @@
           const y = toY(d.score);
           ctx.beginPath();
           ctx.arc(x, y, 3.5, 0, Math.PI * 2);
-          if (d.hit === true) {
-            ctx.fillStyle = '#22c55e';
-          } else if (d.hit === false) {
-            ctx.fillStyle = '#ef4444';
-          } else {
-            ctx.fillStyle = '#9ca3af';
-          }
+          if (d.hit === true) ctx.fillStyle = '#22c55e';
+          else if (d.hit === false) ctx.fillStyle = '#ef4444';
+          else ctx.fillStyle = '#9ca3af';
           ctx.fill();
         });
 
@@ -280,14 +277,62 @@
         });
       }, [history]);
 
+      const handleMouseMove = useCallback((e) => {
+        const map = chartMapRef.current;
+        const canvas = canvasRef.current;
+        if (!map || !canvas || !history || history.length < 2) return;
+
+        const offsetX = e.nativeEvent.offsetX;
+        const step = map.chartW / (map.len - 1);
+        const idx = Math.round((offsetX - map.padLeft) / step);
+        if (idx < 0 || idx >= map.len) { setTooltip(null); return; }
+
+        const dist = Math.abs(offsetX - map.toX(idx));
+        if (dist > 25) { setTooltip(null); return; }
+
+        const d = history[idx];
+        // canvas p-2 = 8px offset within container
+        setTooltip({ x: map.toX(idx) + 8, y: map.toY(d.score) + 8, d });
+      }, [history]);
+
       if (!history || history.length < 2) return null;
 
       return (
-        <div className="mt-3 bg-white rounded-lg p-2 border border-gray-200">
+        <div ref={containerRef} className="mt-3 bg-white rounded-lg p-2 border border-gray-200 relative">
           <canvas
             ref={canvasRef}
-            style={{ width: '100%', height: '280px', display: 'block' }}
+            onMouseMove={handleMouseMove}
+            onMouseLeave={() => setTooltip(null)}
+            style={{ width: '100%', height: '280px', display: 'block', cursor: 'crosshair' }}
           />
+          {tooltip && (
+            <div
+              className="absolute bg-gray-900 text-white text-xs rounded-lg px-3 py-2 pointer-events-none shadow-lg z-10"
+              style={{
+                left: `${tooltip.x}px`,
+                top: `${Math.max(tooltip.y - 70, 4)}px`,
+                transform: tooltip.x > (containerRef.current?.clientWidth || 300) * 0.75
+                  ? 'translateX(-105%)' : tooltip.x < 60 ? 'translateX(5%)' : 'translateX(-50%)',
+              }}
+            >
+              <div className="font-bold mb-1">{tooltip.d.date}</div>
+              <div className="flex justify-between gap-3">
+                <span className="text-blue-300">예측:</span>
+                <span className="font-mono">{tooltip.d.score >= 0 ? '+' : ''}{tooltip.d.score.toFixed(3)}</span>
+              </div>
+              {tooltip.d.kospiChange != null && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-gray-300">KOSPI:</span>
+                  <span className={`font-mono ${tooltip.d.kospiChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                    {tooltip.d.kospiChange >= 0 ? '+' : ''}{tooltip.d.kospiChange.toFixed(2)}%
+                  </span>
+                </div>
+              )}
+              {tooltip.d.hit === true && <div className="text-green-400 text-center mt-1">✅ 적중</div>}
+              {tooltip.d.hit === false && <div className="text-red-400 text-center mt-1">❌ 미적중</div>}
+              {tooltip.d.hit == null && <div className="text-gray-400 text-center mt-1">⏳ 결과 대기</div>}
+            </div>
+          )}
         </div>
       );
     }
@@ -299,7 +344,7 @@
       const [error, setError] = useState(null);
       const [selectedStock, setSelectedStock] = useState(null);
       const [lastUpdate, setLastUpdate] = useState(null);
-      const [activeTab, setActiveTab] = useState('screening'); // screening, performance, analyze, dna
+      const [activeTab, setActiveTab] = useState('prediction'); // prediction, screening, performance, analyze, dna
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
       const [screeningDuration, setScreeningDuration] = useState(null); // 스크리닝 소요 시간(초)
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
@@ -575,15 +620,6 @@
               {/* 탭 메뉴 */}
               <div className="flex gap-1 md:gap-4 mt-4 md:mt-6 border-b border-gray-200 overflow-x-auto">
                 <button
-                  onClick={() => setActiveTab('screening')}
-                  className={`px-2 py-2 md:px-6 md:py-3 text-xs md:text-base font-semibold transition-all whitespace-nowrap ${activeTab === 'screening'
-                    ? 'text-indigo-600 border-b-4 border-indigo-600'
-                    : 'text-gray-500 hover:text-gray-700'
-                    }`}
-                >
-                  📊 스크리닝
-                </button>
-                <button
                   onClick={() => setActiveTab('prediction')}
                   className={`px-2 py-2 md:px-6 md:py-3 text-xs md:text-base font-semibold transition-all whitespace-nowrap ${activeTab === 'prediction'
                     ? 'text-indigo-600 border-b-4 border-indigo-600'
@@ -591,6 +627,15 @@
                     }`}
                 >
                   🌏 오늘의 시장전망
+                </button>
+                <button
+                  onClick={() => setActiveTab('screening')}
+                  className={`px-2 py-2 md:px-6 md:py-3 text-xs md:text-base font-semibold transition-all whitespace-nowrap ${activeTab === 'screening'
+                    ? 'text-indigo-600 border-b-4 border-indigo-600'
+                    : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  📊 스크리닝
                 </button>
                 <button
                   onClick={() => {
@@ -958,6 +1003,38 @@
                           <span>가중치: {prediction.weightsSource === 'calibrated_60d' ? '자동보정 60일' : '기본값'}</span>
                         </div>
                       </div>
+
+                      {/* 오늘의 예측 결과 */}
+                      {prediction.todayResult ? (
+                        <div className={`border-2 rounded-xl p-3 md:p-4 mb-4 ${
+                          prediction.todayResult.hit
+                            ? 'bg-green-50 border-green-300'
+                            : 'bg-red-50 border-red-300'
+                        }`}>
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">📋 오늘의 예측 결과</h3>
+                          <div className="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-6">
+                            <div className="text-sm">
+                              <span className="text-gray-600">예측: </span>
+                              <span className="font-bold">{prediction.emoji} {prediction.label} ({sign}{prediction.score.toFixed(2)})</span>
+                            </div>
+                            <span className="hidden md:inline text-gray-300">→</span>
+                            <div className="text-sm">
+                              <span className="text-gray-600">KOSPI 실제: </span>
+                              <span className={`font-bold ${prediction.todayResult.kospiCloseChange >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                {prediction.todayResult.kospiCloseChange >= 0 ? '+' : ''}{prediction.todayResult.kospiCloseChange?.toFixed(2)}%
+                              </span>
+                            </div>
+                            <span className="text-xl">{prediction.todayResult.hit ? '✅' : '❌'}</span>
+                            <span className={`font-bold text-sm ${prediction.todayResult.hit ? 'text-green-700' : 'text-red-700'}`}>
+                              {prediction.todayResult.hit ? '적중!' : '미적중'}
+                            </span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-center text-sm text-blue-700">
+                          ⏳ 장 마감 후 예측 결과가 업데이트됩니다 (16:10 KST)
+                        </div>
+                      )}
 
                       {/* 예측 히스토리 차트 */}
                       {prediction.history && prediction.history.length >= 2 && (

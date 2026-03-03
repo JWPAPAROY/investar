@@ -444,6 +444,12 @@ async function fetchAndPredict() {
           weightsSource: existing.weights ? 'calibrated_60d' : 'default',
           accuracy,
           history,
+          todayResult: existing.hit != null ? {
+            kospiCloseChange: existing.kospi_close_change != null ? +existing.kospi_close_change : null,
+            kosdaqCloseChange: existing.kosdaq_close_change != null ? +existing.kosdaq_close_change : null,
+            actualDirection: existing.actual_direction,
+            hit: existing.hit,
+          } : null,
           timestamp: existing.created_at,
         };
         } // end else (factors not all zero)
@@ -469,6 +475,7 @@ async function fetchAndPredict() {
     weightsSource: source,
     accuracy,
     history,
+    todayResult: null,
     timestamp: new Date().toISOString(),
   };
 }
