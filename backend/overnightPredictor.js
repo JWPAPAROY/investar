@@ -375,6 +375,34 @@ async function getAccuracy() {
 }
 
 /**
+ * 최근 30일 예측 히스토리 조회 (차트용)
+ * @returns {Array} [{ date, score, signal, hit, kospiCloseChange }]
+ */
+async function getRecentHistory() {
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from('overnight_predictions')
+      .select('prediction_date, score, signal, hit, kospi_close_change')
+      .order('prediction_date', { ascending: true })
+      .limit(30);
+
+    if (error || !data) return [];
+
+    return data.map(d => ({
+      date: d.prediction_date,
+      score: +d.score,
+      signal: d.signal,
+      hit: d.hit,
+      kospiChange: d.kospi_close_change != null ? +d.kospi_close_change : null,
+    }));
+  } catch (err) {
+    return [];
+  }
+}
+
+/**
  * 2-9. 메인 함수: 데이터 수집 + 예측 + 저장
  * 같은 날짜 캐시: Supabase에 이미 저장되어 있으면 읽기
  */
@@ -395,7 +423,7 @@ async function fetchAndPredict() {
 
         // 신호 판정 재계산
         const sig = SIGNAL_TABLE.find(s => existing.score >= s.min);
-        const accuracy = await getAccuracy();
+        const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory()]);
 
         return {
           score: +existing.score,
@@ -408,6 +436,7 @@ async function fetchAndPredict() {
           guidance: sig.guidance,
           weightsSource: existing.weights ? 'calibrated_60d' : 'default',
           accuracy,
+          history,
           timestamp: existing.created_at,
         };
       }
@@ -424,13 +453,14 @@ async function fetchAndPredict() {
   // 저장
   await savePrediction(prediction, weights, source);
 
-  // 적중률 조회
-  const accuracy = await getAccuracy();
+  // 적중률 + 히스토리 조회
+  const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory()]);
 
   return {
     ...prediction,
     weightsSource: source,
     accuracy,
+    history,
     timestamp: new Date().toISOString(),
   };
 }

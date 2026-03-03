@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.46
-- **최종 업데이트**: 2026-02-27
+- **버전**: 3.47
+- **최종 업데이트**: 2026-03-03
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -40,6 +40,7 @@ investar/
 │   ├── advancedIndicators.js    # 고급 지표 (고래, 탈출속도, 비대칭)
 │   ├── smartPatternMining.js    # D-5 선행 패턴 마이닝
 │   ├── volumeDnaExtractor.js    # 거래량 DNA 추출
+│   ├── overnightPredictor.js     # 해외 지수 기반 시장 방향 예측
 │   ├── supabaseClient.js        # Supabase 클라이언트
 │   ├── patternCache.js          # 패턴 메모리 캐시
 │   └── gistStorage.js           # GitHub Gist 영구 저장
@@ -524,7 +525,7 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 | 2순위 | 55점+ |
 | 3순위 | 40점+ |
 
-**텔레그램 표시 조건**: KOSPI 또는 KOSDAQ **한쪽이라도 불안 이하**(불안/공포)일 때 방어 TOP 3 추가 표시
+**텔레그램 표시 조건**: KOSPI 또는 KOSDAQ **한쪽이라도 불안 이하**(불안/공포)일 때 또는 **해외 예측 score ≤ -0.5**일 때 방어 TOP 3 추가 표시
 
 ### 방어 손절 기준
 
@@ -535,13 +536,85 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 ---
 
+## 🌏 해외 지수 기반 시장 방향 예측 (Overnight Predictor)
+
+**v3.47에서 추가.** 전날 미국장 마감 데이터(S&P500, NASDAQ, VIX 등)를 기반으로 가중 스코어를 계산하여 한국 시장 당일 방향을 예측한다.
+
+### 모듈: `backend/overnightPredictor.js`
+
+**의존성**: `yahoo-finance2` (ESM 전용 → dynamic `import()` 사용)
+
+### 가중치 (DEFAULT_WEIGHTS)
+
+| 티커 | 이름 | 가중치 | 비고 |
+|------|------|--------|------|
+| ^GSPC | S&P 500 | +0.25 | 최대 영향력 |
+| ^IXIC | NASDAQ | +0.20 | 기술주 비중 |
+| ^SOX | SOX 반도체 | +0.12 | 삼성/하이닉스 연동 |
+| ^VIX | VIX 공포 | -0.10 | 역상관 |
+| ^DJI | 다우존스 | +0.08 | |
+| USDKRW=X | 달러/원 | -0.08 | 원화 약세 = 하락 |
+| ^TNX | 미국10년물 | -0.07 | 금리 상승 = 하락 |
+| ^N225 | 닛케이 | +0.05 | 아시아 연동 |
+| CL=F | WTI 원유 | +0.03 | |
+| DX-Y.NYB | 달러인덱스 | -0.02 | |
+
+### 스코어 계산
+
+```
+score = Σ(해외 지수 변동률 × 가중치)
+```
+
+| 스코어 | 신호 | 이모지 |
+|--------|------|--------|
+| ≥ +0.5 | strong_bullish | 🟢🟢 |
+| +0.2 ~ +0.5 | mild_bullish | 🟢 |
+| -0.2 ~ +0.2 | neutral | ⚪ |
+| -0.5 ~ -0.2 | mild_bearish | 🔴 |
+| ≤ -0.5 | strong_bearish | 🔴🔴 |
+
+**VIX 스파이크**: VIX 변동 ≥ +15% → 별도 경고
+
+### 가중치 자동 보정
+
+- 60일 미만 데이터: `DEFAULT_WEIGHTS` 사용
+- 60일 이상: 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 계산 → 부호 보존, 절대값을 상관계수에 비례 → 합계 1.0 정규화
+
+### 적중률 추적
+
+- **save 모드 (16:10 KST)**: `updateActualResult()` 호출 → KOSPI/KOSDAQ 실제 변동률 + hit 판정
+- **hit 기준**: 예측 방향(bullish→up, bearish→down, neutral→flat) 일치 여부
+- `overnight_predictions` 테이블에 기록, 누적 적중률 조회
+
+### 히스토리 차트
+
+- `getRecentHistory()`: 최근 30일 예측 데이터 조회
+- 프론트엔드: Canvas 기반 꺾은선 차트 (예측 스코어 파란 선 + KOSPI 실제 회색 선 + 적중/미적중 점)
+
+### 데이터 흐름
+
+```
+08:00 KST (alert 모드):
+  fetchAndPredict() → yahoo-finance2 quote() × 10개
+  → 가중 스코어 계산 → Supabase 저장 → 텔레그램 전송
+
+16:10 KST (save 모드):
+  updateActualResult() → KOSPI/KOSDAQ 실제 변동률 기록 → hit 판정
+
+프론트엔드 (recommend API):
+  fetchAndPredict() (캐시) → prediction + history 반환 → 전망 카드 + 차트
+```
+
+---
+
 ## 📡 API 엔드포인트
 
 ### 스크리닝
 ```
-GET /api/screening/recommend?market=ALL&limit=10   # 종합집계 (모멘텀+방어 통합)
+GET /api/screening/recommend?market=ALL&limit=10   # 종합집계 (모멘텀+방어 통합 + prediction)
 GET /api/screening/analyze?codes=005930,000660      # 종목 분석 (최대 15개, 단일 프로세스 순차 처리)
 ```
+`recommend` 응답에 `prediction` 필드 포함 (해외 시장 기반 전망 + 히스토리 차트 데이터)
 
 ### 성과 추적
 ```
@@ -568,7 +641,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 | 07:05 | 16:05 | update-prices | 전체 종목 종가 업데이트 (장 마감 후) |
 | 07:20 | 16:20 | patterns | 성공 패턴 수집 |
 | 07:30 | 16:30 | calc-expectations | 기대수익 통계 산출 (grade×whale별) |
-| 23:00 | 08:00 | alert | 실시간 스크리닝 TOP 3 알림 |
+| 23:00 | 08:00 | alert | 실시간 스크리닝 TOP 3 알림 + 해외 전망 |
 | 01:00 | 10:00 | track | 장중 주가 추적 |
 | 02:30 | 11:30 | track | 장중 주가 추적 |
 | 04:30 | 13:30 | track | 장중 주가 추적 |
@@ -606,6 +679,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 - `screening_recommendations`: 추천 종목 이력 (20개+ 지표 포함)
 - `recommendation_daily_prices`: 일별 가격 추적
 - `expected_return_stats`: 등급×고래별 기대수익 통계 (v3.46)
+- `overnight_predictions`: 해외 지수 기반 시장 방향 예측 + 적중률 (v3.47)
 - `success_patterns`: +10% 달성 종목 지표 특징
 - `recommendation_statistics` (뷰): 종목별 성과 통계
 - `overall_performance` (뷰): 전체 성과 요약
@@ -717,6 +791,19 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.47 (2026-03-03)
+- **해외 지수 기반 시장 방향 예측**: 전날 미국장 마감 데이터(S&P500, NASDAQ, VIX 등 10개)로 한국 시장 당일 방향 예측
+- **`backend/overnightPredictor.js` 신규**: yahoo-finance2(ESM, dynamic import)로 해외 지수 수집 → 가중 스코어 계산 → Supabase 저장
+- **가중치 자동 보정**: 60일 데이터 축적 후 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 기반 가중치 재계산
+- **적중률 추적**: save 모드(16:10)에서 `updateActualResult()` 호출 → KOSPI/KOSDAQ 실제 변동률 + hit 판정
+- **`overnight_predictions` 테이블 추가**: prediction_date, score, signal, factors, weights, 실제 변동률, hit
+- **텔레그램 알림 통합**: alert 모드(08:00) 메시지에 `🌏 해외 시장 기반 전망` 블록 추가 (스코어, 요약, 적중률)
+- **방어 TOP3 연동**: 해외 예측 score ≤ -0.5 시에도 방어 TOP 3 표시
+- **recommend API**: 응답에 `prediction` 필드 추가 (캐시 활용 — 당일 중복 호출 시 Supabase 읽기)
+- **프론트엔드 전망 카드**: 상승/하락/중립별 배경색, 팩터 바 차트(기여도 비례), 반응형(모바일 4개/PC 10개)
+- **예측 히스토리 꺾은선 차트**: Canvas 기반, 예측 스코어(파란 선) + KOSPI 실제(회색 선) + 적중 점(초록/빨강), 최근 30일
+- **yahoo-finance2 의존성 추가**: `^2.14.0` (ESM 전용, CommonJS에서 dynamic import)
 
 ### v3.46 (2026-02-27)
 - **기대수익 구간 기능**: 등급별×고래여부별 실제 수익률 분포(p25/median/p75) 산출 → 손절가와 세트로 기대수익 구간 + 손익비(Risk-Reward) + 승률 제공

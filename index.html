@@ -113,12 +113,184 @@
   <div id="root"></div>
 
   <script type="text/babel">
-    const { useState, useEffect } = React;
+    const { useState, useEffect, useRef, useCallback } = React;
 
     // API URL 자동 감지 (로컬 vs Vercel)
     const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
       ? 'http://localhost:3001/api'
       : 'https://investar-xi.vercel.app/api';  // Vercel 배포 후 변경
+
+    /**
+     * 예측 히스토리 꺾은선 차트 (Canvas)
+     * - 예측 스코어(파란 선) + KOSPI 실제 변동률(회색 선)
+     * - 적중: 초록 점, 미적중: 빨간 점, 미확인: 회색 점
+     */
+    function PredictionChart({ history }) {
+      const canvasRef = useRef(null);
+
+      useEffect(() => {
+        if (!history || history.length < 2) return;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.scale(dpr, dpr);
+
+        // 데이터 범위 계산
+        const scores = history.map(d => d.score);
+        const kospiChanges = history.filter(d => d.kospiChange != null).map(d => d.kospiChange);
+        const allVals = [...scores, ...kospiChanges];
+        const minVal = Math.min(...allVals, -0.5);
+        const maxVal = Math.max(...allVals, 0.5);
+        const range = maxVal - minVal || 1;
+
+        const pad = { top: 20, right: 12, bottom: 28, left: 36 };
+        const chartW = w - pad.left - pad.right;
+        const chartH = h - pad.top - pad.bottom;
+
+        const toX = (i) => pad.left + (i / (history.length - 1)) * chartW;
+        const toY = (v) => pad.top + (1 - (v - minVal) / range) * chartH;
+
+        // 배경
+        ctx.fillStyle = '#fafafa';
+        ctx.fillRect(0, 0, w, h);
+
+        // 0 기준선
+        const zeroY = toY(0);
+        ctx.strokeStyle = '#d1d5db';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(pad.left, zeroY);
+        ctx.lineTo(w - pad.right, zeroY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // +0.5, -0.5 기준선 (신호 경계)
+        [0.5, -0.5, 0.2, -0.2].forEach((v, i) => {
+          if (v > maxVal || v < minVal) return;
+          const y = toY(v);
+          ctx.strokeStyle = i < 2 ? '#e5e7eb' : '#f3f4f6';
+          ctx.lineWidth = 0.5;
+          ctx.setLineDash([2, 3]);
+          ctx.beginPath();
+          ctx.moveTo(pad.left, y);
+          ctx.lineTo(w - pad.right, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        });
+
+        // Y축 레이블
+        ctx.fillStyle = '#9ca3af';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        [maxVal, 0, minVal].forEach(v => {
+          const label = (v >= 0 ? '+' : '') + v.toFixed(1);
+          ctx.fillText(label, pad.left - 4, toY(v));
+        });
+
+        // X축 날짜 레이블 (처음, 중간, 마지막)
+        ctx.fillStyle = '#9ca3af';
+        ctx.font = '9px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        const labelIdxs = [0, Math.floor(history.length / 2), history.length - 1];
+        labelIdxs.forEach(i => {
+          const d = history[i].date;
+          ctx.fillText(d.slice(5).replace('-', '/'), toX(i), h - pad.bottom + 6);
+        });
+
+        // KOSPI 실제 변동률 선 (회색, 결과 있는 것만)
+        ctx.strokeStyle = '#d1d5db';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        let started = false;
+        history.forEach((d, i) => {
+          if (d.kospiChange == null) return;
+          const x = toX(i);
+          const y = toY(d.kospiChange);
+          if (!started) { ctx.moveTo(x, y); started = true; }
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        // 예측 스코어 선 (파란색)
+        ctx.strokeStyle = '#3b82f6';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        history.forEach((d, i) => {
+          const x = toX(i);
+          const y = toY(d.score);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+
+        // 적중/미적중 점
+        history.forEach((d, i) => {
+          const x = toX(i);
+          const y = toY(d.score);
+          ctx.beginPath();
+          ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+          if (d.hit === true) {
+            ctx.fillStyle = '#22c55e';
+          } else if (d.hit === false) {
+            ctx.fillStyle = '#ef4444';
+          } else {
+            ctx.fillStyle = '#9ca3af';
+          }
+          ctx.fill();
+        });
+
+        // 범례
+        const legendY = 8;
+        const items = [
+          { color: '#3b82f6', label: '예측 스코어', type: 'line' },
+          { color: '#d1d5db', label: 'KOSPI 실제', type: 'line' },
+          { color: '#22c55e', label: '적중', type: 'dot' },
+          { color: '#ef4444', label: '미적중', type: 'dot' },
+        ];
+        ctx.font = '9px sans-serif';
+        ctx.textBaseline = 'middle';
+        let legendX = pad.left + 4;
+        items.forEach(item => {
+          if (item.type === 'line') {
+            ctx.strokeStyle = item.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(legendX, legendY);
+            ctx.lineTo(legendX + 14, legendY);
+            ctx.stroke();
+          } else {
+            ctx.beginPath();
+            ctx.arc(legendX + 7, legendY, 3, 0, Math.PI * 2);
+            ctx.fillStyle = item.color;
+            ctx.fill();
+          }
+          ctx.fillStyle = '#6b7280';
+          ctx.textAlign = 'left';
+          ctx.fillText(item.label, legendX + 18, legendY);
+          legendX += ctx.measureText(item.label).width + 30;
+        });
+      }, [history]);
+
+      if (!history || history.length < 2) return null;
+
+      return (
+        <div className="mt-3 bg-white rounded-lg p-2 border border-gray-200">
+          <canvas
+            ref={canvasRef}
+            style={{ width: '100%', height: '160px', display: 'block' }}
+          />
+        </div>
+      );
+    }
 
     // 메인 앱
     function App() {
@@ -535,7 +707,12 @@
                         </p>
                       )}
 
-                      <div className="flex items-center justify-center gap-3 text-xs text-gray-500">
+                      {/* 예측 히스토리 꺾은선 차트 */}
+                      {prediction.history && prediction.history.length >= 2 && (
+                        <PredictionChart history={prediction.history} />
+                      )}
+
+                      <div className="flex items-center justify-center gap-3 text-xs text-gray-500 mt-2">
                         {prediction.accuracy && (
                           <span>📊 적중률 {prediction.accuracy.rate}% ({prediction.accuracy.hits}/{prediction.accuracy.total})</span>
                         )}
