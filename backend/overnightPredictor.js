@@ -469,9 +469,14 @@ async function fetchAndPredict() {
         // 캐시된 factors가 모두 0이면 (yahoo-finance2 실패 등) 재조회
         const cachedFactors = existing.factors || [];
         const allZero = cachedFactors.length > 0 && cachedFactors.every(f => f.change === 0);
+        const expectedCount = Object.keys(DEFAULT_WEIGHTS).length;
+        const factorCountMismatch = cachedFactors.length !== expectedCount;
         if (allZero) {
           console.log(`⚠️ 오늘(${today}) 캐시 factors 전부 0 — 재조회 시도`);
           // 캐시 무시하고 아래 새 예측 로직으로 진행
+        } else if (factorCountMismatch) {
+          console.log(`⚠️ 오늘(${today}) 캐시 factors ${cachedFactors.length}개 ≠ 현재 ${expectedCount}개 — 재조회 시도`);
+          // 팩터 구성 변경 시 캐시 무시
         } else {
         console.log(`📊 오늘(${today}) 예측 캐시 사용: ${existing.signal} (${existing.score})`);
 
