@@ -4,6 +4,7 @@
 
 const screener = require('../../backend/screening');
 const supabase = require('../../backend/supabaseClient');
+const overnightPredictor = require('../../backend/overnightPredictor');
 
 module.exports = async function handler(req, res) {
   // CORS 헤더
@@ -51,12 +52,21 @@ module.exports = async function handler(req, res) {
       if (result.defenseTop3) result.defenseTop3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
     }
 
+    // 해외 시장 기반 전망 (캐시 활용 — 같은 날짜면 Supabase에서 읽기)
+    let prediction = null;
+    try {
+      prediction = await overnightPredictor.fetchAndPredict();
+    } catch (e) {
+      console.warn('⚠️ 해외 전망 조회 실패:', e.message);
+    }
+
     const response = {
       success: true,
       count: result.stocks.length,
       recommendations: result.stocks,
       top3: result.top3 || [],  // 🆕 TOP 3 추천 종목
       defenseTop3: result.defenseTop3 || [],  // v3.34: 방어 TOP 3
+      prediction: prediction || undefined,  // 해외 시장 기반 전망
       metadata: result.metadata,
       timestamp: new Date().toISOString()
     };

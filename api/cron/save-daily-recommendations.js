@@ -17,6 +17,7 @@ const screener = require('../../backend/screening');
 
 const supabase = require('../../backend/supabaseClient');
 const kisApi = require('../../backend/kisApi');
+const overnightPredictor = require('../../backend/overnightPredictor');
 
 /**
  * v3.32: 시장 심리 지수 계산
@@ -119,6 +120,32 @@ function formatSentimentLine(kospiSentiment, kosdaqSentiment) {
     msg += `  ⚠️ 하락 추세 주의 - 손절 라인 준수\n`;
   } else if (kGrade === 'anxiety' || qGrade === 'anxiety') {
     msg += `  ⚠️ 변동성 확대 - 비중 축소 고려\n`;
+  }
+
+  return msg + `\n`;
+}
+
+/**
+ * 해외 시장 기반 전망 메시지 포맷
+ * @param {Object} prediction - overnightPredictor.fetchAndPredict() 반환값
+ * @returns {string} 텔레그램 메시지 문자열
+ */
+function formatPredictionLine(prediction) {
+  if (!prediction) return '';
+
+  const sign = prediction.score >= 0 ? '+' : '';
+  let msg = `🌏 <b>해외 시장 기반 전망</b>\n`;
+  msg += `  ${prediction.emoji} ${prediction.label} (스코어: ${sign}${prediction.score.toFixed(2)})\n`;
+  msg += `  ${prediction.summary}\n`;
+
+  if (prediction.vixAlert) {
+    msg += `  ${prediction.vixAlert}\n`;
+  }
+
+  msg += `  💡 ${prediction.guidance}\n`;
+
+  if (prediction.accuracy) {
+    msg += `  📊 최근 적중률: ${prediction.accuracy.rate}% (${prediction.accuracy.hits}/${prediction.accuracy.total})\n`;
   }
 
   return msg + `\n`;
@@ -710,10 +737,15 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
  * v3.27: ALERT 메시지 (아침 08:30)
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
-function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = []) {
+function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = [], prediction = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
+
+  // 해외 시장 기반 전망 (시장 심리 바로 위)
+  if (prediction) {
+    message += formatPredictionLine(prediction);
+  }
 
   // v3.32: 시장 심리 지수
   if (sentiment) {
@@ -805,8 +837,9 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
     }
   }
 
-  // v3.34: 방어 TOP 3 (시장 공포 시에만)
-  if (defenseTop3 && defenseTop3.length > 0 && isMarketDefensive(sentiment)) {
+  // v3.34: 방어 TOP 3 (시장 공포 시 또는 해외 예측 강한 하락 시)
+  const showDefense = isMarketDefensive(sentiment) || (prediction && prediction.score <= -0.5);
+  if (defenseTop3 && defenseTop3.length > 0 && showDefense) {
     message += formatDefenseTop3Section(defenseTop3, 'alert', expectations);
   }
 
@@ -1353,8 +1386,17 @@ module.exports = async (req, res) => {
       let expectations = [];
       try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch(e) {}
 
-      // Step 5: 텔레그램 알림 전송
-      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations);
+      // Step 5: 해외 시장 기반 전망
+      let prediction = null;
+      try {
+        prediction = await overnightPredictor.fetchAndPredict();
+        console.log(`🌏 해외 전망: ${prediction.emoji} ${prediction.label} (${prediction.score})`);
+      } catch (predErr) {
+        console.warn('⚠️ 해외 전망 조회 실패:', predErr.message);
+      }
+
+      // Step 6: 텔레그램 알림 전송
+      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction);
       const sent = await sendTelegramMessage(message);
 
       return res.status(200).json({
@@ -1371,7 +1413,8 @@ module.exports = async (req, res) => {
           grade: s.recommendation_grade,
           whale: s.whale_detected
         })),
-        prevDayResults
+        prevDayResults,
+        prediction: prediction ? { score: prediction.score, signal: prediction.signal, label: prediction.label } : null
       });
     }
 
@@ -1751,6 +1794,11 @@ module.exports = async (req, res) => {
       const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, defenseAlertTop3, expectations);
       const sent = await sendTelegramMessage(message);
 
+      // 해외 예측 실제 결과 업데이트
+      try {
+        await overnightPredictor.updateActualResult(today);
+      } catch (e) { console.warn('⚠️ 해외 예측 결과 업데이트 실패:', e.message); }
+
       return res.status(200).json({
         success: true,
         mode: 'save',
@@ -2118,6 +2166,11 @@ module.exports = async (req, res) => {
       console.warn('⚠️ 텔레그램 알림 실패:', tgErr.message, tgErr.stack);
       tgSent = 'error: ' + tgErr.message;
     }
+
+    // 해외 예측 실제 결과 업데이트
+    try {
+      await overnightPredictor.updateActualResult(today);
+    } catch (e) { console.warn('⚠️ 해외 예측 결과 업데이트 실패:', e.message); }
 
     return res.status(200).json({
       success: true,

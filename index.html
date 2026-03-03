@@ -133,6 +133,7 @@
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
       const [defenseTop3Recommendations, setDefenseTop3Recommendations] = useState([]); // v3.34: 방어 TOP 3
       const [strategyFilter, setStrategyFilter] = useState('momentum'); // v3.34: momentum, defense, all
+      const [prediction, setPrediction] = useState(null); // 해외 시장 기반 전망
 
       // 데이터 캐싱
       const [cachedData, setCachedData] = useState(null);
@@ -197,6 +198,7 @@
             setRecommendations(stocks);
             setTop3Recommendations(result.top3 || []); // 🆕 TOP 3 추천 종목 저장
             setDefenseTop3Recommendations(result.defenseTop3 || []); // v3.34
+            setPrediction(result.prediction || null);
             setScreeningMetadata(result.metadata || null);
             setScreeningDuration(((Date.now() - startTime) / 1000).toFixed(1));
             setLastUpdate(new Date());
@@ -453,6 +455,96 @@
                     마지막 업데이트: {lastUpdate.toLocaleString('ko-KR')}
                   </div>
                 )}
+
+                {/* 해외 시장 기반 전망 카드 */}
+                {prediction && recommendations.length > 0 && (() => {
+                  const bgClass = prediction.signal.includes('bullish')
+                    ? 'from-green-50 to-emerald-50 border-green-300'
+                    : prediction.signal.includes('bearish')
+                    ? 'from-red-50 to-orange-50 border-red-300'
+                    : 'from-gray-50 to-slate-50 border-gray-300';
+                  const textClass = prediction.signal.includes('bullish')
+                    ? 'text-green-800'
+                    : prediction.signal.includes('bearish')
+                    ? 'text-red-800'
+                    : 'text-gray-800';
+                  const barColor = prediction.signal.includes('bullish')
+                    ? 'bg-green-500'
+                    : prediction.signal.includes('bearish')
+                    ? 'bg-red-500'
+                    : 'bg-gray-400';
+                  const factors = prediction.factors || [];
+                  const maxAbsContrib = Math.max(...factors.map(f => Math.abs(f.contribution)), 0.01);
+                  // 모바일: 상위 4개, PC: 전체
+                  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+                  const displayFactors = isMobile ? factors.slice(0, 4) : factors;
+                  const sign = prediction.score >= 0 ? '+' : '';
+
+                  return (
+                    <div className={`bg-gradient-to-r ${bgClass} border-2 rounded-xl p-3 md:p-5 mb-4`}>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-2xl">🌏</span>
+                          <h3 className={`text-lg md:text-xl font-bold ${textClass}`}>해외 시장 기반 전망</h3>
+                        </div>
+                        <div className={`${textClass} font-bold text-lg md:text-xl`}>
+                          {prediction.emoji} {prediction.label}
+                        </div>
+                      </div>
+
+                      <div className={`text-center mb-3 ${textClass}`}>
+                        <span className="text-2xl font-bold">{sign}{prediction.score.toFixed(2)}</span>
+                        <span className="text-sm ml-2 opacity-75">스코어</span>
+                      </div>
+
+                      {prediction.vixAlert && (
+                        <div className="bg-yellow-100 border border-yellow-400 rounded-lg p-2 mb-3 text-sm text-yellow-800 text-center">
+                          {prediction.vixAlert}
+                        </div>
+                      )}
+
+                      {/* 팩터 바 차트 */}
+                      <div className="space-y-1.5 mb-3">
+                        {displayFactors.map((f, i) => {
+                          const barWidth = Math.min(Math.abs(f.contribution) / maxAbsContrib * 100, 100);
+                          const isPositive = f.contribution >= 0;
+                          const changeSign = f.change >= 0 ? '+' : '';
+                          return (
+                            <div key={i} className="flex items-center gap-2 text-xs md:text-sm">
+                              <span className="w-20 md:w-24 text-right text-gray-600 truncate flex-shrink-0">{f.name}</span>
+                              <span className={`w-14 md:w-16 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                {changeSign}{f.change}%
+                              </span>
+                              <div className="flex-1 h-4 bg-gray-200 rounded-full overflow-hidden relative">
+                                <div
+                                  className={`h-full rounded-full ${isPositive ? 'bg-green-500' : 'bg-red-500'}`}
+                                  style={{width: barWidth + '%'}}
+                                />
+                              </div>
+                              <span className={`w-12 text-right font-mono text-xs flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {prediction.guidance && (
+                        <p className={`text-sm ${textClass} opacity-80 text-center mb-2`}>
+                          💡 {prediction.guidance}
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-center gap-3 text-xs text-gray-500">
+                        {prediction.accuracy && (
+                          <span>📊 적중률 {prediction.accuracy.rate}% ({prediction.accuracy.hits}/{prediction.accuracy.total})</span>
+                        )}
+                        <span>|</span>
+                        <span>가중치: {prediction.weightsSource === 'calibrated_60d' ? '자동보정 60일' : '기본값'}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 스크리닝 메타데이터 */}
                 {screeningMetadata && recommendations.length > 0 && (
