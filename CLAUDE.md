@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.47
-- **최종 업데이트**: 2026-03-03
+- **버전**: 3.48
+- **최종 업데이트**: 2026-03-04
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -538,31 +538,41 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 ## 🌏 해외 지수 기반 시장 방향 예측 (Overnight Predictor)
 
-**v3.47에서 추가.** 전날 미국장 마감 데이터(S&P500, NASDAQ, VIX 등)를 기반으로 가중 스코어를 계산하여 한국 시장 당일 방향을 예측한다.
+**v3.47에서 추가, v3.48에서 대폭 개선.** 전날 미국장 마감 데이터 + 선물 데이터를 기반으로 가중 스코어를 계산하여 한국 시장 당일 방향을 예측한다.
 
 ### 모듈: `backend/overnightPredictor.js`
 
-**의존성**: `yahoo-finance2` (ESM 전용 → dynamic `import()` 사용)
+**데이터 소스**: Yahoo Finance chart API v8 직접 호출 (API 키 불필요, Vercel 서버리스 호환)
 
-### 가중치 (DEFAULT_WEIGHTS)
+### 가중치 (DEFAULT_WEIGHTS) — 14개 팩터
 
-| 티커 | 이름 | 가중치 | 비고 |
-|------|------|--------|------|
-| ^GSPC | S&P 500 | +0.25 | 최대 영향력 |
-| ^IXIC | NASDAQ | +0.20 | 기술주 비중 |
-| ^SOX | SOX 반도체 | +0.12 | 삼성/하이닉스 연동 |
-| ^VIX | VIX 공포 | -0.10 | 역상관 |
-| ^DJI | 다우존스 | +0.08 | |
-| USDKRW=X | 달러/원 | -0.08 | 원화 약세 = 하락 |
-| ^TNX | 미국10년물 | -0.07 | 금리 상승 = 하락 |
-| ^N225 | 닛케이 | +0.05 | 아시아 연동 |
-| CL=F | WTI 원유 | +0.03 | |
-| DX-Y.NYB | 달러인덱스 | -0.02 | |
+선물이 장 마감 후 최신 움직임을 반영하므로 현물보다 높은 가중치 부여. 가중치 절대값 합 = 1.00 (100%).
+
+| 구분 | 티커 | 이름 | 가중치 | 비고 |
+|------|------|------|--------|------|
+| 선물 | ES=F | S&P500 선물 | +0.18 | 최대 영향력 (장후 최신) |
+| 선물 | NQ=F | 나스닥 선물 | +0.15 | 기술주 선행 |
+| 선물 | HG=F | 구리 선물 | +0.04 | 경기 선행지표 |
+| 선물 | GC=F | 금 선물 | -0.04 | 안전자산 역상관 |
+| 현물 | ^GSPC | S&P 500 | +0.10 | |
+| 현물 | ^IXIC | NASDAQ | +0.08 | |
+| 현물 | ^SOX | SOX 반도체 | +0.08 | 삼성/하이닉스 연동 |
+| 현물 | ^VIX | VIX 공포 | -0.08 | 역상관 |
+| 현물 | USDKRW=X | 달러/원 | -0.08 | 원화 약세 = 하락 |
+| 현물 | ^TNX | 미국10년물 | -0.05 | 금리 상승 = 하락 |
+| 현물 | ^N225 | 닛케이 | +0.04 | 아시아 연동 |
+| 현물 | ^DJI | 다우존스 | +0.03 | |
+| 현물 | CL=F | WTI 원유 | +0.02 | |
+| 현물 | DX-Y.NYB | 달러인덱스 | -0.02 | |
+
+**양의 가중치(+)**: 해당 지수 상승 → KOSPI↑ (동행)
+**음의 가중치(-)**: 해당 지수 상승 → KOSPI↓ (역행). 예: VIX -8%는 VIX가 오르면 KOSPI가 내린다는 의미
 
 ### 스코어 계산
 
 ```
-score = Σ(해외 지수 변동률 × 가중치)
+기여도(contribution) = 해당 지수 변동률 × 가중치
+스코어(score)        = Σ(모든 기여도) = Σ(변동률 × 가중치)
 ```
 
 | 스코어 | 신호 | 이모지 |
@@ -575,10 +585,20 @@ score = Σ(해외 지수 변동률 × 가중치)
 
 **VIX 스파이크**: VIX 변동 ≥ +15% → 별도 경고
 
+### 예측 KOSPI 범위
+
+스코어 자체를 예상 변동률 중심점으로 사용, ±0.5% 밴드:
+```
+expectedChange = { min: score - 0.5, max: score + 0.5 }
+estimatedKospi = previousKospi × (1 + expectedChange / 100)
+```
+예: score -2.01, previousKospi 6244 → 예상 범위 6088~6150 (-2.51%~-1.51%)
+
 ### 가중치 자동 보정
 
 - 60일 미만 데이터: `DEFAULT_WEIGHTS` 사용
-- 60일 이상: 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 계산 → 부호 보존, 절대값을 상관계수에 비례 → 합계 1.0 정규화
+- 60일 이상: **매 호출 시** 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 실시간 계산 → 부호 보존, 절대값을 상관계수에 비례 → 합계 1.0 정규화
+- 팩터 수 변경 시 (예: 10→14개) 캐시 자동 무효화
 
 ### 적중률 추적
 
@@ -588,20 +608,28 @@ score = Σ(해외 지수 변동률 × 가중치)
 
 ### 히스토리 차트
 
-- `getRecentHistory()`: 최근 30일 예측 데이터 조회
+- `getRecentHistory(previousKospi)`: 최근 30일 예측 데이터 + KOSPI 절대 지수 역산
+- KOSPI 절대 지수: 최신 전일 종가에서 역방향으로 변동률 적용하여 30일간 근사 종가 계산
+- 각 날짜에 `expectedChange` (스코어 기반 예측 범위) 포함
 - 프론트엔드: Canvas 기반 꺾은선 차트 (예측 스코어 파란 선 + KOSPI 실제 회색 선 + 적중/미적중 점)
+- 툴팁: 예측 스코어, 예측 범위(%), 예측 KOSPI 지수, 실제 변동률, 실제 KOSPI 종가, 적중여부
+
+### 캐시 무효화 조건
+
+1. 캐시된 factors가 모두 0 (API 실패) → 재조회
+2. 캐시된 factor 수 ≠ 현재 DEFAULT_WEIGHTS 수 (팩터 구성 변경) → 재조회
 
 ### 데이터 흐름
 
 ```
 08:00 KST (alert 모드):
-  fetchAndPredict() → yahoo-finance2 quote() × 10개
+  fetchAndPredict() → Yahoo Finance chart API × 14개
   → 가중 스코어 계산 → Supabase 저장 → 텔레그램 전송
 
 16:10 KST (save 모드):
   updateActualResult() → KOSPI/KOSDAQ 실제 변동률 기록 → hit 판정
 
-프론트엔드 (recommend API):
+프론트엔드 (prediction API):
   fetchAndPredict() (캐시) → prediction + history 반환 → 전망 카드 + 차트
 ```
 
@@ -792,10 +820,21 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ## 📝 변경 이력
 
+### v3.48 (2026-03-04)
+- **선물 지수 4개 추가**: ES=F(S&P500 선물), NQ=F(나스닥 선물), GC=F(금 선물), HG=F(구리 선물) — 총 14개 팩터
+- **선물 가중치 우선**: 선물이 장 마감 후 최신 움직임 반영 → 현물보다 높은 가중치 (ES=F +18% > ^GSPC +10%)
+- **yahoo-finance2 제거**: ESM 전용 라이브러리 Vercel 호환 문제 → Yahoo Finance chart API v8 직접 호출로 전환 (API 키 불필요)
+- **예측 범위 축소**: 고정 신호별 범위(strong_bearish -2.5%~-0.5%) → 스코어 기반 동적 범위(score±0.5%, 범위 1%)
+- **차트 툴팁 강화**: 예측 스코어 + 예측 범위(%) + 예측 KOSPI 지수 + 실제 변동률 + 실제 KOSPI 종가 + 적중여부
+- **KOSPI 절대 지수 역산**: 최신 전일 종가에서 역방향 변동률 적용하여 30일간 근사 종가 계산
+- **팩터 수 변경 캐시 무효화**: 캐시된 factor 수 ≠ 현재 DEFAULT_WEIGHTS 수 → 자동 재조회
+- **예측 계산법 UI 설명**: 기여도·스코어·가중치 부호 의미를 파란 안내 박스로 상세 설명
+- **"오늘의 시장전망" 탭 1순위 배치**: 기본 탭으로 설정, 예측 결과(적중/미적중) 표시 추가
+
 ### v3.47 (2026-03-03)
 - **해외 지수 기반 시장 방향 예측**: 전날 미국장 마감 데이터(S&P500, NASDAQ, VIX 등 10개)로 한국 시장 당일 방향 예측
-- **`backend/overnightPredictor.js` 신규**: yahoo-finance2(ESM, dynamic import)로 해외 지수 수집 → 가중 스코어 계산 → Supabase 저장
-- **가중치 자동 보정**: 60일 데이터 축적 후 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 기반 가중치 재계산
+- **`backend/overnightPredictor.js` 신규**: 가중 스코어 계산 → Supabase 저장
+- **가중치 자동 보정**: 60일 데이터 축적 후 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 기반 가중치 실시간 재계산
 - **적중률 추적**: save 모드(16:10)에서 `updateActualResult()` 호출 → KOSPI/KOSDAQ 실제 변동률 + hit 판정
 - **`overnight_predictions` 테이블 추가**: prediction_date, score, signal, factors, weights, 실제 변동률, hit
 - **텔레그램 알림 통합**: alert 모드(08:00) 메시지에 `🌏 해외 시장 기반 전망` 블록 추가 (스코어, 요약, 적중률)
@@ -803,7 +842,6 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 - **recommend API**: 응답에 `prediction` 필드 추가 (캐시 활용 — 당일 중복 호출 시 Supabase 읽기)
 - **프론트엔드 전망 카드**: 상승/하락/중립별 배경색, 팩터 바 차트(기여도 비례), 반응형(모바일 4개/PC 10개)
 - **예측 히스토리 꺾은선 차트**: Canvas 기반, 예측 스코어(파란 선) + KOSPI 실제(회색 선) + 적중 점(초록/빨강), 최근 30일
-- **yahoo-finance2 의존성 추가**: `^2.14.0` (ESM 전용, CommonJS에서 dynamic import)
 
 ### v3.46 (2026-02-27)
 - **기대수익 구간 기능**: 등급별×고래여부별 실제 수익률 분포(p25/median/p75) 산출 → 손절가와 세트로 기대수익 구간 + 손익비(Risk-Reward) + 승률 제공
