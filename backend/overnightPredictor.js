@@ -413,12 +413,13 @@ async function getRecentHistory() {
     const { data, error } = await supabase
       .from('overnight_predictions')
       .select('prediction_date, score, signal, hit, kospi_close_change')
-      .order('prediction_date', { ascending: true })
+      .order('prediction_date', { ascending: false })
       .limit(30);
 
     if (error || !data) return [];
 
-    return data.map(d => ({
+    // 차트용 오름차순으로 뒤집기
+    return data.reverse().map(d => ({
       date: d.prediction_date,
       score: +d.score,
       signal: d.signal,
