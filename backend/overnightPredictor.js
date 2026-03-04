@@ -17,19 +17,20 @@ const supabase = require('./supabaseClient');
 // ─── 기본 가중치 ───
 const DEFAULT_WEIGHTS = {
   // ── 선물 (장 마감 후 최신 움직임 반영 → 높은 가중치) ──
-  'ES=F':      { name: 'S&P500 선물', weight: +0.18 },
-  'NQ=F':      { name: '나스닥 선물',  weight: +0.15 },
+  'ES=F':      { name: 'S&P500 선물', weight: +0.19 },
+  'NQ=F':      { name: '나스닥 선물',  weight: +0.16 },
   'GC=F':      { name: '금 선물',     weight: -0.04 },
   'HG=F':      { name: '구리 선물',   weight: +0.05 },
   // ── 현물 지수 (장 마감 시점 확정가) ──
-  '^GSPC':     { name: 'S&P 500',    weight: +0.10 },
-  '^IXIC':     { name: 'NASDAQ',     weight: +0.08 },
-  '^SOX':      { name: 'SOX 반도체',  weight: +0.08 },
-  '^VIX':      { name: 'VIX 공포',    weight: -0.08 },
+  '^GSPC':     { name: 'S&P 500',    weight: +0.09 },
+  '^IXIC':     { name: 'NASDAQ',     weight: +0.07 },
+  '^SOX':      { name: 'SOX 반도체',  weight: +0.07 },
+  '^VIX':      { name: 'VIX 공포',    weight: -0.07 },
   '^DJI':      { name: '다우존스',     weight: +0.03 },
-  'USDKRW=X':  { name: '달러/원',     weight: -0.08 },
-  '^TNX':      { name: '미국10년물',   weight: -0.05 },
-  '^N225':     { name: '닛케이',      weight: +0.04 },
+  'USDKRW=X':  { name: '달러/원',     weight: -0.07 },
+  '^TNX':      { name: '미국10년물',   weight: -0.04 },
+  '^N225':     { name: '닛케이',      weight: +0.03 },
+  '^KS200':    { name: 'KOSPI200',   weight: +0.04 },
   'CL=F':      { name: 'WTI 원유',    weight: +0.02 },
   'DX-Y.NYB':  { name: '달러인덱스',   weight: -0.02 },
 };
@@ -173,16 +174,16 @@ function calculatePrediction(data, weights) {
     vixAlert = `⚠️ VIX 급등 +${vixData.change.toFixed(1)}% → 변동성 확대 경고`;
   }
 
-  // summary: 기여도 상위 2개 팩터 텍스트
-  const top2 = factors.slice(0, 2);
-  const summary = top2.map(f => {
+  // summary: 기여도 상위 3개 팩터를 참고 정보로 표시
+  const top3 = factors.slice(0, 3);
+  const topList = top3.map(f => {
     const sign = f.change >= 0 ? '+' : '';
     return `${f.name} ${sign}${f.change}%`;
   }).join(', ');
 
   const summaryText = vixAlert
-    ? `${summary} | ${vixAlert}`
-    : `${summary} → ${sig.label} 예상`;
+    ? `${topList} 등 ${factors.length}개 지표 종합 | ${vixAlert}`
+    : `${topList} 등 ${factors.length}개 지표 종합 → ${sig.label} 예상`;
 
   return {
     score: +score.toFixed(3),
@@ -587,12 +588,12 @@ function getTodayKST() {
 
 function buildSummaryFromFactors(factors, sig) {
   if (!factors || factors.length === 0) return sig.label;
-  const top2 = factors.slice(0, 2);
-  const text = top2.map(f => {
+  const top3 = factors.slice(0, 3);
+  const text = top3.map(f => {
     const sign = f.change >= 0 ? '+' : '';
     return `${f.name} ${sign}${f.change}%`;
   }).join(', ');
-  return `${text} → ${sig.label} 예상`;
+  return `${text} 등 ${factors.length}개 지표 종합 → ${sig.label} 예상`;
 }
 
 function detectVixAlertFromFactors(factors) {

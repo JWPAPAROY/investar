@@ -990,7 +990,7 @@
                   const hasFactorData = factors.some(f => f.change !== 0);
                   const maxAbsContrib = Math.max(...factors.map(f => Math.abs(f.contribution)), 0.01);
                   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-                  const displayFactors = isMobile ? factors.slice(0, 5) : factors;
+                  const displayFactors = factors;
                   const sign = prediction.score >= 0 ? '+' : '';
                   const todayDateStr = (() => {
                     const d = new Date();
@@ -1005,15 +1005,15 @@
                     <div>
                       {/* 시그널 헤더 */}
                       <div className={`bg-gradient-to-r ${bgClass} border-2 rounded-xl p-4 md:p-6 mb-4`}>
-                        <div className="flex items-center justify-between mb-3">
+                        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-3 gap-2">
                           <div className="flex items-center gap-2">
                             <span className="text-3xl">🌏</span>
                             <div>
-                              <h2 className={`text-xl md:text-2xl font-bold ${textClass}`}>오늘의 시장 전망</h2>
+                              <h2 className={`text-lg md:text-2xl font-bold ${textClass}`}>오늘의 시장 전망</h2>
                               <span className="text-xs text-gray-500">{todayDateStr} (전일 해외장 마감 기준)</span>
                             </div>
                           </div>
-                          <div className={`${textClass} font-bold text-xl md:text-2xl`}>
+                          <div className={`${textClass} font-bold text-xl md:text-2xl text-right`}>
                             {prediction.emoji} {prediction.label}
                           </div>
                         </div>
@@ -1023,20 +1023,24 @@
                           <span className="text-sm ml-2 opacity-60">스코어</span>
                         </div>
                         <p className="text-xs text-center text-gray-500 mb-3">
-                          해외 10개 지수 변동률 × 가중치 합산 (🟢🟢≥+0.5 / 🟢≥+0.2 / ⚪±0.2 / 🔴≤-0.2 / 🔴🔴≤-0.5)
+                          해외 15개 지수 변동률 × 가중치 합산 (🟢🟢≥+0.5 / 🟢≥+0.2 / ⚪±0.2 / 🔴≤-0.2 / 🔴🔴≤-0.5)
                         </p>
 
                         {/* 예상 KOSPI 범위 */}
                         {prevKospi && estKospi && expChange && (
                           <div className="bg-white bg-opacity-60 rounded-lg p-3 mb-3">
-                            <div className="text-center">
-                              <span className="text-xs text-gray-500">전일 KOSPI 종가</span>
-                              <span className="font-bold text-gray-800 ml-2">{prevKospi.toLocaleString()}</span>
+                            <div className="flex flex-col md:flex-row items-center justify-center gap-1 md:gap-0 text-center">
+                              <div>
+                                <span className="text-xs text-gray-500">전일 KOSPI 종가</span>
+                                <span className="font-bold text-gray-800 ml-2">{prevKospi.toLocaleString()}</span>
+                              </div>
                               <span className="text-gray-400 mx-2">→</span>
-                              <span className="text-xs text-gray-500">예상 범위</span>
-                              <span className={`font-bold ml-2 ${textClass}`}>
-                                {estKospi.min.toLocaleString()} ~ {estKospi.max.toLocaleString()}
-                              </span>
+                              <div>
+                                <span className="text-xs text-gray-500">예상 범위</span>
+                                <span className={`font-bold ml-2 ${textClass}`}>
+                                  {estKospi.min.toLocaleString()} ~ {estKospi.max.toLocaleString()}
+                                </span>
+                              </div>
                             </div>
                             <p className="text-xs text-gray-400 text-center mt-1">
                               예상 변동: {expChange.min >= 0 ? '+' : ''}{expChange.min}% ~ {expChange.max >= 0 ? '+' : ''}{expChange.max}%
@@ -1115,15 +1119,8 @@
                       {/* 팩터 상세 */}
                       {hasFactorData && (
                         <div className="bg-white border border-gray-200 rounded-xl p-3 md:p-4 shadow-sm">
-                          <h3 className="text-sm font-semibold text-gray-700 mb-1">📊 해외 지수 변동 상세 (전일 마감 기준)</h3>
-                          <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 mb-3 text-xs text-blue-800 leading-relaxed">
-                            <p className="font-semibold mb-1">📐 예측 스코어 계산법</p>
-                            <p className="mb-1"><b>기여도</b> = 변동률 × 가중치. 각 지수가 오늘 예측 스코어에 얼마나 기여했는지를 나타냅니다.</p>
-                            <p className="mb-1"><b>스코어</b> = 모든 기여도의 합산 = <b>{prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(3)}</b>. 이 값으로 상승/하락 신호를 판정합니다.</p>
-                            <p className="text-blue-600"><b>가중치 +%</b>: 해당 지수 상승 → KOSPI↑ (동행) | <b>가중치 -%</b>: 해당 지수 상승 → KOSPI↓ (역행). 예: VIX -8%는 VIX가 오르면 KOSPI가 내린다는 의미입니다.</p>
-                            <p className="text-blue-500 mt-1" style={{fontSize:'10px'}}>가중치 절대값 합 = 100% (각 지수의 영향력 비중). 60일 이상 데이터 축적 시 KOSPI와의 상관계수 기반으로 매일 자동 보정됩니다.</p>
-                          </div>
-                          {/* 테이블 헤더 */}
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">📊 해외 지수 변동 상세 (전일 마감 기준)</h3>
+                          {/* 데스크탑 테이블 헤더 */}
                           <div className="hidden md:flex items-center gap-2 text-xs text-gray-400 mb-1.5 border-b border-gray-100 pb-1">
                             <span className="w-24 text-left">지수</span>
                             <span className="w-20 text-right">현재가</span>
@@ -1132,7 +1129,15 @@
                             <span className="flex-1"></span>
                             <span className="w-16 text-right">기여도</span>
                           </div>
-                          <div className="space-y-1.5">
+                          {/* 모바일 테이블 헤더 */}
+                          <div className="flex md:hidden items-center text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{fontSize:'10px'}}>
+                            <span className="w-16 flex-shrink-0 text-left">지수</span>
+                            <span className="w-14 text-right flex-shrink-0">변동률</span>
+                            <span className="w-9 text-right flex-shrink-0">가중치</span>
+                            <span className="flex-1"></span>
+                            <span className="w-12 text-right flex-shrink-0">기여도</span>
+                          </div>
+                          <div className="space-y-1">
                             {displayFactors.map((f, i) => {
                               const barWidth = Math.min(Math.abs(f.contribution) / maxAbsContrib * 100, 100);
                               const isPositive = f.contribution >= 0;
@@ -1162,19 +1167,16 @@
                                       {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                     </span>
                                   </div>
-                                  {/* 모바일 */}
-                                  <div className="flex md:hidden items-center gap-1.5 text-xs">
-                                    <div className="w-16 flex-shrink-0">
-                                      <div className="text-gray-700 font-medium truncate">{f.name}</div>
-                                      <div className="text-gray-400 font-mono" style={{fontSize:'10px'}}>{priceStr}</div>
-                                    </div>
-                                    <span className={`w-14 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                  {/* 모바일 — 가로 배치, overflow 방지 */}
+                                  <div className="flex md:hidden items-center gap-1 text-xs" style={{minWidth: 0}}>
+                                    <span className="w-16 flex-shrink-0 text-gray-700 font-medium truncate" style={{fontSize:'11px'}}>{f.name}</span>
+                                    <span className={`w-14 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`} style={{fontSize:'11px'}}>
                                       {changeSign}{f.change}%
                                     </span>
                                     <span className="w-9 text-right font-mono text-gray-400 flex-shrink-0" style={{fontSize:'10px'}}>
                                       {weightSign}{weightPct}%
                                     </span>
-                                    <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                                    <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden" style={{minWidth:'20px'}}>
                                       <div
                                         className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
                                         style={{width: barWidth + '%'}}
@@ -1187,6 +1189,14 @@
                                 </div>
                               );
                             })}
+                          </div>
+                          {/* 예측 스코어 계산법 — 하단 */}
+                          <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 mt-3 text-xs text-blue-800 leading-relaxed">
+                            <p className="font-semibold mb-1">📐 예측 스코어 계산법</p>
+                            <p className="mb-1"><b>기여도</b> = 변동률 × 가중치. 각 지수가 오늘 예측 스코어에 얼마나 기여했는지를 나타냅니다.</p>
+                            <p className="mb-1"><b>스코어</b> = 모든 기여도의 합산 = <b>{prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(3)}</b></p>
+                            <p className="text-blue-600"><b>가중치 +%</b>: 해당 지수 상승 → KOSPI↑ (동행) | <b>가중치 -%</b>: 해당 지수 상승 → KOSPI↓ (역행)</p>
+                            <p className="text-blue-500 mt-1" style={{fontSize:'10px'}}>가중치 절대값 합 = 100%. 60일 이상 데이터 축적 시 KOSPI와의 상관계수 기반으로 매일 자동 보정됩니다.</p>
                           </div>
                         </div>
                       )}
@@ -1201,7 +1211,7 @@
                 })() : (
                   <div className="text-center py-12 text-gray-500">
                     <span className="text-4xl block mb-3">🌏</span>
-                    <p>해외 시장 전망 데이터를 불러오는 중...</p>
+                    <p>데이터를 불러오는 중...</p>
                   </div>
                 )}
               </div>
