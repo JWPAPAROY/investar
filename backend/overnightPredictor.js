@@ -615,7 +615,7 @@ async function getRecentHistory(previousKospi) {
  * 2-9. 메인 함수: 데이터 수집 + 예측 + 저장
  * 같은 날짜 캐시: Supabase에 이미 저장되어 있으면 읽기
  */
-async function fetchAndPredict() {
+async function fetchAndPredict(bypassCache = false) {
   const today = getTodayKST();
 
   // KOSPI 전일 종가 (예상 지수 산출용)
@@ -660,8 +660,8 @@ async function fetchAndPredict() {
     console.warn('⚠️ KOSPI 전일 종가 조회 실패:', e.message);
   }
 
-  // 캐시 확인: 오늘 이미 예측 저장되어 있으면 읽기
-  if (supabase) {
+  // 캐시 확인: 오늘 이미 예측 저장되어 있고 bypassCache가 false면 읽기
+  if (!bypassCache && supabase) {
     try {
       const { data: existing } = await supabase
         .from('overnight_predictions')

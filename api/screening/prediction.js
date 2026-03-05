@@ -14,7 +14,8 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'GET') return res.status(405).json({ success: false, error: 'Method not allowed' });
 
   try {
-    const prediction = await overnightPredictor.fetchAndPredict();
+    const bypassCache = req.query.bypassCache === 'true';
+    const prediction = await overnightPredictor.fetchAndPredict(bypassCache);
     res.status(200).json({ success: true, prediction });
   } catch (error) {
     console.error('Prediction error:', error);
