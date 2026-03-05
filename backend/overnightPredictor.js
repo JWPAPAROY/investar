@@ -827,8 +827,8 @@ function detectVixAlertFromFactors(factors) {
  * 원인 파악, 노이즈 필터링, 장중 지속력 3가지 관점 기준
  */
 async function generateAiInterpretation(factors, sig, score) {
-  const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2-flash", "gemini-1.5-flash"];
-  let lastError = null;
+  const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2-flash", "gemini-pro", "gemini-1.5-flash"];
+  let accumulatedErrors = [];
 
   for (const modelName of models) {
     try {
@@ -858,20 +858,20 @@ async function generateAiInterpretation(factors, sig, score) {
 `;
 
       const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const text = response.text();
+      const hostResponse = await result.response;
+      const text = hostResponse.text();
       if (!text) throw new Error('Empty AI response');
 
       console.log(`✅ AI 해석 생성 성공 (모델: ${modelName})`);
       return text.trim();
     } catch (error) {
       console.warn(`⚠️ AI 생성 실패 (${modelName}):`, error.message);
-      lastError = error;
+      accumulatedErrors.push(`${modelName}: ${error.message}`);
       // 다음 모델로 계속 진행
     }
   }
 
-  return `AI 브리핑 생성 중 오류가 발생했습니다. (마지막 오류: ${lastError?.message})`;
+  return `AI 브리핑 생성에 실패했습니다. (시도된 모델 오류: ${accumulatedErrors.join(' | ')})`;
 }
 
 module.exports = {
