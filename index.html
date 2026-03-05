@@ -1013,17 +1013,31 @@
                       isWeekend = true;
                     }
 
-                    let prevDate = new Date(targetDate);
-                    if (targetDate.getDay() === 1) { // Mon
-                      prevDate.setDate(prevDate.getDate() - 3);
-                    } else {
-                      prevDate.setDate(prevDate.getDate() - 1);
+                    // KOSPI 전일(최종거래일)
+                    let prevKospiMD = null;
+                    if (prediction.previousKospiDate) {
+                      const pkDate = new Date(prediction.previousKospiDate);
+                      prevKospiMD = `${pkDate.getMonth() + 1}/${pkDate.getDate()}`;
                     }
+
+                    // 해외(미장) 전일(최종거래일)
+                    let usMarketMD = null;
+                    if (prediction.usMarketDate) {
+                      const usDate = new Date(prediction.usMarketDate);
+                      usMarketMD = `${usDate.getMonth() + 1}/${usDate.getDate()}`;
+                    }
+
+                    // Fallback to older format calculation
+                    let prevDateFallback = new Date(targetDate);
+                    if (targetDate.getDay() === 1) prevDateFallback.setDate(prevDateFallback.getDate() - 3);
+                    else prevDateFallback.setDate(prevDateFallback.getDate() - 1);
+                    const fallbackMD = `${prevDateFallback.getMonth() + 1}/${prevDateFallback.getDate()}`;
 
                     const formatMD = (dateObj) => `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
                     return {
                       target: formatMD(targetDate),
-                      prev: formatMD(prevDate),
+                      prev: prevKospiMD || fallbackMD,
+                      usTarget: usMarketMD || fallbackMD,
                       prefix: isWeekend ? '다음장' : '오늘'
                     };
                   })();
@@ -1185,7 +1199,7 @@
                       {/* 팩터 상세 */}
                       {hasFactorData && (
                         <div className="bg-white border border-gray-200 rounded-xl p-3 md:p-4 shadow-sm">
-                          <h3 className="text-sm font-semibold text-gray-700 mb-2">📊 해외 지수 변동 상세 (전일 {dateInfo.prev} 마감 기준)</h3>
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">📊 해외 지수 변동 상세 (전일 {dateInfo.usTarget} 마감 기준)</h3>
                           {/* 데스크탑 테이블 헤더 */}
                           <div className="hidden md:flex items-center gap-2 text-xs text-gray-400 mb-1.5 border-b border-gray-100 pb-1">
                             <span className="w-24 text-left">지수</span>

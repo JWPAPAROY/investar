@@ -110,6 +110,14 @@ function yahooQuote(symbol) {
           const closes = result.indicators?.quote?.[0]?.close || [];
           const opens = result.indicators?.quote?.[0]?.open || [];
 
+          let dataDate = null;
+          if (result.timestamp && result.timestamp.length > 0) {
+            // Convert UNIX timestamp to YYYY-MM-DD (US Eastern time approximated by simple UTC - 5h)
+            // Or simpler: just use KST KOSPI format by resolving Date
+            const d = new Date(result.timestamp[result.timestamp.length - 1] * 1000);
+            dataDate = d.toISOString().slice(0, 10);
+          }
+
           // 최신 2일 데이터에서 변동률 계산
           if (closes.length >= 2) {
             const prevClose = closes[closes.length - 2];
@@ -123,6 +131,7 @@ function yahooQuote(symbol) {
                 chartPreviousClose: meta.chartPreviousClose || meta.previousClose || prevClose,
                 open: currOpen || currClose,
                 change: +change.toFixed(4),
+                dataDate
               });
               return;
             }
@@ -132,7 +141,7 @@ function yahooQuote(symbol) {
           const price = meta.regularMarketPrice || 0;
           const prevClose = meta.chartPreviousClose || meta.previousClose || 0;
           const change = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
-          resolve({ price, previousClose: prevClose, open: price, change: +change.toFixed(4) });
+          resolve({ price, previousClose: prevClose, open: price, change: +change.toFixed(4), dataDate });
         } catch (e) {
           reject(e);
         }
@@ -448,7 +457,7 @@ async function getRecentVolatility() {
 /**
  * 2-7. 예측 결과 Supabase 저장 (upsert)
  */
-async function savePrediction(prediction, weights, weightsSource) {
+async function savePrediction(prediction, weights, weightsSource, previousKospi, kospiBeta, expChg, aiInterpretation, previousKospiDate, usMarketDate) {
   if (!supabase) return;
 
   const today = getTodayKST();
@@ -462,7 +471,13 @@ async function savePrediction(prediction, weights, weightsSource) {
         signal: prediction.signal,
         factors: prediction.factors,
         weights: weights,
-        ai_interpretation: prediction.aiInterpretation, // AI 해석 저장
+        weights_source: weightsSource,
+        previous_kospi: previousKospi,
+        kospi_beta: kospiBeta,
+        ai_interpretation: aiInterpretation,
+        expected_change: expChg,
+        previous_kospi_date: previousKospiDate,
+        us_market_date: usMarketDate,
       }, {
         onConflict: 'prediction_date',
       });
@@ -493,7 +508,7 @@ async function updateActualResult(date) {
       .single();
 
     if (!pred) {
-      console.log(`📊 ${date} 예측 레코드 없음 — 업데이트 건너뜀`);
+      console.log(`📊 ${date} 예측 레코드 없음 — 업데이트 건너뜜`);
       return;
     }
 
@@ -646,6 +661,7 @@ async function fetchAndPredict(bypassCache = false) {
   // KOSPI 전일 종가 (예상 지수 산출용)
   // range=5d로 충분한 일봉을 가져온 뒤, 오늘(KST 기준)을 제외한 마지막 종가 사용
   let previousKospi = null;
+  let previousKospiDate = null;
   try {
     const kospiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?range=5d&interval=1d`;
     const kospiData = await new Promise((resolve, reject) => {
@@ -670,16 +686,19 @@ async function fetchAndPredict(bypassCache = false) {
 
       // timestamp → KST 날짜로 변환, 오늘 제외한 마지막 종가 사용
       let lastClose = null;
+      let lastDateStr = null;
       for (let i = timestamps.length - 1; i >= 0; i--) {
         const date = new Date((timestamps[i] + 9 * 3600) * 1000);
         const dateStr = date.toISOString().slice(0, 10);
         if (dateStr !== todayKST && closes[i] != null) {
           lastClose = closes[i];
+          lastDateStr = dateStr;
           console.log(`📈 KOSPI 전일 종가: ${lastClose} (${dateStr})`);
           break;
         }
       }
       previousKospi = lastClose ? +lastClose.toFixed(2) : null;
+      previousKospiDate = lastDateStr;
     }
   } catch (e) {
     console.warn('⚠️ KOSPI 전일 종가 조회 실패:', e.message);
@@ -750,6 +769,9 @@ async function fetchAndPredict(bypassCache = false) {
             } : null,
             accuracy,
             history,
+            date: today,
+            previousKospiDate: existing.previous_kospi_date || previousKospiDate,
+            usMarketDate: existing.us_market_date || null,
             todayResult: existing.hit != null ? {
               kospiCloseChange: existing.kospi_close_change != null ? +existing.kospi_close_change : null,
               kosdaqCloseChange: existing.kosdaq_close_change != null ? +existing.kosdaq_close_change : null,
@@ -776,17 +798,27 @@ async function fetchAndPredict(bypassCache = false) {
   const aiInterpretation = await generateAiInterpretation(prediction.factors, sig, prediction.score);
   prediction.aiInterpretation = aiInterpretation;
 
+  // usMarketDate 추출 (가장 높은 가중치를 가진 해외 지수 첫번째 요소의 date 사용)
+  let usMarketDate = null;
+  const usFactor = prediction.factors.find(f => f.ticker === 'ES=F' || f.ticker === '^SOX' || f.ticker === 'NQ=F');
+  if (usFactor && data[usFactor.ticker]?.dataDate) {
+    usMarketDate = data[usFactor.ticker].dataDate;
+  }
+
+  const expChg = calcExpectedChange(prediction.score, dynamicBeta, dynamicSigma);
+
   // 저장 (aiInterpretation 등 전체 prediction 객체 저장 여부 확인 필요 시 확장)
-  await savePrediction(prediction, weights, source);
+  await savePrediction(prediction, weights, source, previousKospi, dynamicBeta, expChg, aiInterpretation, previousKospiDate, usMarketDate);
 
   // 적중률 + 히스토리 조회
   const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
 
-  const expChg = calcExpectedChange(prediction.score, dynamicBeta, dynamicSigma);
   return {
     ...prediction,
     weightsSource: source,
     previousKospi,
+    previousKospiDate,
+    usMarketDate,
     kospiBeta: dynamicBeta,
     expectedChange: expChg,
     estimatedKospi: previousKospi ? {
