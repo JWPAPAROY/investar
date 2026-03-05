@@ -61,20 +61,27 @@ const SIGNAL_TABLE = [
  * 밴드: 최근 20일 KOSPI 일일 변동률 표준편차(σ) 기반 동적 조절 (fallback: 1.5%)
  */
 function calcExpectedChange(score, beta, sigma) {
-  const b = beta || DEFAULT_KOSPI_BETA;
+  let b = beta || DEFAULT_KOSPI_BETA;
+
+  // v1.4: 초강세/초약세장 대응 - 스코어가 1.2 초과 시 베터를 아주 공격적으로 상향 (최소 2.0~5.0)
+  if (Math.abs(score) > 1.2) {
+    const floorBeta = 2.0 + (Math.abs(score) - 1.2) * 2.0;
+    if (b < floorBeta) b = floorBeta;
+  }
+
   const band = sigma || 1.5;
   const center = +(score * b).toFixed(2);
 
-  // v1.2: 스코어가 매우 클 경우(절대값 1.5 초과) 변동성 밴드를 확장하여 이례적 상황 반영
+  // v1.3: 밴드도 더 공격적으로 확장 (이례적 상황의 변동성 반영)
   let dynamicBand = band;
-  if (Math.abs(score) > 1.5) {
-    dynamicBand = Math.max(band, Math.abs(score) * 0.8);
+  if (Math.abs(score) > 1.2) {
+    dynamicBand = Math.max(band, Math.abs(score) * 2.0); // 1.5 -> 2.0으로 상향
   }
 
   return {
     min: +(center - dynamicBand).toFixed(2),
     max: +(center + dynamicBand).toFixed(2),
-    beta: b,
+    beta: +b.toFixed(2),
     sigma: +dynamicBand.toFixed(2)
   };
 }
@@ -811,7 +818,8 @@ async function generateAiInterpretation(factors, sig, score) {
     if (!apiKey) return "AI 해석을 생성할 수 없습니다. (API 키 누락)";
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // 404 에러 방지를 위해 가장 범용적인 모델명 사용 시도
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
 
     const factorsStr = factors.map(f => `${f.name}: ${f.change > 0 ? '+' : ''}${f.change}%`).join(', ');
 
@@ -832,11 +840,14 @@ async function generateAiInterpretation(factors, sig, score) {
 `;
 
     const result = await model.generateContent(prompt);
+    // SDK 최신 버전 호환성을 위해 결과 추출 방식 보강
     const response = await result.response;
-    return response.text().trim();
+    const text = response.text();
+    if (!text) throw new Error('Empty AI response');
+    return text.trim();
   } catch (error) {
-    console.error('⚠️ AI 해석 생성 실패:', error.message);
-    return "AI 브리핑을 불러오는 중 오류가 발생했습니다.";
+    console.error('⚠️ AI 해석 생성 실패:', error);
+    return `AI 브리핑 생성 중 오류가 발생했습니다. (${error.message})`;
   }
 }
 
