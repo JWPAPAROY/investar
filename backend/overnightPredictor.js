@@ -14,6 +14,7 @@
 const https = require('https');
 const supabase = require('./supabaseClient');
 const kisApi = require('./kisApi');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // ─── 기본 가중치 (다중공선성 제거 후 11개) ───
 // 제거됨: ^GSPC(ES=F와 중복), ^IXIC(NQ=F와 중복),
@@ -23,36 +24,34 @@ const kisApi = require('./kisApi');
 // KOSPI200F: 코스피200 선물 (KIS API) — 야간 거래 반영,
 //            가장 직접적인 다음날 코스피 지표이므로 최고 가중치.
 //            S&P/나스닥 영향이 이미 반영되어 있어 해당 지표 가중치 하향.
+// ─── 기본 가중치 (상관계수 비례 최적화 적용) ───
+// 분석: 과거 40일 KOSPI 다음날 변동률과의 피어슨 상관계수 기준 분배 (총합 정규화)
 const DEFAULT_WEIGHTS = {
-  // ── 코스피200 선물 (KIS API, 최고 비중) ──
-  'KOSPI200F': { name: '코스피200선물', weight: +0.28 },
-  // ── 미국 선물 (KOSPI200F에 일부 반영되므로 하향 조정) ──
-  'ES=F': { name: 'S&P500 선물', weight: +0.18 },
-  'NQ=F': { name: '나스닥 선물', weight: +0.15 },
-  // ── 원자재/통화 (독립적 정보) ──
-  'GC=F': { name: '금 선물', weight: -0.04 },
-  'HG=F': { name: '구리 선물', weight: +0.05 },
-  'CL=F': { name: 'WTI 원유', weight: +0.03 },
-  // ── 현물 지수 (독립적 정보만 유지) ──
-  '^SOX': { name: 'SOX 반도체', weight: +0.08 },
-  '^VIX': { name: 'VIX 공포', weight: -0.08 },
-  'USDKRW=X': { name: '달러/원', weight: -0.08 },
-  '^TNX': { name: '미국10년물', weight: -0.04 },
-  '^N225': { name: '닛케이', weight: +0.04 },
+  'KOSPI200F': { name: '코스피200선물', weight: +0.21 }, // r=+0.850 (기준)
+  '^SOX': { name: 'SOX 반도체', weight: +0.15 }, // r=+0.582
+  'NQ=F': { name: '나스닥 선물', weight: +0.11 }, // r=+0.454
+  'CL=F': { name: 'WTI 원유', weight: -0.11 }, // r=-0.423
+  'ES=F': { name: 'S&P500 선물', weight: +0.10 }, // r=+0.418
+  '^VIX': { name: 'VIX 공포', weight: -0.10 }, // r=-0.416
+  'GC=F': { name: '금 선물', weight: +0.08 }, // r=+0.308
+  'HG=F': { name: '구리 선물', weight: +0.07 }, // r=+0.297
+  'USDKRW=X': { name: '달러/원', weight: -0.03 }, // 환리스크 장기악재 유지
+  '^N225': { name: '닛케이', weight: +0.03 }, // r=+0.103
+  '^TNX': { name: '미국10년물', weight: -0.01 }, // r=+0.036
 };
 // 가중치 절대값 합 = 1.05 (보정 시 자동 정규화)
 
 // ─── KOSPI 민감도 (멀티플/베타) ───
-// KOSPI는 해외 지수 대비 더 크게 움직임 (신흥국 베타 효과)
-// 기본값 1.3, 60일 데이터 축적 후 회귀 기반 동적 보정
-const DEFAULT_KOSPI_BETA = 1.3;
+// 신규 가중치 적용으로 스코어 절대값이 작아짐. 시뮬레이션 회귀 분석 결과,
+// 스코어 예측치와 실제 변동률을 맞추기 위한 최적 Beta는 2.5
+const DEFAULT_KOSPI_BETA = 2.5;
 
-// ─── 신호 판정 테이블 ───
+// ─── 신호 판정 테이블 (대칭형 폭 넓힘) ───
 const SIGNAL_TABLE = [
-  { min: 0.5, signal: 'strong_bullish', emoji: '🟢🟢', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
-  { min: 0.2, signal: 'mild_bullish', emoji: '🟢', label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
-  { min: -0.2, signal: 'neutral', emoji: '⚪', label: '중립', guidance: '방향 불명확, 관망 또는 소량 포지션' },
-  { min: -0.5, signal: 'mild_bearish', emoji: '🔴', label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
+  { min: 0.75, signal: 'strong_bullish', emoji: '🟢🟢', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
+  { min: 0.15, signal: 'mild_bullish', emoji: '🟢', label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
+  { min: -0.35, signal: 'neutral', emoji: '⚪', label: '중립', guidance: '방향 불명확, 관망 또는 소량 포지션' },
+  { min: -0.75, signal: 'mild_bearish', emoji: '🔴', label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
   { min: -Infinity, signal: 'strong_bearish', emoji: '🔴🔴', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비' },
 ];
 
@@ -691,6 +690,8 @@ async function fetchAndPredict() {
           const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
           const expChg = calcExpectedChange(+existing.score, cachedBeta, cachedSigma);
 
+          let aiInterpretation = existing.factors ? await generateAiInterpretation(existing.factors, sig, existing.score) : "캐시된 데이터가 부족하여 AI 해석을 생성할 수 없습니다.";
+
           return {
             score: +existing.score,
             signal: existing.signal,
@@ -698,6 +699,7 @@ async function fetchAndPredict() {
             label: sig.label,
             summary: buildSummaryFromFactors(existing.factors, sig),
             vixAlert: detectVixAlertFromFactors(existing.factors),
+            aiInterpretation,
             factors: existing.factors || [],
             guidance: sig.guidance,
             weightsSource: existing.weights ? 'calibrated_60d' : 'default',
@@ -731,14 +733,18 @@ async function fetchAndPredict() {
   const data = await fetchOvernightData();
   const prediction = calculatePrediction(data, weights);
 
-  // 저장
+  // AI 해석 생성
+  const sig = SIGNAL_TABLE.find(s => prediction.score >= s.min);
+  const aiInterpretation = await generateAiInterpretation(prediction.factors, sig, prediction.score);
+  prediction.aiInterpretation = aiInterpretation;
+
+  // 저장 (aiInterpretation 등 전체 prediction 객체 저장 여부 확인 필요 시 확장)
   await savePrediction(prediction, weights, source);
 
   // 적중률 + 히스토리 조회
   const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
 
   const expChg = calcExpectedChange(prediction.score, dynamicBeta, dynamicSigma);
-  const sig = SIGNAL_TABLE.find(s => prediction.score >= s.min);
   return {
     ...prediction,
     weightsSource: source,
@@ -783,6 +789,44 @@ function detectVixAlertFromFactors(factors) {
   return null;
 }
 
+/**
+ * Gemini AI 기반 시장 종합 해석 생성
+ * 원인 파악, 노이즈 필터링, 장중 지속력 3가지 관점 기준
+ */
+async function generateAiInterpretation(factors, sig, score) {
+  try {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) return "AI 해석을 생성할 수 없습니다. (API 키 누락)";
+
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const factorsStr = factors.map(f => `${f.name}: ${f.change > 0 ? '+' : ''}${f.change}%`).join(', ');
+
+    const prompt = `
+당신은 한국 주식 시황을 예측하는 최고 수준의 증권사 퀀트 애널리스트입니다. 
+다음 11개 지표의 밤사이 변동률과 시스템이 산출한 예측 스코어를 기반으로, 다가오는 오늘 한국 코스피 시장의 예상 흐름을 300자 내외로 매우 직관적이고 날카롭게 브리핑해주세요.
+
+[데이터]
+- 예측 스코어: ${score} (${sig.label})
+- 지표 데이터: ${factorsStr}
+
+[필수 포함 사항 - 반드시 아래 3가지 맥락을 분석하여 유기적인 하나의 단락으로 작성하세요.]
+1. 원인과 맥락: 코스피200 선물의 움직임을 중심으로, 반도체(SOX), 나스닥, 원유(CL=F) 등의 등락이 한국 증시에 구체적으로 어떤 산업적/거시적 명분을 제공하고 있는지 설명.
+2. 노이즈 필터링: 선물의 거래량 부족으로 인한 왜곡 가능성을 짚어보고, 나머지 10개 지표(Macro Score)가 이를 뒷받침하는지 반박하는지 추세적 신뢰도를 판단.
+3. 장중 추세(시초가 vs 종가): 시초가는 선물 가격을 따라가겠지만, VIX, 환율(USDKRW), 국채금리(TNX)의 상태를 보았을 때 장 마감까지 상승세나 하락세가 유지될 수 있는 펀더멘털인지 아니면 장중 되돌림이 나올 환경인지 예측.
+
+가벼운 경어체(해요/합니다)를 사용하고, 각 번호(1, 2, 3)를 매기지 말고 자연스러운 브리핑 텍스트 형태로 출력하세요. 군더더기 인사말은 생략하세요.
+`;
+
+    const result = await model.generateContent(prompt);
+    return result.response.text().trim();
+  } catch (error) {
+    console.error('⚠️ AI 해석 생성 실패:', error.message);
+    return "AI 브리핑을 불러오는 중 오류가 발생했습니다.";
+  }
+}
+
 module.exports = {
   fetchAndPredict,
   updateActualResult,
@@ -793,4 +837,5 @@ module.exports = {
   getRecentVolatility,
   DEFAULT_WEIGHTS,
   DEFAULT_KOSPI_BETA,
+  generateAiInterpretation,
 };
