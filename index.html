@@ -1186,36 +1186,9 @@
                             </span>
                           </div>
                         </div>
-                      ) : predictionLoading ? (
-                        <div className="flex flex-col items-center justify-center py-16 md:py-24">
-                          <div className="inline-block animate-spin rounded-full h-12 w-12 md:h-16 md:w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
-                          <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">시장 전망 데이터를 불러오고 있습니다...</h3>
-                          <p className="text-sm md:text-base text-gray-500">잠시만 기다려주세요</p>
-                        </div>
                       ) : (
-                        <div className="space-y-6">
-                          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg p-4 md:p-6 text-white">
-                            <h2 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2">🌏 오늘의 시장 전망</h2>
-                            <p className="text-indigo-100 text-sm md:text-base">
-                              미국 국채, 환율, VIX 및 주요 지수를 통해 당일 한국 시장의 방향성을 예측합니다
-                            </p>
-                          </div>
-                          <div className="text-center py-12 md:py-20">
-                            <div className="text-5xl md:text-6xl mb-3">🔮</div>
-                            <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">
-                              시장 전망 데이터 불러오기
-                            </h3>
-                            <p className="text-sm md:text-base text-gray-600 mb-6">
-                              해외 시장 마감 데이터를 기반으로 오늘 코스피의 변동 범위를 분석합니다
-                            </p>
-                            <button
-                              onClick={fetchPrediction}
-                              className="px-6 py-3 md:px-10 md:py-4 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition font-bold shadow-xl text-base md:text-xl flex items-center justify-center gap-2 mx-auto transform hover:scale-105"
-                            >
-                              <span>데이터 불러오기</span>
-                              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
-                            </button>
-                          </div>
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-center text-sm text-blue-700">
+                          ⏳ 장 마감 후 예측 결과가 업데이트됩니다 (16:10 KST)
                         </div>
                       )}
 
@@ -1321,10 +1294,36 @@
                       )}
                     </div>
                   );
-                })() : (
-                  <div className="text-center py-12 text-gray-500">
-                    <span className="text-4xl block mb-3">🌏</span>
-                    <p>데이터를 불러오는 중...</p>
+                })() : predictionLoading ? (
+                  <div className="flex flex-col items-center justify-center py-16 md:py-24 text-center">
+                    <div className="inline-block animate-spin rounded-full h-12 w-12 md:h-16 md:w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
+                    <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">시장 전망 데이터를 불러오고 있습니다...</h3>
+                    <p className="text-sm md:text-base text-gray-500">잠시만 기다려주세요</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-indigo-100 rounded-xl shadow-sm p-4 md:p-6 text-gray-800">
+                      <h2 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2 flex items-center gap-2"><span className="text-3xl">🌏</span> 오늘의 시장 전망</h2>
+                      <p className="text-indigo-900 text-sm md:text-base font-semibold">
+                        미국 국채, 환율, VIX 및 선물을 통해 한국 시장 방향성을 AI와 함께 분석합니다
+                      </p>
+                    </div>
+                    <div className="text-center py-12 md:py-20">
+                      <div className="text-5xl md:text-6xl mb-3">🔮</div>
+                      <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">
+                        시장 전망 데이터 불러오기
+                      </h3>
+                      <p className="text-sm md:text-base text-gray-600 mb-6 max-w-lg mx-auto leading-relaxed">
+                        전일 주요 지수 변동률과 KOSPI 베타를 결합하여 오늘 코스피의 변동 범위를 수학적으로 계산합니다.
+                      </p>
+                      <button
+                        onClick={fetchPrediction}
+                        className="px-6 py-3 md:px-10 md:py-4 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition font-bold shadow-xl text-base md:text-xl flex items-center justify-center gap-2 mx-auto transform hover:scale-105"
+                      >
+                        <span>데이터 분석 시작</span>
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
