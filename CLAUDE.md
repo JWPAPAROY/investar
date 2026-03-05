@@ -823,6 +823,12 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ## 📝 변경 이력
 
+### v3.50 (2026-03-05)
+- **EWMA 베타 도입**: `getKospiBeta()` — OLS 균등 회귀 → EWMA(λ=0.94) 가중 회귀로 변경. 최근 데이터에 지수적 가중치 부여하여 급변장 반영 속도 3~4배 향상. 최소 20일 데이터부터 보정 시작 (기존 60일). 클램핑 0.5~8.0 (기존 3.0)
+- **동적 밴드(σ) 도입**: `getRecentVolatility()` — 최근 20일 KOSPI 일일 변동률 표준편차를 ±밴드로 사용 (기존 고정 ±0.5%). 급변장에서 자동 확대 (클램핑 0.5~10.0%)
+- **KOSPI 전일 종가 버그 수정**: `range=2d` + `previousClose`/`chartPreviousClose` 방식 → `range=5d` + timestamp 기반 오늘 제외 마지막 종가 선택. 장중/장외 무관하게 정확한 전일 종가 반환
+- **예측 변동폭 공식**: `center ± 0.5%` → `center ± σ` (center = score × β)
+
 ### v3.49 (2026-03-05)
 - **다중공선성 제거 (15→11개 팩터)**: ^GSPC(ES=F와 r=0.96), ^IXIC(NQ=F와 r=0.99), ^DJI(^GSPC와 r=0.84), DX-Y.NYB(USDKRW=X와 r=0.56), ^KS200(한국장 시간대 지수) 제거
 - **EWY(한국ETF) 추가**: ^KS200 대신 미국장에서 거래되는 iShares MSCI South Korea ETF — 야간 KOSPI 프록시 역할

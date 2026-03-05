@@ -51,14 +51,14 @@ const SIGNAL_TABLE = [
 
 /**
  * 스코어 기반 예측 변동폭 계산
- * 스코어 × KOSPI 베타(멀티플)를 중심점으로 사용, ±0.5% 밴드
- * KOSPI는 해외 지수 대비 1.3배 이상 크게 반응 (신흥국 베타 효과)
+ * 스코어 × KOSPI 베타(멀티플)를 중심점으로 사용
+ * 밴드: 최근 20일 KOSPI 일일 변동률 표준편차(σ) 기반 동적 조절 (fallback: 1.5%)
  */
-function calcExpectedChange(score, beta) {
+function calcExpectedChange(score, beta, sigma) {
   const b = beta || DEFAULT_KOSPI_BETA;
-  const band = 0.5;
+  const band = sigma || 1.5; // 기본값 1.5% (고정 0.5% 대비 3배 확대)
   const center = +(score * b).toFixed(2);
-  return { min: +(center - band).toFixed(2), max: +(center + band).toFixed(2), beta: b };
+  return { min: +(center - band).toFixed(2), max: +(center + band).toFixed(2), beta: b, sigma: +band.toFixed(2) };
 }
 
 /**
@@ -294,10 +294,9 @@ async function getActiveWeights() {
 }
 
 /**
- * KOSPI 동적 베타(멀티플) 보정
- * 60일 예측 히스토리에서 score → kospi_open_change OLS 회귀 기울기 계산
- * slope = Σ((x-x̄)(y-ȳ)) / Σ((x-x̄)²)
- * 60일 미만이면 DEFAULT_KOSPI_BETA(1.3) 사용
+ * KOSPI 동적 베타(멀티플) 보정 — EWMA 가중 회귀
+ * 최근 데이터에 지수적 가중치(λ=0.94)를 부여하여 급변장 반영 속도 향상
+ * 20일 미만이면 DEFAULT_KOSPI_BETA(1.3) 사용
  */
 async function getKospiBeta() {
   if (!supabase) return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
@@ -311,23 +310,34 @@ async function getKospiBeta() {
       .order('prediction_date', { ascending: false })
       .limit(60);
 
-    if (error || !data || data.length < 60) {
+    if (error || !data || data.length < 20) {
       return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
     }
 
-    // OLS 단순회귀: x=score, y=kospi_open_change
+    // EWMA 가중 회귀: λ=0.94, 최근 데이터일수록 높은 가중치
+    const lambda = 0.94;
     const n = data.length;
-    const sumX = data.reduce((s, d) => s + d.score, 0);
-    const sumY = data.reduce((s, d) => s + d.kospi_open_change, 0);
-    const meanX = sumX / n;
-    const meanY = sumY / n;
 
+    // 가중치 계산 (data[0]=최신, data[n-1]=가장 오래된)
+    const weights = data.map((_, i) => Math.pow(lambda, i));
+    const sumW = weights.reduce((a, b) => a + b, 0);
+
+    // 가중 평균
+    let meanX = 0, meanY = 0;
+    for (let i = 0; i < n; i++) {
+      meanX += weights[i] * data[i].score;
+      meanY += weights[i] * data[i].kospi_open_change;
+    }
+    meanX /= sumW;
+    meanY /= sumW;
+
+    // 가중 회귀 기울기
     let ssXY = 0, ssXX = 0;
-    for (const d of data) {
-      const dx = d.score - meanX;
-      const dy = d.kospi_open_change - meanY;
-      ssXY += dx * dy;
-      ssXX += dx * dx;
+    for (let i = 0; i < n; i++) {
+      const dx = data[i].score - meanX;
+      const dy = data[i].kospi_open_change - meanY;
+      ssXY += weights[i] * dx * dy;
+      ssXX += weights[i] * dx * dx;
     }
 
     if (ssXX === 0) {
@@ -336,14 +346,47 @@ async function getKospiBeta() {
 
     const slope = ssXY / ssXX;
 
-    // 베타는 최소 0.5, 최대 3.0으로 클램핑 (이상치 방지)
-    const clampedBeta = +Math.min(Math.max(slope, 0.5), 3.0).toFixed(2);
+    // 베타는 최소 0.5, 최대 8.0으로 클램핑 (급변장 허용)
+    const clampedBeta = +Math.min(Math.max(slope, 0.5), 8.0).toFixed(2);
 
-    console.log(`📊 동적 베타 보정: slope=${slope.toFixed(3)}, clamped=${clampedBeta} (N=${n})`);
-    return { beta: clampedBeta, source: 'calibrated_60d' };
+    console.log(`📊 EWMA 베타: slope=${slope.toFixed(3)}, clamped=${clampedBeta} (λ=0.94, N=${n})`);
+    return { beta: clampedBeta, source: 'ewma_calibrated' };
   } catch (err) {
     console.warn('⚠️ 베타 보정 실패, 기본값 사용:', err.message);
     return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
+  }
+}
+
+/**
+ * KOSPI 최근 변동성(σ) 조회
+ * 최근 20일 KOSPI 일일 변동률의 표준편차를 반환
+ * 예측 변동폭 밴드를 동적으로 조절하는 데 사용 (±1σ)
+ */
+async function getRecentVolatility() {
+  if (!supabase) return 1.5; // 기본값
+
+  try {
+    const { data, error } = await supabase
+      .from('overnight_predictions')
+      .select('kospi_close_change')
+      .not('kospi_close_change', 'is', null)
+      .order('prediction_date', { ascending: false })
+      .limit(20);
+
+    if (error || !data || data.length < 5) return 1.5;
+
+    const changes = data.map(d => d.kospi_close_change);
+    const mean = changes.reduce((a, b) => a + b, 0) / changes.length;
+    const variance = changes.reduce((a, c) => a + Math.pow(c - mean, 2), 0) / changes.length;
+    const sigma = Math.sqrt(variance);
+
+    // 최소 0.5%, 최대 10%로 클램핑
+    const clampedSigma = +Math.min(Math.max(sigma, 0.5), 10.0).toFixed(2);
+    console.log(`📉 KOSPI 변동성 σ=${sigma.toFixed(3)}%, clamped=${clampedSigma}% (N=${data.length})`);
+    return clampedSigma;
+  } catch (err) {
+    console.warn('⚠️ 변동성 조회 실패, 기본값 사용:', err.message);
+    return 1.5;
   }
 }
 
@@ -542,14 +585,43 @@ async function fetchAndPredict() {
   const today = getTodayKST();
 
   // KOSPI 전일 종가 (예상 지수 산출용)
-  // meta.chartPreviousClose가 가장 신뢰할 수 있는 "전일 종가" 소스
-  // closes 배열은 장중 실시간 데이터로 인해 인덱싱이 불안정함
+  // range=5d로 충분한 일봉을 가져온 뒤, 오늘(KST 기준)을 제외한 마지막 종가 사용
   let previousKospi = null;
   try {
-    const kd = await yahooQuote('^KS11');
-    const reliable = kd.chartPreviousClose;
-    previousKospi = reliable ? +reliable.toFixed(2) : null;
-    console.log(`📈 KOSPI 전일 종가: ${previousKospi} (chartPreviousClose)`);
+    const kospiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?range=5d&interval=1d`;
+    const kospiData = await new Promise((resolve, reject) => {
+      https.get(kospiUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+        });
+      }).on('error', reject);
+    });
+
+    const result = kospiData.chart?.result?.[0];
+    if (result) {
+      const timestamps = result.timestamp || [];
+      const closes = result.indicators?.quote?.[0]?.close || [];
+
+      // KST 기준 오늘 날짜
+      const todayKST = getTodayKST(); // 'YYYY-MM-DD'
+
+      // timestamp → KST 날짜로 변환, 오늘 제외한 마지막 종가 사용
+      let lastClose = null;
+      for (let i = timestamps.length - 1; i >= 0; i--) {
+        const date = new Date((timestamps[i] + 9 * 3600) * 1000);
+        const dateStr = date.toISOString().slice(0, 10);
+        if (dateStr !== todayKST && closes[i] != null) {
+          lastClose = closes[i];
+          console.log(`📈 KOSPI 전일 종가: ${lastClose} (${dateStr})`);
+          break;
+        }
+      }
+      previousKospi = lastClose ? +lastClose.toFixed(2) : null;
+    }
   } catch (e) {
     console.warn('⚠️ KOSPI 전일 종가 조회 실패:', e.message);
   }
@@ -580,9 +652,9 @@ async function fetchAndPredict() {
 
           // 신호 판정 재계산
           const sig = SIGNAL_TABLE.find(s => existing.score >= s.min);
-          const { beta: cachedBeta } = await getKospiBeta();
+          const [{ beta: cachedBeta }, cachedSigma] = await Promise.all([getKospiBeta(), getRecentVolatility()]);
           const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
-          const expChg = calcExpectedChange(+existing.score, cachedBeta);
+          const expChg = calcExpectedChange(+existing.score, cachedBeta, cachedSigma);
 
           return {
             score: +existing.score,
@@ -620,7 +692,7 @@ async function fetchAndPredict() {
 
   // 새 예측 계산
   const { weights, source } = await getActiveWeights();
-  const { beta: dynamicBeta } = await getKospiBeta();
+  const [{ beta: dynamicBeta }, dynamicSigma] = await Promise.all([getKospiBeta(), getRecentVolatility()]);
   const data = await fetchOvernightData();
   const prediction = calculatePrediction(data, weights);
 
@@ -630,7 +702,7 @@ async function fetchAndPredict() {
   // 적중률 + 히스토리 조회
   const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
 
-  const expChg = calcExpectedChange(prediction.score, dynamicBeta);
+  const expChg = calcExpectedChange(prediction.score, dynamicBeta, dynamicSigma);
   const sig = SIGNAL_TABLE.find(s => prediction.score >= s.min);
   return {
     ...prediction,
@@ -683,6 +755,7 @@ module.exports = {
   calculatePrediction,
   getActiveWeights,
   getKospiBeta,
+  getRecentVolatility,
   DEFAULT_WEIGHTS,
   DEFAULT_KOSPI_BETA,
 };
