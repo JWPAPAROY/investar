@@ -998,14 +998,34 @@
                     return `${d.getMonth() + 1}월 ${d.getDate()}일`;
                   })();
                   const dateInfo = (() => {
-                    const d = new Date();
-                    d.setMinutes(d.getMinutes() + d.getTimezoneOffset() + 540);
-                    const tMD = `${d.getMonth() + 1}/${d.getDate()}`;
-                    if (d.getDay() === 1) d.setDate(d.getDate() - 3); // 월요일이면 금요일로
-                    else if (d.getDay() === 0) d.setDate(d.getDate() - 2); // 일요일이면 금요일로
-                    else d.setDate(d.getDate() - 1);
-                    const pMD = `${d.getMonth() + 1}/${d.getDate()}`;
-                    return { today: tMD, prev: pMD };
+                    const d = prediction.date ? new Date(prediction.date) : new Date();
+                    if (!prediction.date) d.setMinutes(d.getMinutes() + d.getTimezoneOffset() + 540); // fallback KST
+
+                    let targetDate = new Date(d);
+                    const currentDay = targetDate.getDay();
+                    let isWeekend = false;
+
+                    if (currentDay === 6) { // Sat
+                      targetDate.setDate(targetDate.getDate() + 2);
+                      isWeekend = true;
+                    } else if (currentDay === 0) { // Sun
+                      targetDate.setDate(targetDate.getDate() + 1);
+                      isWeekend = true;
+                    }
+
+                    let prevDate = new Date(targetDate);
+                    if (targetDate.getDay() === 1) { // Mon
+                      prevDate.setDate(prevDate.getDate() - 3);
+                    } else {
+                      prevDate.setDate(prevDate.getDate() - 1);
+                    }
+
+                    const formatMD = (dateObj) => `${dateObj.getMonth() + 1}/${dateObj.getDate()}`;
+                    return {
+                      target: formatMD(targetDate),
+                      prev: formatMD(prevDate),
+                      prefix: isWeekend ? '다음장' : '오늘'
+                    };
                   })();
                   const prevKospi = prediction.previousKospi;
                   const estKospi = prediction.estimatedKospi;
@@ -1046,7 +1066,7 @@
                               </div>
                               <span className="text-gray-400 mx-2 hidden md:inline">→</span>
                               <div className="mt-1 md:mt-0">
-                                <span className="text-xs text-gray-500">오늘({dateInfo.today})의 예상 범위</span>
+                                <span className="text-xs text-gray-500">{dateInfo.prefix}({dateInfo.target})의 예상 범위</span>
                                 <span className={`font-bold ml-2 ${textClass}`}>
                                   {estKospi.min.toLocaleString()} ~ {estKospi.max.toLocaleString()}
                                 </span>
@@ -1128,7 +1148,7 @@
                           ? 'bg-green-50 border-green-300'
                           : 'bg-red-50 border-red-300'
                           }`}>
-                          <h3 className="text-sm font-semibold text-gray-700 mb-2">📋 오늘의 예측 결과 ({dateInfo.today})</h3>
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">📋 {dateInfo.prefix}의 예측 결과 ({dateInfo.target})</h3>
                           <div className="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-6">
                             <div className="text-sm">
                               <span className="text-gray-600">예측: </span>
