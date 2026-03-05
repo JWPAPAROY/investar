@@ -20,18 +20,18 @@ const supabase = require('./supabaseClient');
 //         ^KS200(한국장 시간대 지수 → EWY로 대체)
 const DEFAULT_WEIGHTS = {
   // ── 선물 (장 마감 후 최신 움직임) ──
-  'ES=F':      { name: 'S&P500 선물', weight: +0.25 },
-  'NQ=F':      { name: '나스닥 선물',  weight: +0.20 },
-  'GC=F':      { name: '금 선물',     weight: -0.05 },
-  'HG=F':      { name: '구리 선물',   weight: +0.06 },
+  'ES=F': { name: 'S&P500 선물', weight: +0.25 },
+  'NQ=F': { name: '나스닥 선물', weight: +0.20 },
+  'GC=F': { name: '금 선물', weight: -0.05 },
+  'HG=F': { name: '구리 선물', weight: +0.06 },
   // ── 현물 지수 (독립적 정보만 유지) ──
-  '^SOX':      { name: 'SOX 반도체',  weight: +0.10 },
-  '^VIX':      { name: 'VIX 공포',    weight: -0.10 },
-  'USDKRW=X':  { name: '달러/원',     weight: -0.08 },
-  '^TNX':      { name: '미국10년물',   weight: -0.05 },
-  '^N225':     { name: '닛케이',      weight: +0.05 },
-  'EWY':       { name: '한국ETF',    weight: +0.08 },
-  'CL=F':      { name: 'WTI 원유',    weight: +0.03 },
+  '^SOX': { name: 'SOX 반도체', weight: +0.10 },
+  '^VIX': { name: 'VIX 공포', weight: -0.10 },
+  'USDKRW=X': { name: '달러/원', weight: -0.08 },
+  '^TNX': { name: '미국10년물', weight: -0.05 },
+  '^N225': { name: '닛케이', weight: +0.05 },
+  'EWY': { name: '한국ETF', weight: +0.08 },
+  'CL=F': { name: 'WTI 원유', weight: +0.03 },
 };
 // 가중치 절대값 합 = 1.05 (보정 시 자동 정규화)
 
@@ -42,10 +42,10 @@ const DEFAULT_KOSPI_BETA = 1.3;
 
 // ─── 신호 판정 테이블 ───
 const SIGNAL_TABLE = [
-  { min:  0.5, signal: 'strong_bullish', emoji: '🟢🟢', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
-  { min:  0.2, signal: 'mild_bullish',   emoji: '🟢',   label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
-  { min: -0.2, signal: 'neutral',        emoji: '⚪',   label: '중립',     guidance: '방향 불명확, 관망 또는 소량 포지션' },
-  { min: -0.5, signal: 'mild_bearish',   emoji: '🔴',   label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
+  { min: 0.5, signal: 'strong_bullish', emoji: '🟢🟢', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
+  { min: 0.2, signal: 'mild_bullish', emoji: '🟢', label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
+  { min: -0.2, signal: 'neutral', emoji: '⚪', label: '중립', guidance: '방향 불명확, 관망 또는 소량 포지션' },
+  { min: -0.5, signal: 'mild_bearish', emoji: '🔴', label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
   { min: -Infinity, signal: 'strong_bearish', emoji: '🔴🔴', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비' },
 ];
 
@@ -430,8 +430,8 @@ async function updateActualResult(date) {
     let hit = false;
     const predSignal = pred.signal;
     if ((predSignal.includes('bullish') && actualDirection === 'up') ||
-        (predSignal.includes('bearish') && actualDirection === 'down') ||
-        (predSignal === 'neutral' && actualDirection === 'flat')) {
+      (predSignal.includes('bearish') && actualDirection === 'down') ||
+      (predSignal === 'neutral' && actualDirection === 'flat')) {
       hit = true;
     }
 
@@ -541,10 +541,12 @@ async function fetchAndPredict() {
   const today = getTodayKST();
 
   // KOSPI 전일 종가 (예상 지수 산출용)
+  // yahooQuote는 range=2d 데이터를 반환: price=최신종가, previousClose=그 전날 종가
+  // 따라서 "전일 종가"는 price (가장 최근 종가)를 사용해야 함
   let previousKospi = null;
   try {
     const kd = await yahooQuote('^KS11');
-    previousKospi = kd.previousClose ? +kd.previousClose.toFixed(2) : null;
+    previousKospi = kd.price ? +kd.price.toFixed(2) : null;
   } catch (e) {
     console.warn('⚠️ KOSPI 전일 종가 조회 실패:', e.message);
   }
@@ -571,41 +573,41 @@ async function fetchAndPredict() {
           console.log(`⚠️ 오늘(${today}) 캐시 factors ${cachedFactors.length}개 ≠ 현재 ${expectedCount}개 — 재조회 시도`);
           // 팩터 구성 변경 시 캐시 무시
         } else {
-        console.log(`📊 오늘(${today}) 예측 캐시 사용: ${existing.signal} (${existing.score})`);
+          console.log(`📊 오늘(${today}) 예측 캐시 사용: ${existing.signal} (${existing.score})`);
 
-        // 신호 판정 재계산
-        const sig = SIGNAL_TABLE.find(s => existing.score >= s.min);
-        const { beta: cachedBeta } = await getKospiBeta();
-        const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
-        const expChg = calcExpectedChange(+existing.score, cachedBeta);
+          // 신호 판정 재계산
+          const sig = SIGNAL_TABLE.find(s => existing.score >= s.min);
+          const { beta: cachedBeta } = await getKospiBeta();
+          const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
+          const expChg = calcExpectedChange(+existing.score, cachedBeta);
 
-        return {
-          score: +existing.score,
-          signal: existing.signal,
-          emoji: sig.emoji,
-          label: sig.label,
-          summary: buildSummaryFromFactors(existing.factors, sig),
-          vixAlert: detectVixAlertFromFactors(existing.factors),
-          factors: existing.factors || [],
-          guidance: sig.guidance,
-          weightsSource: existing.weights ? 'calibrated_60d' : 'default',
-          previousKospi,
-          kospiBeta: cachedBeta,
-          expectedChange: expChg,
-          estimatedKospi: previousKospi ? {
-            min: Math.round(previousKospi * (1 + expChg.min / 100)),
-            max: Math.round(previousKospi * (1 + expChg.max / 100)),
-          } : null,
-          accuracy,
-          history,
-          todayResult: existing.hit != null ? {
-            kospiCloseChange: existing.kospi_close_change != null ? +existing.kospi_close_change : null,
-            kosdaqCloseChange: existing.kosdaq_close_change != null ? +existing.kosdaq_close_change : null,
-            actualDirection: existing.actual_direction,
-            hit: existing.hit,
-          } : null,
-          timestamp: existing.created_at,
-        };
+          return {
+            score: +existing.score,
+            signal: existing.signal,
+            emoji: sig.emoji,
+            label: sig.label,
+            summary: buildSummaryFromFactors(existing.factors, sig),
+            vixAlert: detectVixAlertFromFactors(existing.factors),
+            factors: existing.factors || [],
+            guidance: sig.guidance,
+            weightsSource: existing.weights ? 'calibrated_60d' : 'default',
+            previousKospi,
+            kospiBeta: cachedBeta,
+            expectedChange: expChg,
+            estimatedKospi: previousKospi ? {
+              min: Math.round(previousKospi * (1 + expChg.min / 100)),
+              max: Math.round(previousKospi * (1 + expChg.max / 100)),
+            } : null,
+            accuracy,
+            history,
+            todayResult: existing.hit != null ? {
+              kospiCloseChange: existing.kospi_close_change != null ? +existing.kospi_close_change : null,
+              kosdaqCloseChange: existing.kosdaq_close_change != null ? +existing.kosdaq_close_change : null,
+              actualDirection: existing.actual_direction,
+              hit: existing.hit,
+            } : null,
+            timestamp: existing.created_at,
+          };
         } // end else (factors not all zero)
       }
     } catch (e) {
