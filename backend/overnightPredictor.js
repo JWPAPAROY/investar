@@ -14,26 +14,31 @@
 const https = require('https');
 const supabase = require('./supabaseClient');
 
-// ─── 기본 가중치 ───
+// ─── 기본 가중치 (다중공선성 제거 후 11개) ───
+// 제거됨: ^GSPC(ES=F와 중복), ^IXIC(NQ=F와 중복),
+//         ^DJI(^GSPC와 r=0.84), DX-Y.NYB(USDKRW=X와 r=0.56),
+//         ^KS200(한국장 시간대 지수 → EWY로 대체)
 const DEFAULT_WEIGHTS = {
-  // ── 선물 (장 마감 후 최신 움직임 반영 → 높은 가중치) ──
-  'ES=F':      { name: 'S&P500 선물', weight: +0.19 },
-  'NQ=F':      { name: '나스닥 선물',  weight: +0.16 },
-  'GC=F':      { name: '금 선물',     weight: -0.04 },
-  'HG=F':      { name: '구리 선물',   weight: +0.05 },
-  // ── 현물 지수 (장 마감 시점 확정가) ──
-  '^GSPC':     { name: 'S&P 500',    weight: +0.09 },
-  '^IXIC':     { name: 'NASDAQ',     weight: +0.07 },
-  '^SOX':      { name: 'SOX 반도체',  weight: +0.07 },
-  '^VIX':      { name: 'VIX 공포',    weight: -0.07 },
-  '^DJI':      { name: '다우존스',     weight: +0.03 },
-  'USDKRW=X':  { name: '달러/원',     weight: -0.07 },
-  '^TNX':      { name: '미국10년물',   weight: -0.04 },
-  '^N225':     { name: '닛케이',      weight: +0.03 },
-  '^KS200':    { name: 'KOSPI200',   weight: +0.04 },
-  'CL=F':      { name: 'WTI 원유',    weight: +0.02 },
-  'DX-Y.NYB':  { name: '달러인덱스',   weight: -0.02 },
+  // ── 선물 (장 마감 후 최신 움직임) ──
+  'ES=F':      { name: 'S&P500 선물', weight: +0.25 },
+  'NQ=F':      { name: '나스닥 선물',  weight: +0.20 },
+  'GC=F':      { name: '금 선물',     weight: -0.05 },
+  'HG=F':      { name: '구리 선물',   weight: +0.06 },
+  // ── 현물 지수 (독립적 정보만 유지) ──
+  '^SOX':      { name: 'SOX 반도체',  weight: +0.10 },
+  '^VIX':      { name: 'VIX 공포',    weight: -0.10 },
+  'USDKRW=X':  { name: '달러/원',     weight: -0.08 },
+  '^TNX':      { name: '미국10년물',   weight: -0.05 },
+  '^N225':     { name: '닛케이',      weight: +0.05 },
+  'EWY':       { name: '한국ETF',    weight: +0.08 },
+  'CL=F':      { name: 'WTI 원유',    weight: +0.03 },
 };
+// 가중치 절대값 합 = 1.05 (보정 시 자동 정규화)
+
+// ─── KOSPI 민감도 (멀티플/베타) ───
+// KOSPI는 해외 지수 대비 더 크게 움직임 (신흥국 베타 효과)
+// 기본값 1.3, 60일 데이터 축적 후 회귀 기반 동적 보정
+const DEFAULT_KOSPI_BETA = 1.3;
 
 // ─── 신호 판정 테이블 ───
 const SIGNAL_TABLE = [
@@ -46,13 +51,14 @@ const SIGNAL_TABLE = [
 
 /**
  * 스코어 기반 예측 변동폭 계산
- * 스코어 자체를 예상 변동률 중심점으로 사용, ±0.5% 밴드
- * (고정 신호 등급별 범위 대신 스코어에 비례하는 정밀 예측)
+ * 스코어 × KOSPI 베타(멀티플)를 중심점으로 사용, ±0.5% 밴드
+ * KOSPI는 해외 지수 대비 1.3배 이상 크게 반응 (신흥국 베타 효과)
  */
-function calcExpectedChange(score) {
+function calcExpectedChange(score, beta) {
+  const b = beta || DEFAULT_KOSPI_BETA;
   const band = 0.5;
-  const center = +score.toFixed(2);
-  return { min: +(center - band).toFixed(2), max: +(center + band).toFixed(2) };
+  const center = +(score * b).toFixed(2);
+  return { min: +(center - band).toFixed(2), max: +(center + band).toFixed(2), beta: b };
 }
 
 /**
@@ -287,6 +293,60 @@ async function getActiveWeights() {
 }
 
 /**
+ * KOSPI 동적 베타(멀티플) 보정
+ * 60일 예측 히스토리에서 score → kospi_open_change OLS 회귀 기울기 계산
+ * slope = Σ((x-x̄)(y-ȳ)) / Σ((x-x̄)²)
+ * 60일 미만이면 DEFAULT_KOSPI_BETA(1.3) 사용
+ */
+async function getKospiBeta() {
+  if (!supabase) return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
+
+  try {
+    const { data, error } = await supabase
+      .from('overnight_predictions')
+      .select('score, kospi_open_change')
+      .not('kospi_open_change', 'is', null)
+      .not('score', 'is', null)
+      .order('prediction_date', { ascending: false })
+      .limit(60);
+
+    if (error || !data || data.length < 60) {
+      return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
+    }
+
+    // OLS 단순회귀: x=score, y=kospi_open_change
+    const n = data.length;
+    const sumX = data.reduce((s, d) => s + d.score, 0);
+    const sumY = data.reduce((s, d) => s + d.kospi_open_change, 0);
+    const meanX = sumX / n;
+    const meanY = sumY / n;
+
+    let ssXY = 0, ssXX = 0;
+    for (const d of data) {
+      const dx = d.score - meanX;
+      const dy = d.kospi_open_change - meanY;
+      ssXY += dx * dy;
+      ssXX += dx * dx;
+    }
+
+    if (ssXX === 0) {
+      return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
+    }
+
+    const slope = ssXY / ssXX;
+
+    // 베타는 최소 0.5, 최대 3.0으로 클램핑 (이상치 방지)
+    const clampedBeta = +Math.min(Math.max(slope, 0.5), 3.0).toFixed(2);
+
+    console.log(`📊 동적 베타 보정: slope=${slope.toFixed(3)}, clamped=${clampedBeta} (N=${n})`);
+    return { beta: clampedBeta, source: 'calibrated_60d' };
+  } catch (err) {
+    console.warn('⚠️ 베타 보정 실패, 기본값 사용:', err.message);
+    return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
+  }
+}
+
+/**
  * 2-7. 예측 결과 Supabase 저장 (upsert)
  */
 async function savePrediction(prediction, weights, weightsSource) {
@@ -515,7 +575,9 @@ async function fetchAndPredict() {
 
         // 신호 판정 재계산
         const sig = SIGNAL_TABLE.find(s => existing.score >= s.min);
+        const { beta: cachedBeta } = await getKospiBeta();
         const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
+        const expChg = calcExpectedChange(+existing.score, cachedBeta);
 
         return {
           score: +existing.score,
@@ -528,10 +590,11 @@ async function fetchAndPredict() {
           guidance: sig.guidance,
           weightsSource: existing.weights ? 'calibrated_60d' : 'default',
           previousKospi,
-          expectedChange: calcExpectedChange(+existing.score),
+          kospiBeta: cachedBeta,
+          expectedChange: expChg,
           estimatedKospi: previousKospi ? {
-            min: Math.round(previousKospi * (1 + calcExpectedChange(+existing.score).min / 100)),
-            max: Math.round(previousKospi * (1 + calcExpectedChange(+existing.score).max / 100)),
+            min: Math.round(previousKospi * (1 + expChg.min / 100)),
+            max: Math.round(previousKospi * (1 + expChg.max / 100)),
           } : null,
           accuracy,
           history,
@@ -552,6 +615,7 @@ async function fetchAndPredict() {
 
   // 새 예측 계산
   const { weights, source } = await getActiveWeights();
+  const { beta: dynamicBeta } = await getKospiBeta();
   const data = await fetchOvernightData();
   const prediction = calculatePrediction(data, weights);
 
@@ -561,15 +625,17 @@ async function fetchAndPredict() {
   // 적중률 + 히스토리 조회
   const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
 
+  const expChg = calcExpectedChange(prediction.score, dynamicBeta);
   const sig = SIGNAL_TABLE.find(s => prediction.score >= s.min);
   return {
     ...prediction,
     weightsSource: source,
     previousKospi,
-    expectedChange: calcExpectedChange(prediction.score),
+    kospiBeta: dynamicBeta,
+    expectedChange: expChg,
     estimatedKospi: previousKospi ? {
-      min: Math.round(previousKospi * (1 + calcExpectedChange(prediction.score).min / 100)),
-      max: Math.round(previousKospi * (1 + calcExpectedChange(prediction.score).max / 100)),
+      min: Math.round(previousKospi * (1 + expChg.min / 100)),
+      max: Math.round(previousKospi * (1 + expChg.max / 100)),
     } : null,
     accuracy,
     history,
@@ -611,5 +677,7 @@ module.exports = {
   fetchOvernightData,
   calculatePrediction,
   getActiveWeights,
+  getKospiBeta,
   DEFAULT_WEIGHTS,
+  DEFAULT_KOSPI_BETA,
 };

@@ -409,7 +409,7 @@
               setPrediction(result.prediction);
             }
           })
-          .catch(() => {}); // 실패 무시
+          .catch(() => { }); // 실패 무시
       }, []);
 
       // 추천 종목을 Supabase에 저장 (성과 추적용)
@@ -979,13 +979,13 @@
                   const bgClass = prediction.signal.includes('bullish')
                     ? 'from-green-50 to-emerald-50 border-green-300'
                     : prediction.signal.includes('bearish')
-                    ? 'from-red-50 to-orange-50 border-red-300'
-                    : 'from-gray-50 to-slate-50 border-gray-300';
+                      ? 'from-red-50 to-orange-50 border-red-300'
+                      : 'from-gray-50 to-slate-50 border-gray-300';
                   const textClass = prediction.signal.includes('bullish')
                     ? 'text-green-800'
                     : prediction.signal.includes('bearish')
-                    ? 'text-red-800'
-                    : 'text-gray-800';
+                      ? 'text-red-800'
+                      : 'text-gray-800';
                   const factors = prediction.factors || [];
                   const hasFactorData = factors.some(f => f.change !== 0);
                   const maxAbsContrib = Math.max(...factors.map(f => Math.abs(f.contribution)), 0.01);
@@ -1023,7 +1023,7 @@
                           <span className="text-sm ml-2 opacity-60">스코어</span>
                         </div>
                         <p className="text-xs text-center text-gray-500 mb-3">
-                          해외 15개 지수 변동률 × 가중치 합산 (🟢🟢≥+0.5 / 🟢≥+0.2 / ⚪±0.2 / 🔴≤-0.2 / 🔴🔴≤-0.5)
+                          해외 11개 지수 변동률 × 가중치 합산 × KOSPI 베타 (🟢🟢≥+0.5 / 🟢≥+0.2 / ⚪±0.2 / 🔴≤-0.2 / 🔴🔴≤-0.5)
                         </p>
 
                         {/* 예상 KOSPI 범위 */}
@@ -1077,11 +1077,10 @@
 
                       {/* 오늘의 예측 결과 */}
                       {prediction.todayResult ? (
-                        <div className={`border-2 rounded-xl p-3 md:p-4 mb-4 ${
-                          prediction.todayResult.hit
+                        <div className={`border-2 rounded-xl p-3 md:p-4 mb-4 ${prediction.todayResult.hit
                             ? 'bg-green-50 border-green-300'
                             : 'bg-red-50 border-red-300'
-                        }`}>
+                          }`}>
                           <h3 className="text-sm font-semibold text-gray-700 mb-2">📋 오늘의 예측 결과</h3>
                           <div className="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-6">
                             <div className="text-sm">
@@ -1130,7 +1129,7 @@
                             <span className="w-16 text-right">기여도</span>
                           </div>
                           {/* 모바일 테이블 헤더 */}
-                          <div className="flex md:hidden items-center text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{fontSize:'10px'}}>
+                          <div className="flex md:hidden items-center text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{ fontSize: '10px' }}>
                             <span className="w-16 flex-shrink-0 text-left">지수</span>
                             <span className="w-14 text-right flex-shrink-0">변동률</span>
                             <span className="w-9 text-right flex-shrink-0">가중치</span>
@@ -1144,7 +1143,7 @@
                               const changeSign = f.change >= 0 ? '+' : '';
                               const weightPct = (Math.abs(f.weight) * 100).toFixed(0);
                               const weightSign = f.weight >= 0 ? '+' : '-';
-                              const priceStr = f.price ? (f.price >= 1000 ? f.price.toLocaleString(undefined, {maximumFractionDigits: 0}) : f.price.toFixed(2)) : '-';
+                              const priceStr = f.price ? (f.price >= 1000 ? f.price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : f.price.toFixed(2)) : '-';
                               return (
                                 <div key={i}>
                                   {/* 데스크탑 */}
@@ -1160,7 +1159,7 @@
                                     <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
                                       <div
                                         className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
-                                        style={{width: barWidth + '%'}}
+                                        style={{ width: barWidth + '%' }}
                                       />
                                     </div>
                                     <span className={`w-16 text-right font-mono text-xs font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
@@ -1168,21 +1167,21 @@
                                     </span>
                                   </div>
                                   {/* 모바일 — 가로 배치, overflow 방지 */}
-                                  <div className="flex md:hidden items-center gap-1 text-xs" style={{minWidth: 0}}>
-                                    <span className="w-16 flex-shrink-0 text-gray-700 font-medium truncate" style={{fontSize:'11px'}}>{f.name}</span>
-                                    <span className={`w-14 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`} style={{fontSize:'11px'}}>
+                                  <div className="flex md:hidden items-center gap-1 text-xs" style={{ minWidth: 0 }}>
+                                    <span className="w-16 flex-shrink-0 text-gray-700 font-medium truncate" style={{ fontSize: '11px' }}>{f.name}</span>
+                                    <span className={`w-14 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`} style={{ fontSize: '11px' }}>
                                       {changeSign}{f.change}%
                                     </span>
-                                    <span className="w-9 text-right font-mono text-gray-400 flex-shrink-0" style={{fontSize:'10px'}}>
+                                    <span className="w-9 text-right font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '10px' }}>
                                       {weightSign}{weightPct}%
                                     </span>
-                                    <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden" style={{minWidth:'20px'}}>
+                                    <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: '20px' }}>
                                       <div
                                         className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
-                                        style={{width: barWidth + '%'}}
+                                        style={{ width: barWidth + '%' }}
                                       />
                                     </div>
-                                    <span className={`w-12 text-right font-mono font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`} style={{fontSize:'10px'}}>
+                                    <span className={`w-12 text-right font-mono font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`} style={{ fontSize: '10px' }}>
                                       {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                     </span>
                                   </div>
@@ -1195,8 +1194,9 @@
                             <p className="font-semibold mb-1">📐 예측 스코어 계산법</p>
                             <p className="mb-1"><b>기여도</b> = 변동률 × 가중치. 각 지수가 오늘 예측 스코어에 얼마나 기여했는지를 나타냅니다.</p>
                             <p className="mb-1"><b>스코어</b> = 모든 기여도의 합산 = <b>{prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(3)}</b></p>
+                            <p className="mb-1"><b>예측 변동</b> = 스코어 × KOSPI 베타(β={prediction.expectedChange?.beta || '1.30'}) ± 0.5%</p>
                             <p className="text-blue-600"><b>가중치 +%</b>: 해당 지수 상승 → KOSPI↑ (동행) | <b>가중치 -%</b>: 해당 지수 상승 → KOSPI↓ (역행)</p>
-                            <p className="text-blue-500 mt-1" style={{fontSize:'10px'}}>가중치 절대값 합 = 100%. 60일 이상 데이터 축적 시 KOSPI와의 상관계수 기반으로 매일 자동 보정됩니다.</p>
+                            <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>가중치·베타 모두 60일 이상 데이터 축적 시 KOSPI와의 회귀분석 기반으로 매일 자동 보정됩니다.</p>
                           </div>
                         </div>
                       )}
@@ -1347,7 +1347,7 @@
                       <span className="text-green-600">승률 {er.winRate.toFixed(0)}%</span>
                     </div>
                     <div className="w-20 bg-gray-200 rounded-full h-2">
-                      <div className="bg-green-500 h-2 rounded-full" style={{width: `${Math.min(100, er.winRate)}%`}}></div>
+                      <div className="bg-green-500 h-2 rounded-full" style={{ width: `${Math.min(100, er.winRate)}%` }}></div>
                     </div>
                   </div>
                 </div>
@@ -1863,7 +1863,7 @@
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-semibold text-green-600">승률 {er.winRate.toFixed(0)}%</span>
                         <div className="w-24 bg-gray-200 rounded-full h-3">
-                          <div className="bg-green-500 h-3 rounded-full" style={{width: `${Math.min(100, er.winRate)}%`}}></div>
+                          <div className="bg-green-500 h-3 rounded-full" style={{ width: `${Math.min(100, er.winRate)}%` }}></div>
                         </div>
                       </div>
                     </div>
@@ -2720,25 +2720,25 @@
                       .map((stock, index) => {
                         const recDate = stock.recommendation_date ? new Date(stock.recommendation_date) : null;
                         const today = new Date();
-                        const recLabel = recDate ? `${recDate.getMonth()+1}/${recDate.getDate()}` : '-';
-                        const todayLabel = `${today.getMonth()+1}/${today.getDate()}`;
+                        const recLabel = recDate ? `${recDate.getMonth() + 1}/${recDate.getDate()}` : '-';
+                        const todayLabel = `${today.getMonth() + 1}/${today.getDate()}`;
                         return (
-                        <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded gap-2">
-                          <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
-                            <span className="font-bold text-orange-600 text-sm">#{index + 1}</span>
-                            <span className="font-semibold text-sm truncate">{stock.stock_name}</span>
-                            <span className="text-[10px] md:text-xs text-gray-400">{stock.stock_code}</span>
-                            {stock.is_rising && <span className="text-[10px] md:text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">🔥</span>}
+                          <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded gap-2">
+                            <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
+                              <span className="font-bold text-orange-600 text-sm">#{index + 1}</span>
+                              <span className="font-semibold text-sm truncate">{stock.stock_name}</span>
+                              <span className="text-[10px] md:text-xs text-gray-400">{stock.stock_code}</span>
+                              {stock.is_rising && <span className="text-[10px] md:text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">🔥</span>}
+                            </div>
+                            <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
+                              <span className="text-[10px] md:text-xs text-gray-400">
+                                {recLabel}→{todayLabel}
+                              </span>
+                              <span className={`font-bold text-sm ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
+                                {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
+                              </span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
-                            <span className="text-[10px] md:text-xs text-gray-400">
-                              {recLabel}→{todayLabel}
-                            </span>
-                            <span className={`font-bold text-sm ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
-                              {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
-                            </span>
-                          </div>
-                        </div>
                         );
                       })}
                   </div>
@@ -2834,23 +2834,23 @@
                     .map((stock, index) => {
                       const recDate = stock.recommendation_date ? new Date(stock.recommendation_date) : null;
                       const today = new Date();
-                      const recLabel = recDate ? `${recDate.getMonth()+1}/${recDate.getDate()}` : '-';
-                      const todayLabel = `${today.getMonth()+1}/${today.getDate()}`;
+                      const recLabel = recDate ? `${recDate.getMonth() + 1}/${recDate.getDate()}` : '-';
+                      const todayLabel = `${today.getMonth() + 1}/${today.getDate()}`;
                       return (
-                      <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between bg-white rounded-lg px-2 md:px-4 py-2 shadow-sm gap-2">
-                        <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
-                          <span className="text-[10px] md:text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 md:px-2 md:py-1 rounded font-bold">{stock.defense_grade || 'D-D'}</span>
-                          <span className="font-semibold text-gray-800 text-sm md:text-base truncate">{stock.stock_name}</span>
+                        <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between bg-white rounded-lg px-2 md:px-4 py-2 shadow-sm gap-2">
+                          <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
+                            <span className="text-[10px] md:text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 md:px-2 md:py-1 rounded font-bold">{stock.defense_grade || 'D-D'}</span>
+                            <span className="font-semibold text-gray-800 text-sm md:text-base truncate">{stock.stock_name}</span>
+                          </div>
+                          <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
+                            <span className="text-[10px] md:text-xs text-gray-400">
+                              {recLabel}→{todayLabel}
+                            </span>
+                            <span className={`font-bold text-sm md:text-base ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
+                              {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
-                          <span className="text-[10px] md:text-xs text-gray-400">
-                            {recLabel}→{todayLabel}
-                          </span>
-                          <span className={`font-bold text-sm md:text-base ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
-                            {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
-                          </span>
-                        </div>
-                      </div>
                       );
                     })}
                 </div>
@@ -3009,7 +3009,7 @@
               <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 text-xs md:text-sm">
                 <div className="bg-white p-3 rounded border-l-4 border-red-600">
                   <div className="font-bold text-red-700 mb-1">⚠️과열</div>
-                  <div className="text-gray-700">과열 경고 (RSI > 80 AND 이격도 > 115)</div>
+                  <div className="text-gray-700">과열 경고 (RSI &gt; 80 AND 이격도 &gt; 115)</div>
                   <div className="text-xs text-gray-500 mt-1">단기 조정 가능성 높음</div>
                 </div>
                 <div className="bg-white p-3 rounded border-l-4 border-red-500">
@@ -4168,11 +4168,10 @@
                   { key: 'defense', label: '🛡️ 방어', desc: '하락 방어' },
                 ].map(s => (
                   <button key={s.key} onClick={() => setStrategyFilter(s.key)}
-                    className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${
-                      strategyFilter === s.key
+                    className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${strategyFilter === s.key
                         ? s.key === 'momentum' ? 'bg-red-500 text-white' : 'bg-blue-500 text-white'
                         : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                    }`} title={s.desc}>
+                      }`} title={s.desc}>
                     {s.label}
                   </button>
                 ))}
@@ -4183,14 +4182,14 @@
                     ? (b.defenseScore || 0) - (a.defenseScore || 0)
                     : b.totalScore - a.totalScore)
                   .map((stock, index) => (
-                  <RecommendationCard
-                    key={stock.stockCode}
-                    stock={stock}
-                    rank={index + 1}
-                    onClick={() => setSelectedStock(stock)}
-                    strategyFilter={strategyFilter}
-                  />
-                ))}
+                    <RecommendationCard
+                      key={stock.stockCode}
+                      stock={stock}
+                      rank={index + 1}
+                      onClick={() => setSelectedStock(stock)}
+                      strategyFilter={strategyFilter}
+                    />
+                  ))}
               </div>
             </>
           )}

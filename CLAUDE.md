@@ -538,35 +538,34 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 ## 🌏 해외 지수 기반 시장 방향 예측 (Overnight Predictor)
 
-**v3.47에서 추가, v3.48에서 대폭 개선.** 전날 미국장 마감 데이터 + 선물 데이터를 기반으로 가중 스코어를 계산하여 한국 시장 당일 방향을 예측한다.
+**v3.47에서 추가, v3.49에서 다중공선성 제거·베타 적용.** 전날 미국장 마감 데이터 + 선물 데이터를 기반으로 가중 스코어를 계산하여 한국 시장 당일 방향을 예측한다.
 
 ### 모듈: `backend/overnightPredictor.js`
 
 **데이터 소스**: Yahoo Finance chart API v8 직접 호출 (API 키 불필요, Vercel 서버리스 호환)
 
-### 가중치 (DEFAULT_WEIGHTS) — 14개 팩터
+### 가중치 (DEFAULT_WEIGHTS) — 11개 팩터
 
-선물이 장 마감 후 최신 움직임을 반영하므로 현물보다 높은 가중치 부여. 가중치 절대값 합 = 1.00 (100%).
+다중공선성 제거 후 독립적 정보만 유지. 선물이 장 마감 후 최신 움직임을 반영하므로 높은 가중치 부여.
 
 | 구분 | 티커 | 이름 | 가중치 | 비고 |
 |------|------|------|--------|------|
-| 선물 | ES=F | S&P500 선물 | +0.18 | 최대 영향력 (장후 최신) |
-| 선물 | NQ=F | 나스닥 선물 | +0.15 | 기술주 선행 |
-| 선물 | HG=F | 구리 선물 | +0.04 | 경기 선행지표 |
-| 선물 | GC=F | 금 선물 | -0.04 | 안전자산 역상관 |
-| 현물 | ^GSPC | S&P 500 | +0.10 | |
-| 현물 | ^IXIC | NASDAQ | +0.08 | |
-| 현물 | ^SOX | SOX 반도체 | +0.08 | 삼성/하이닉스 연동 |
-| 현물 | ^VIX | VIX 공포 | -0.08 | 역상관 |
+| 선물 | ES=F | S&P500 선물 | +0.25 | 최대 영향력 (장후 최신) |
+| 선물 | NQ=F | 나스닥 선물 | +0.20 | 기술주 선행 |
+| 선물 | HG=F | 구리 선물 | +0.06 | 경기 선행지표 |
+| 선물 | GC=F | 금 선물 | -0.05 | 안전자산 역상관 |
+| 현물 | ^SOX | SOX 반도체 | +0.10 | 삼성/하이닉스 연동 |
+| 현물 | ^VIX | VIX 공포 | -0.10 | 역상관 |
 | 현물 | USDKRW=X | 달러/원 | -0.08 | 원화 약세 = 하락 |
 | 현물 | ^TNX | 미국10년물 | -0.05 | 금리 상승 = 하락 |
-| 현물 | ^N225 | 닛케이 | +0.04 | 아시아 연동 |
-| 현물 | ^DJI | 다우존스 | +0.03 | |
-| 현물 | CL=F | WTI 원유 | +0.02 | |
-| 현물 | DX-Y.NYB | 달러인덱스 | -0.02 | |
+| 현물 | ^N225 | 닛케이 | +0.05 | 아시아 연동 |
+| 현물 | EWY | 한국ETF | +0.08 | KOSPI 야간 프록시 |
+| 현물 | CL=F | WTI 원유 | +0.03 | 독립적 |
+
+**제거됨** (다중공선성): ^GSPC(ES=F r=0.96), ^IXIC(NQ=F r=0.99), ^DJI(^GSPC r=0.84), DX-Y.NYB(USDKRW=X r=0.56), ^KS200(EWY로 대체)
 
 **양의 가중치(+)**: 해당 지수 상승 → KOSPI↑ (동행)
-**음의 가중치(-)**: 해당 지수 상승 → KOSPI↓ (역행). 예: VIX -8%는 VIX가 오르면 KOSPI가 내린다는 의미
+**음의 가중치(-)**: 해당 지수 상승 → KOSPI↓ (역행). 예: VIX -10%는 VIX가 오르면 KOSPI가 내린다는 의미
 
 ### 스코어 계산
 
@@ -587,18 +586,22 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 ### 예측 KOSPI 범위
 
-스코어 자체를 예상 변동률 중심점으로 사용, ±0.5% 밴드:
+KOSPI 베타(멀티플)를 적용하여 예측 변동폭 산출:
 ```
-expectedChange = { min: score - 0.5, max: score + 0.5 }
+center = score × kospiBeta
+expectedChange = { min: center - 0.5, max: center + 0.5 }
 estimatedKospi = previousKospi × (1 + expectedChange / 100)
 ```
-예: score -2.01, previousKospi 6244 → 예상 범위 6088~6150 (-2.51%~-1.51%)
+- `DEFAULT_KOSPI_BETA = 1.3` (KOSPI는 해외 합산 스코어 대비 1.3배 크게 반응)
+- 60일 데이터 축적 후 `getKospiBeta()`로 OLS 회귀 기울기 기반 동적 보정 (0.5~3.0 클램핑)
 
-### 가중치 자동 보정
+### 가중치·베타 자동 보정
 
-- 60일 미만 데이터: `DEFAULT_WEIGHTS` 사용
-- 60일 이상: **매 호출 시** 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 실시간 계산 → 부호 보존, 절대값을 상관계수에 비례 → 합계 1.0 정규화
-- 팩터 수 변경 시 (예: 10→14개) 캐시 자동 무효화
+- 60일 미만 데이터: `DEFAULT_WEIGHTS`, `DEFAULT_KOSPI_BETA` 사용
+- 60일 이상: **매 호출 시**
+  - **가중치**: 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 → 부호 보존, 절대값 비례 → 합계 1.0 정규화
+  - **베타**: score→KOSPI 개장 변동률 OLS 회귀 기울기 → 0.5~3.0 클램핑
+- 팩터 수 변경 시 캐시 자동 무효화
 
 ### 적중률 추적
 
@@ -623,8 +626,8 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 
 ```
 08:00 KST (alert 모드):
-  fetchAndPredict() → Yahoo Finance chart API × 14개
-  → 가중 스코어 계산 → Supabase 저장 → 텔레그램 전송
+  fetchAndPredict() → Yahoo Finance chart API × 11개
+  → 가중 스코어 계산 × KOSPI 베타 → Supabase 저장 → 텔레그램 전송
 
 16:10 KST (save 모드):
   updateActualResult() → KOSPI/KOSDAQ 실제 변동률 기록 → hit 판정
@@ -642,7 +645,7 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 GET /api/screening/recommend?market=ALL&limit=10   # 종합집계 (모멘텀+방어 통합 + prediction)
 GET /api/screening/analyze?codes=005930,000660      # 종목 분석 (최대 15개, 단일 프로세스 순차 처리)
 ```
-`recommend` 응답에 `prediction` 필드 포함 (해외 시장 기반 전망 + 히스토리 차트 데이터)
+`recommend` 응답에 `prediction` 필드 포함 (해외 시장 기반 전망 + 히스토리 차트 데이터 + kospiBeta)
 
 ### 성과 추적
 ```
@@ -819,6 +822,14 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.49 (2026-03-05)
+- **다중공선성 제거 (15→11개 팩터)**: ^GSPC(ES=F와 r=0.96), ^IXIC(NQ=F와 r=0.99), ^DJI(^GSPC와 r=0.84), DX-Y.NYB(USDKRW=X와 r=0.56), ^KS200(한국장 시간대 지수) 제거
+- **EWY(한국ETF) 추가**: ^KS200 대신 미국장에서 거래되는 iShares MSCI South Korea ETF — 야간 KOSPI 프록시 역할
+- **KOSPI 베타(멀티플) 적용**: `DEFAULT_KOSPI_BETA = 1.3` — KOSPI는 해외 합산 스코어 대비 1.3배 크게 반응 (신흥국 베타 효과)
+- **동적 베타 보정 구현**: `getKospiBeta()` — 60일 예측 히스토리에서 score→KOSPI 개장 변동률 OLS 회귀 기울기 계산, 0.5~3.0 클램핑
+- **예측 변동폭 공식 변경**: `center = score` → `center = score × beta` (±0.5% 밴드 유지)
+- **프론트엔드 동기화**: "15개 지수"→"11개 지수", 계산법 안내에 베타 설명·동적 값 표시 추가
 
 ### v3.48 (2026-03-04)
 - **선물 지수 4개 추가**: ES=F(S&P500 선물), NQ=F(나스닥 선물), GC=F(금 선물), HG=F(구리 선물) — 총 14개 팩터
