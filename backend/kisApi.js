@@ -1,6 +1,14 @@
 const axios = require('axios');
 require('dotenv').config();
 
+// Supabase 기반 토큰 캐싱 (Vercel 환경 등에서 토큰 재사용을 위함)
+let supabase = null;
+try {
+  supabase = require('./supabaseClient');
+} catch (e) {
+  console.warn('⚠️ Supabase 클라이언트를 불러올 수 없어 토큰 캐싱을 비활성화합니다.');
+}
+
 /**
  * Token Bucket Rate Limiter
  * KIS API 20 calls/sec 제한 준수 (안전 마진 10% → 18 calls/sec)
@@ -47,38 +55,87 @@ class KISApi {
     this.tokenExpiry = null;
     this.cachedAppKey = null; // 토큰 발급 시 사용한 APP_KEY 저장
     this.rateLimiter = new RateLimiter(18); // 전역 Rate Limiter
+    this.TOKEN_CACHE_DATE = '9999-12-31'; // 토큰 캐시용 특수 날짜
   }
 
   /**
-   * Access Token 발급
+   * Access Token 발급 및 캐싱
    */
   async getAccessToken() {
-    // 환경변수가 변경되었으면 토큰 무효화 (Vercel 환경변수 업데이트 대응)
+    // 환경변수가 변경되었으면 토큰 무효화
     if (this.cachedAppKey && this.cachedAppKey !== this.appKey) {
-      console.log('⚠️  환경변수 변경 감지 - Access Token 무효화');
       this.accessToken = null;
       this.tokenExpiry = null;
       this.cachedAppKey = null;
     }
 
-    // 토큰이 유효하면 재사용
+    // 1. 메모리에 유효한 토큰이 있으면 즉시 반환
     if (this.accessToken && this.tokenExpiry && Date.now() < this.tokenExpiry) {
       return this.accessToken;
     }
 
+    // 2. Supabase 캐시에서 토큰 조회 시도 (Vercel Cold Start 대응)
+    if (supabase) {
+      try {
+        const { data: cacheRow } = await supabase
+          .from('overnight_predictions')
+          .select('factors, created_at')
+          .eq('prediction_date', this.TOKEN_CACHE_DATE)
+          .single();
+
+        if (cacheRow && cacheRow.factors && cacheRow.factors.token) {
+          const { token, expiry } = cacheRow.factors;
+          // 여유 시간 5분 남기고 유효한지 확인
+          if (expiry && Date.now() < (expiry - 5 * 60 * 1000)) {
+            this.accessToken = token;
+            this.tokenExpiry = expiry;
+            this.cachedAppKey = this.appKey;
+            console.log('🔄 Supabase 캐시에서 KIS Access Token 로드 성공');
+            return this.accessToken;
+          }
+        }
+      } catch (e) {
+        // 캐시 조회 실패는 무시하고 새로 발급
+      }
+    }
+
+    // 3. 새로 발급 (메모리/DB 캐시 모두 없을 때만)
     try {
+      console.log('🌐 KIS API 새로운 Access Token 발급 요청 중...');
       const response = await axios.post(`${this.baseUrl}/oauth2/tokenP`, {
         grant_type: 'client_credentials',
         appkey: this.appKey,
         appsecret: this.appSecret
       });
 
-      this.accessToken = response.data.access_token;
-      // 토큰 유효기간 (1시간) - Vercel 환경에서 빠른 갱신을 위해 짧게 설정
-      this.tokenExpiry = Date.now() + (60 * 60 * 1000);
-      this.cachedAppKey = this.appKey; // 현재 APP_KEY 저장
+      const token = response.data.access_token;
+      // 토큰 유효기간 (기본 24시간이지만 안정성을 위해 12시간으로 설정)
+      const expiresInSeconds = response.data.expires_in || 86400;
+      const expiry = Date.now() + (expiresInSeconds * 1000);
+
+      this.accessToken = token;
+      this.tokenExpiry = expiry;
+      this.cachedAppKey = this.appKey;
 
       console.log('✅ Access Token 발급 성공 (App Key:', this.appKey.substring(0, 10) + '...)');
+
+      // 4. Supabase에 토큰 캐싱 저장
+      if (supabase) {
+        try {
+          await supabase
+            .from('overnight_predictions')
+            .upsert({
+              prediction_date: this.TOKEN_CACHE_DATE,
+              factors: { token, expiry },
+              score: 0,
+              signal: 'TOKEN_CACHE'
+            }, { onConflict: 'prediction_date' });
+          console.log('💾 Supabase에 KIS Access Token 캐싱 완료');
+        } catch (e) {
+          console.warn('⚠️ Supabase 토큰 캐싱 실패:', e.message);
+        }
+      }
+
       return this.accessToken;
     } catch (error) {
       console.error('❌ Access Token 발급 실패:', error.response?.data || error.message);
