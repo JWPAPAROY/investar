@@ -1110,7 +1110,7 @@ class KISApi {
         return null;
       }
 
-      // 현재가/전일종가/변동률 파싱
+      // 현재가/전일종가/변동률 파싱 (output1 에는 futs_ 접두어가 붙어있음)
       const price = parseFloat(output.futs_prpr || output.stck_prpr || 0);
       const previousClose = parseFloat(output.futs_sdpr || output.stck_sdpr || 0);
       const changeRate = parseFloat(output.futs_prdy_ctrt || output.prdy_ctrt || 0);
