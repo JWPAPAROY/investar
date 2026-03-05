@@ -460,6 +460,7 @@ async function savePrediction(prediction, weights, weightsSource) {
         signal: prediction.signal,
         factors: prediction.factors,
         weights: weights,
+        ai_interpretation: prediction.aiInterpretation, // AI 해석 저장
       }, {
         onConflict: 'prediction_date',
       });
@@ -709,7 +710,20 @@ async function fetchAndPredict(bypassCache = false) {
           const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
           const expChg = calcExpectedChange(+existing.score, cachedBeta, cachedSigma);
 
-          let aiInterpretation = existing.factors ? await generateAiInterpretation(existing.factors, sig, existing.score) : "캐시된 데이터가 부족하여 AI 해석을 생성할 수 없습니다.";
+          let aiInterpretation = existing.ai_interpretation;
+          if (!aiInterpretation && existing.factors) {
+            aiInterpretation = await generateAiInterpretation(existing.factors, sig, existing.score);
+            // 캐시된 행에 AI 해석이 없으면 업데이트
+            if (aiInterpretation && !aiInterpretation.includes('오류')) {
+              await supabase
+                .from('overnight_predictions')
+                .update({ ai_interpretation: aiInterpretation })
+                .eq('prediction_date', today);
+              console.log('💾 캐시된 행에 AI 해석 업데이트 완료');
+            }
+          } else if (!existing.factors) {
+            aiInterpretation = "캐시된 데이터가 부족하여 AI 해석을 생성할 수 없습니다.";
+          }
 
           return {
             score: +existing.score,
@@ -813,17 +827,21 @@ function detectVixAlertFromFactors(factors) {
  * 원인 파악, 노이즈 필터링, 장중 지속력 3가지 관점 기준
  */
 async function generateAiInterpretation(factors, sig, score) {
-  try {
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return "AI 해석을 생성할 수 없습니다. (API 키 누락)";
+  const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2-flash", "gemini-1.5-flash"];
+  let lastError = null;
 
-    const genAI = new GoogleGenerativeAI(apiKey);
-    // 404 에러 방지를 위해 가장 안정적인 gemini-pro 모델 사용 시도
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  for (const modelName of models) {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey) return "AI 해석을 생성할 수 없습니다. (API 키 누락)";
 
-    const factorsStr = factors.map(f => `${f.name}: ${f.change > 0 ? '+' : ''}${f.change}%`).join(', ');
+      const genAI = new GoogleGenerativeAI(apiKey);
+      console.log(`🤖 AI 해석 생성 시도 중 (모델: ${modelName})...`);
+      const model = genAI.getGenerativeModel({ model: modelName });
 
-    const prompt = `
+      const factorsStr = factors.map(f => `${f.name}: ${f.change > 0 ? '+' : ''}${f.change}%`).join(', ');
+
+      const prompt = `
 당신은 한국 주식 시황을 예측하는 최고 수준의 증권사 퀀트 애널리스트입니다. 
 다음 11개 지표의 밤사이 변동률과 시스템이 산출한 예측 스코어를 기반으로, 다가오는 오늘 한국 코스피 시장의 예상 흐름을 300자 내외로 매우 직관적이고 날카롭게 브리핑해주세요.
 
@@ -839,16 +857,21 @@ async function generateAiInterpretation(factors, sig, score) {
 가벼운 경어체(해요/합니다)를 사용하고, 각 번호(1, 2, 3)를 매기지 말고 자연스러운 브리핑 텍스트 형태로 출력하세요. 군더더기 인사말은 생략하세요.
 `;
 
-    const result = await model.generateContent(prompt);
-    // SDK 최신 버전 호환성을 위해 결과 추출 방식 보강
-    const response = await result.response;
-    const text = response.text();
-    if (!text) throw new Error('Empty AI response');
-    return text.trim();
-  } catch (error) {
-    console.error('⚠️ AI 해석 생성 실패:', error);
-    return `AI 브리핑 생성 중 오류가 발생했습니다. (${error.message})`;
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const text = response.text();
+      if (!text) throw new Error('Empty AI response');
+
+      console.log(`✅ AI 해석 생성 성공 (모델: ${modelName})`);
+      return text.trim();
+    } catch (error) {
+      console.warn(`⚠️ AI 생성 실패 (${modelName}):`, error.message);
+      lastError = error;
+      // 다음 모델로 계속 진행
+    }
   }
+
+  return `AI 브리핑 생성 중 오류가 발생했습니다. (마지막 오류: ${lastError?.message})`;
 }
 
 module.exports = {
