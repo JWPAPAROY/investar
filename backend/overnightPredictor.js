@@ -62,9 +62,21 @@ const SIGNAL_TABLE = [
  */
 function calcExpectedChange(score, beta, sigma) {
   const b = beta || DEFAULT_KOSPI_BETA;
-  const band = sigma || 1.5; // 기본값 1.5% (고정 0.5% 대비 3배 확대)
+  const band = sigma || 1.5;
   const center = +(score * b).toFixed(2);
-  return { min: +(center - band).toFixed(2), max: +(center + band).toFixed(2), beta: b, sigma: +band.toFixed(2) };
+
+  // v1.2: 스코어가 매우 클 경우(절대값 1.5 초과) 변동성 밴드를 확장하여 이례적 상황 반영
+  let dynamicBand = band;
+  if (Math.abs(score) > 1.5) {
+    dynamicBand = Math.max(band, Math.abs(score) * 0.8);
+  }
+
+  return {
+    min: +(center - dynamicBand).toFixed(2),
+    max: +(center + dynamicBand).toFixed(2),
+    beta: b,
+    sigma: +dynamicBand.toFixed(2)
+  };
 }
 
 /**
@@ -799,7 +811,7 @@ async function generateAiInterpretation(factors, sig, score) {
     if (!apiKey) return "AI 해석을 생성할 수 없습니다. (API 키 누락)";
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const factorsStr = factors.map(f => `${f.name}: ${f.change > 0 ? '+' : ''}${f.change}%`).join(', ');
 
