@@ -597,8 +597,11 @@ async function getRecentHistory(previousKospi) {
 
     if (error || !data) return [];
 
+    // TOKEN_CACHE 행(KIS 토큰 캐시용 9999-12-31) 및 비정상 데이터 필터링
+    const filtered = data.filter(d => d.signal !== 'TOKEN_CACHE' && d.prediction_date < '9999');
+
     // 차트용 오름차순으로 뒤집기
-    const rows = data.reverse();
+    const rows = filtered.reverse();
 
     // KOSPI 절대 지수 역산: 최신 날 종가 = previousKospi, 역방향으로 변동률 적용
     // null인 날은 건너뛰고 다음 유효한 날부터 이어서 역산
@@ -713,8 +716,8 @@ async function fetchAndPredict(bypassCache = false) {
           let aiInterpretation = existing.ai_interpretation;
           if (!aiInterpretation && existing.factors) {
             aiInterpretation = await generateAiInterpretation(existing.factors, sig, existing.score);
-            // 캐시된 행에 AI 해석이 없으면 업데이트
-            if (aiInterpretation && !aiInterpretation.includes('오류')) {
+            // 캐시된 행에 AI 해석이 없으면 업데이트 (에러 메시지가 아닌 경우만)
+            if (aiInterpretation && !aiInterpretation.includes('실패') && !aiInterpretation.includes('오류')) {
               await supabase
                 .from('overnight_predictions')
                 .update({ ai_interpretation: aiInterpretation })
@@ -827,21 +830,17 @@ function detectVixAlertFromFactors(factors) {
  * 원인 파악, 노이즈 필터링, 장중 지속력 3가지 관점 기준
  */
 async function generateAiInterpretation(factors, sig, score) {
-  const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2-flash", "gemini-pro", "gemini-1.5-flash"];
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return "AI 해석을 생성할 수 없습니다. (API 키 누락)";
+
+  // v1.5: 인스턴스를 루프 밖에서 1회만 생성 (성능 최적화)
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const models = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash"];
   let accumulatedErrors = [];
 
-  for (const modelName of models) {
-    try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) return "AI 해석을 생성할 수 없습니다. (API 키 누락)";
-
-      const genAI = new GoogleGenerativeAI(apiKey);
-      console.log(`🤖 AI 해석 생성 시도 중 (모델: ${modelName})...`);
-      const model = genAI.getGenerativeModel({ model: modelName });
-
-      const factorsStr = factors.map(f => `${f.name}: ${f.change > 0 ? '+' : ''}${f.change}%`).join(', ');
-
-      const prompt = `
+  // 프롬프트는 모든 모델에서 동일하므로 루프 밖에서 1회만 생성
+  const factorsStr = factors.map(f => `${f.name}: ${f.change > 0 ? '+' : ''}${f.change}%`).join(', ');
+  const prompt = `
 당신은 한국 주식 시황을 예측하는 최고 수준의 증권사 퀀트 애널리스트입니다. 
 다음 11개 지표의 밤사이 변동률과 시스템이 산출한 예측 스코어를 기반으로, 다가오는 오늘 한국 코스피 시장의 예상 흐름을 300자 내외로 매우 직관적이고 날카롭게 브리핑해주세요.
 
@@ -857,6 +856,11 @@ async function generateAiInterpretation(factors, sig, score) {
 가벼운 경어체(해요/합니다)를 사용하고, 각 번호(1, 2, 3)를 매기지 말고 자연스러운 브리핑 텍스트 형태로 출력하세요. 군더더기 인사말은 생략하세요.
 `;
 
+  for (const modelName of models) {
+    try {
+      console.log(`🤖 AI 해석 생성 시도 중 (모델: ${modelName})...`);
+      const model = genAI.getGenerativeModel({ model: modelName });
+
       const result = await model.generateContent(prompt);
       const hostResponse = await result.response;
       const text = hostResponse.text();
@@ -866,8 +870,13 @@ async function generateAiInterpretation(factors, sig, score) {
       return text.trim();
     } catch (error) {
       console.warn(`⚠️ AI 생성 실패 (${modelName}):`, error.message);
-      accumulatedErrors.push(`${modelName}: ${error.message}`);
-      // 다음 모델로 계속 진행
+      accumulatedErrors.push(`${modelName}: ${error.status || ''} ${error.message.substring(0, 80)}`);
+
+      // 429 (Too Many Requests) → 12초 대기 후 다음 모델 시도
+      if (error.status === 429) {
+        console.log('⏳ 429 감지, 12초 대기 후 다음 모델 시도...');
+        await new Promise(r => setTimeout(r, 12000));
+      }
     }
   }
 
