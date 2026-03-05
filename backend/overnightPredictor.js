@@ -818,8 +818,8 @@ async function generateAiInterpretation(factors, sig, score) {
     if (!apiKey) return "AI 해석을 생성할 수 없습니다. (API 키 누락)";
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    // 404 에러 방지를 위해 가장 범용적인 모델명 사용 시도
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+    // 404 에러 방지를 위해 가장 안정적인 gemini-pro 모델 사용 시도
+    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
 
     const factorsStr = factors.map(f => `${f.name}: ${f.change > 0 ? '+' : ''}${f.change}%`).join(', ');
 
