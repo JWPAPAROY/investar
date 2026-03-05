@@ -55,19 +55,16 @@ function calculateMarketSentiment(chartData) {
   else if (rsi >= 70) rsiScore = 2;
   else if (rsi >= 60) rsiScore = 1;
 
-  // 3. 추세 위치 (가용 일수 기준 이동평균)
-  let trendScore = 0;
-  if (chartData.length >= 25) {
-    const availableDays = Math.min(closes.length, 30);
-    const maApprox = closes.slice(0, availableDays).reduce((a, b) => a + b, 0) / availableDays;
-    const trendPosition = ((current - maApprox) / maApprox) * 100;
-    if (trendPosition <= -10) trendScore = -2;
-    else if (trendPosition <= -3) trendScore = -1;
-    else if (trendPosition >= 10) trendScore = 2;
-    else if (trendPosition >= 3) trendScore = 1;
+  // 4. 급락 부스터 (v3.34.3)
+  // 최근 3일 누적 하락률이 -5% 이상이면 추가 패널티 (후행성 극복)
+  let rapidDropScore = 0;
+  if (closes.length >= 3) {
+    const drop3Days = ((closes[0] - closes[2]) / closes[2]) * 100;
+    if (drop3Days <= -5) rapidDropScore = -2;
+    else if (drop3Days <= -3) rapidDropScore = -1;
   }
 
-  const totalScore = disparityScore + rsiScore + trendScore; // -6 ~ +6
+  const totalScore = disparityScore + rsiScore + trendScore + rapidDropScore;
 
   // 등급 판정
   let grade, emoji, label;
@@ -633,7 +630,7 @@ function formatDefenseTop3Section(defenseTop3, mode = 'save', expectations = [])
  * v3.27: SAVE 메시지 (오후 16:10)
  * 🌆 오늘의 결산 (오전 추천 성과 + 내일 TOP 3)
  */
-function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = [], expectations = []) {
+function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = [], expectations = [], prediction = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n`;
@@ -725,9 +722,11 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
     });
   }
 
-  // v3.34: 방어 TOP 3 (시장 공포 시에만)
-  if (defenseTop3 && defenseTop3.length > 0 && isMarketDefensive(options.sentiment)) {
+  // v3.34: 방어 TOP 3 (시장 공포 시 또는 해외 예측 강한 하락 시)
+  const showDefense = isMarketDefensive(options.sentiment) || (prediction && prediction.score <= -0.5);
+  if (defenseTop3 && defenseTop3.length > 0 && showDefense) {
     msg += formatDefenseTop3Section(defenseTop3, 'save', expectations);
+    console.log(`🛡️ [SAVE] 방어 로직 활성화 완료 (사유: ${isMarketDefensive(options.sentiment) ? '심리지수 불안/공포' : '해외예측 악화'})`);
   }
 
   return msg;
@@ -841,6 +840,7 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
   const showDefense = isMarketDefensive(sentiment) || (prediction && prediction.score <= -0.5);
   if (defenseTop3 && defenseTop3.length > 0 && showDefense) {
     message += formatDefenseTop3Section(defenseTop3, 'alert', expectations);
+    console.log(`🛡️ [ALERT] 방어 로직 활성화 완료 (사유: ${isMarketDefensive(sentiment) ? '심리지수 불안/공포' : '해외예측 악화'})`);
   }
 
   return message;
@@ -1384,7 +1384,7 @@ module.exports = async (req, res) => {
 
       // v3.46: 기대수익 통계 조회
       let expectations = [];
-      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch(e) {}
+      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
 
       // Step 5: 해외 시장 기반 전망
       let prediction = null;
@@ -1557,7 +1557,7 @@ module.exports = async (req, res) => {
 
       // v3.46: 기대수익 통계 조회
       let expectations = [];
-      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch(e) {}
+      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
 
       // Step 3: 메시지 포맷 및 전송
       const trackMsg = formatTrackMessage(dayResults, kstTimeStr, sentiment, expectations);
@@ -1789,7 +1789,7 @@ module.exports = async (req, res) => {
 
       // v3.46: 기대수익 통계 조회
       let expectations = [];
-      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch(e) {}
+      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
 
       const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, defenseAlertTop3, expectations);
       const sent = await sendTelegramMessage(message);
@@ -2152,11 +2152,19 @@ module.exports = async (req, res) => {
 
       // v3.46: 기대수익 통계 조회
       let expectations = [];
-      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch(e) {}
+      try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
 
-      // 3. 메시지 전송
+      // 3. 해외 예측 조회 (SAVE 방어 트리거용)
+      let prediction = null;
+      try {
+        prediction = await overnightPredictor.fetchAndPredict();
+      } catch (pErr) {
+        console.warn('⚠️ 해외 예측 조회 실패:', pErr.message);
+      }
+
+      // 4. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment }, defenseTop3, expectations);
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment }, defenseTop3, expectations, prediction);
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {
