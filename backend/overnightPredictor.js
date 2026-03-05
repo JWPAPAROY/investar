@@ -832,7 +832,8 @@ async function generateAiInterpretation(factors, sig, score) {
 `;
 
     const result = await model.generateContent(prompt);
-    return result.response.text().trim();
+    const response = await result.response;
+    return response.text().trim();
   } catch (error) {
     console.error('⚠️ AI 해석 생성 실패:', error.message);
     return "AI 브리핑을 불러오는 중 오류가 발생했습니다.";
