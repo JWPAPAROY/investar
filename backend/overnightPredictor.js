@@ -13,25 +13,32 @@
 
 const https = require('https');
 const supabase = require('./supabaseClient');
+const kisApi = require('./kisApi');
 
 // ─── 기본 가중치 (다중공선성 제거 후 11개) ───
 // 제거됨: ^GSPC(ES=F와 중복), ^IXIC(NQ=F와 중복),
 //         ^DJI(^GSPC와 r=0.84), DX-Y.NYB(USDKRW=X와 r=0.56),
-//         ^KS200(한국장 시간대 지수 → EWY로 대체)
+//         ^KS200(한국장 시간대 지수), EWY(KOSPI200F와 중복)
+//
+// KOSPI200F: 코스피200 선물 (KIS API) — 야간 거래 반영,
+//            가장 직접적인 다음날 코스피 지표이므로 최고 가중치.
+//            S&P/나스닥 영향이 이미 반영되어 있어 해당 지표 가중치 하향.
 const DEFAULT_WEIGHTS = {
-  // ── 선물 (장 마감 후 최신 움직임) ──
-  'ES=F': { name: 'S&P500 선물', weight: +0.25 },
-  'NQ=F': { name: '나스닥 선물', weight: +0.20 },
-  'GC=F': { name: '금 선물', weight: -0.05 },
-  'HG=F': { name: '구리 선물', weight: +0.06 },
-  // ── 현물 지수 (독립적 정보만 유지) ──
-  '^SOX': { name: 'SOX 반도체', weight: +0.10 },
-  '^VIX': { name: 'VIX 공포', weight: -0.10 },
-  'USDKRW=X': { name: '달러/원', weight: -0.08 },
-  '^TNX': { name: '미국10년물', weight: -0.05 },
-  '^N225': { name: '닛케이', weight: +0.05 },
-  'EWY': { name: '한국ETF', weight: +0.08 },
+  // ── 코스피200 선물 (KIS API, 최고 비중) ──
+  'KOSPI200F': { name: '코스피200선물', weight: +0.28 },
+  // ── 미국 선물 (KOSPI200F에 일부 반영되므로 하향 조정) ──
+  'ES=F': { name: 'S&P500 선물', weight: +0.18 },
+  'NQ=F': { name: '나스닥 선물', weight: +0.15 },
+  // ── 원자재/통화 (독립적 정보) ──
+  'GC=F': { name: '금 선물', weight: -0.04 },
+  'HG=F': { name: '구리 선물', weight: +0.05 },
   'CL=F': { name: 'WTI 원유', weight: +0.03 },
+  // ── 현물 지수 (독립적 정보만 유지) ──
+  '^SOX': { name: 'SOX 반도체', weight: +0.08 },
+  '^VIX': { name: 'VIX 공포', weight: -0.08 },
+  'USDKRW=X': { name: '달러/원', weight: -0.08 },
+  '^TNX': { name: '미국10년물', weight: -0.04 },
+  '^N225': { name: '닛케이', weight: +0.04 },
 };
 // 가중치 절대값 합 = 1.05 (보정 시 자동 정규화)
 
@@ -122,7 +129,9 @@ async function fetchOvernightData() {
   const tickers = Object.keys(DEFAULT_WEIGHTS);
   const results = {};
 
-  const promises = tickers.map(async (ticker) => {
+  // Yahoo Finance 지표 (KOSPI200F 제외)
+  const yahooTickers = tickers.filter(t => t !== 'KOSPI200F');
+  const promises = yahooTickers.map(async (ticker) => {
     try {
       const quote = await yahooQuote(ticker);
       return { ticker, ...quote };
@@ -132,10 +141,36 @@ async function fetchOvernightData() {
     }
   });
 
-  const settled = await Promise.all(promises);
-  for (const item of settled) {
+  // KOSPI200F: KIS API로 별도 조회
+  const kisPromise = (async () => {
+    try {
+      const futures = await kisApi.getKospi200FuturesPrice();
+      if (futures) {
+        return {
+          ticker: 'KOSPI200F',
+          price: futures.price,
+          previousClose: futures.previousClose,
+          change: futures.change,
+        };
+      }
+      console.warn('⚠️ KOSPI200F 데이터 null — 기본값 사용');
+      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0 };
+    } catch (err) {
+      console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message}`);
+      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0 };
+    }
+  })();
+
+  // 병렬 실행
+  const [yahooResults, kospiResult] = await Promise.all([
+    Promise.all(promises),
+    kisPromise
+  ]);
+
+  for (const item of yahooResults) {
     results[item.ticker] = item;
   }
+  results[kospiResult.ticker] = kospiResult;
 
   return results;
 }

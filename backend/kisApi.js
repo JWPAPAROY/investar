@@ -1057,6 +1057,84 @@ class KISApi {
       throw error;
     }
   }
+
+  /**
+   * 코스피200 선물 현재가 시세 조회
+   * KIS OpenAPI: /uapi/domestic-futureoption/v1/quotations/inquire-price
+   * tr_id: FHMIF10000000
+   *
+   * @returns {Promise<Object|null>} { price, previousClose, change, futuresCode }
+   *
+   * 코스피200 선물 종목코드 체계:
+   *   '101' + 연도코드(1자리) + 만기월(2자리)
+   *   연도코드: 2020=0, 2021=1, ..., 2026=6, 2027=7, 2028=8, 2029=9, 2030=A, ...
+   *   만기월: 03(3월), 06(6월), 09(9월), 12(12월)
+   *   예: 2026년 3월물 = '101603', 2026년 6월물 = '101606'
+   *
+   * 근월물 자동 계산: 만기일(매월 두번째 목요일) 기준 롤오버
+   */
+  async getKospi200FuturesPrice() {
+    await this.rateLimiter.acquire();
+
+    try {
+      const token = await this.getAccessToken();
+
+      // 근월물 종목코드 KIS API 지정 (101000: 코스피200선물 최근월물)
+      const futuresCode = '101000';
+
+      const response = await axios.get(
+        `${this.baseUrl}/uapi/domestic-futureoption/v1/quotations/inquire-price`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'authorization': `Bearer ${token}`,
+            'appkey': this.appKey,
+            'appsecret': this.appSecret,
+            'tr_id': 'FHMIF10000000'
+          },
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'F',   // F: 지수선물
+            FID_INPUT_ISCD: futuresCode     // 101000
+          }
+        }
+      );
+
+      if (response.data.rt_cd !== '0') {
+        console.warn('⚠️ 코스피200 선물 시세 API 오류:', response.data.msg1);
+        return null;
+      }
+
+      const output = response.data.output1 || response.data.output;
+      if (!output) {
+        console.warn('⚠️ 코스피200 선물 시세 응답 데이터 없음');
+        return null;
+      }
+
+      // 현재가/전일종가/변동률 파싱
+      const price = parseFloat(output.futs_prpr || output.stck_prpr || 0);
+      const previousClose = parseFloat(output.futs_sdpr || output.stck_sdpr || 0);
+      const changeRate = parseFloat(output.futs_prdy_ctrt || output.prdy_ctrt || 0);
+
+      // 변동률이 없으면 직접 계산
+      let change = changeRate;
+      if (change === 0 && price > 0 && previousClose > 0) {
+        change = +((price - previousClose) / previousClose * 100).toFixed(4);
+      }
+
+      console.log(`📊 코스피200 선물 (${output.hts_kor_isnm}): ${price} (전일 ${previousClose}, ${change >= 0 ? '+' : ''}${change}%)`);
+
+      return {
+        price,
+        previousClose,
+        change: +change.toFixed(4),
+        futuresCode,
+        ticker: 'KOSPI200F'
+      };
+    } catch (error) {
+      console.warn('⚠️ 코스피200 선물 시세 조회 실패:', error.message);
+      return null;
+    }
+  }
 }
 
 module.exports = new KISApi();
