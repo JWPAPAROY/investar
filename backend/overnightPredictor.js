@@ -541,12 +541,17 @@ async function fetchAndPredict() {
   const today = getTodayKST();
 
   // KOSPI 전일 종가 (예상 지수 산출용)
-  // yahooQuote는 range=2d 데이터를 반환: price=최신종가, previousClose=그 전날 종가
-  // 따라서 "전일 종가"는 price (가장 최근 종가)를 사용해야 함
+  // yahooQuote range=2d 반환값이 시간대에 따라 다름:
+  //   장중 (09~16시 KST): price=오늘 현재가, previousClose=전일 종가
+  //   장외 (16~09시 KST): price=전일 종가, previousClose=전전일 종가
   let previousKospi = null;
   try {
     const kd = await yahooQuote('^KS11');
-    previousKospi = kd.price ? +kd.price.toFixed(2) : null;
+    const kstHour = (new Date().getUTCHours() + 9) % 24;
+    const isMarketHours = kstHour >= 9 && kstHour < 16;
+    const kospiClose = isMarketHours ? kd.previousClose : kd.price;
+    previousKospi = kospiClose ? +kospiClose.toFixed(2) : null;
+    console.log(`📈 KOSPI 전일 종가: ${previousKospi} (${isMarketHours ? '장중→previousClose' : '장외→price'})`);
   } catch (e) {
     console.warn('⚠️ KOSPI 전일 종가 조회 실패:', e.message);
   }
