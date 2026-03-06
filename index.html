@@ -1175,31 +1175,58 @@
                       )}
 
                       {/* 오늘의 예측 결과 */}
-                      {prediction.todayResult ? (
-                        <div className={`border-2 rounded-xl p-3 md:p-4 mb-4 ${prediction.todayResult.hit
+                      {prediction.todayResult ? (() => {
+                        const tr = prediction.todayResult;
+                        const kospiSign = tr.kospiCloseChange >= 0 ? '+' : '';
+                        const kosdaqSign = tr.kosdaqCloseChange >= 0 ? '+' : '';
+                        return (
+                        <div className={`border-2 rounded-xl p-3 md:p-4 mb-4 ${tr.hit
                           ? 'bg-green-50 border-green-300'
                           : 'bg-red-50 border-red-300'
                           }`}>
                           <h3 className="text-sm font-semibold text-gray-700 mb-2">📋 {dateInfo.prefix}의 예측 결과 ({dateInfo.target})</h3>
-                          <div className="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-6">
-                            <div className="text-sm">
-                              <span className="text-gray-600">예측: </span>
-                              <span className="font-bold">{prediction.emoji} {prediction.label} ({sign}{prediction.score.toFixed(2)})</span>
-                            </div>
-                            <span className="hidden md:inline text-gray-300">→</span>
-                            <div className="text-sm">
-                              <span className="text-gray-600">KOSPI 실제: </span>
-                              <span className={`font-bold ${prediction.todayResult.kospiCloseChange >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                {prediction.todayResult.kospiCloseChange >= 0 ? '+' : ''}{prediction.todayResult.kospiCloseChange?.toFixed(2)}%
+                          <div className="flex flex-col items-center gap-2">
+                            {/* 예측 vs 실제 */}
+                            <div className="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-6">
+                              <div className="text-sm">
+                                <span className="text-gray-600">예측: </span>
+                                <span className="font-bold">{prediction.emoji} {prediction.label} ({sign}{prediction.score.toFixed(2)})</span>
+                              </div>
+                              <span className="hidden md:inline text-gray-300">→</span>
+                              <div className="text-sm">
+                                <span className="text-gray-600">KOSPI: </span>
+                                <span className={`font-bold ${tr.kospiCloseChange >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                  {tr.kospiClose ? tr.kospiClose.toLocaleString() + 'p ' : ''}
+                                  ({kospiSign}{tr.kospiCloseChange?.toFixed(2)}%)
+                                </span>
+                              </div>
+                              {tr.kosdaqCloseChange != null && (
+                                <div className="text-sm">
+                                  <span className="text-gray-600">KOSDAQ: </span>
+                                  <span className={`font-bold ${tr.kosdaqCloseChange >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                    {kosdaqSign}{tr.kosdaqCloseChange?.toFixed(2)}%
+                                  </span>
+                                </div>
+                              )}
+                              <span className="text-xl">{tr.hit ? '✅' : '❌'}</span>
+                              <span className={`font-bold text-sm ${tr.hit ? 'text-green-700' : 'text-red-700'}`}>
+                                {tr.hit ? '방향 적중!' : '방향 미적중'}
                               </span>
                             </div>
-                            <span className="text-xl">{prediction.todayResult.hit ? '✅' : '❌'}</span>
-                            <span className={`font-bold text-sm ${prediction.todayResult.hit ? 'text-green-700' : 'text-red-700'}`}>
-                              {prediction.todayResult.hit ? '적중!' : '미적중'}
-                            </span>
+                            {/* 밴드 적중 여부 */}
+                            {tr.bandHit != null && (
+                              <div className="text-xs text-gray-500">
+                                예측 밴드 {prediction.expectedChange?.min?.toFixed(1)}% ~ {prediction.expectedChange?.max?.toFixed(1)}%
+                                {tr.bandHit
+                                  ? <span className="ml-1 text-green-600 font-semibold">· 밴드 내 ✓</span>
+                                  : <span className="ml-1 text-red-600 font-semibold">· 밴드 이탈 ✗</span>
+                                }
+                              </div>
+                            )}
                           </div>
                         </div>
-                      ) : (
+                        );
+                      })() : (
                         <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-center text-sm text-blue-700">
                           ⏳ 장 마감 후 예측 결과가 업데이트됩니다 (16:10 KST)
                         </div>

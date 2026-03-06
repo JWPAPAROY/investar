@@ -804,6 +804,10 @@ async function fetchAndPredict(bypassCache = false) {
             todayResult: existing.hit != null ? {
               kospiCloseChange: existing.kospi_close_change != null ? +existing.kospi_close_change : null,
               kosdaqCloseChange: existing.kosdaq_close_change != null ? +existing.kosdaq_close_change : null,
+              kospiClose: (existing.kospi_close_change != null && previousKospi)
+                ? Math.round(previousKospi * (1 + existing.kospi_close_change / 100)) : null,
+              bandHit: (existing.kospi_close_change != null && expChg)
+                ? (existing.kospi_close_change >= expChg.min && existing.kospi_close_change <= expChg.max) : null,
               actualDirection: existing.actual_direction,
               hit: existing.hit,
             } : null,
