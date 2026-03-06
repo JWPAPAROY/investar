@@ -62,22 +62,27 @@ const SIGNAL_TABLE = [
  */
 function calcExpectedChange(score, beta, sigma) {
   let b = beta || DEFAULT_KOSPI_BETA;
+  const absScore = Math.abs(score);
 
-  // v1.5: 백테스트 최적화 — 아웃라이어 대응 시 Beta를 적절히 상향
-  // (v1.4 대비 Beta 증가 속도 완화: ×2.0 → ×1.5, 밴드 ×2.0 → ×1.8)
-  // 백테스트 결과: 범위적중률 45.5% (v1.4: 42.4%), 아웃라이어 적중 35.7% (v1.4: 28.6%)
-  if (Math.abs(score) > 1.2) {
-    const floorBeta = 1.8 + (Math.abs(score) - 1.2) * 1.5;
+  // v1.6: 백테스트 최적화 — 선형 폭주를 막기 위해 제곱근(sqrt) 감쇠 적용
+  if (absScore > 1.2) {
+    const overhang = absScore - 1.2;
+    // score 1.2 -> 1.8
+    // score 2.2 -> 1.8 + 1.0 = 2.8
+    // score 3.6 -> 1.8 + 1.54 = 3.34
+    const floorBeta = 1.8 + Math.sqrt(overhang);
     if (b < floorBeta) b = floorBeta;
   }
 
   const band = sigma || 1.5;
   const center = +(score * b).toFixed(2);
 
-  // v1.5: 밴드 확장도 적절히 (이례적 상황의 변동성 반영)
+  // v1.6: 밴드 역시 과대칭을 막기 위해 무한 선형 증가 대신 sqrt 활용
   let dynamicBand = band;
-  if (Math.abs(score) > 1.2) {
-    dynamicBand = Math.max(band, Math.abs(score) * 1.8);
+  if (absScore > 1.2) {
+    // score 1.2 -> band
+    // score 3.6 -> band + 1.54 * 2.5 ~= 5.3% 
+    dynamicBand = Math.max(band, band + Math.sqrt(absScore - 1.2) * 2.5);
   }
 
   return {

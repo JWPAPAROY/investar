@@ -837,6 +837,12 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 - **KOSPI 전일 종가 버그 수정**: `range=2d` + `previousClose`/`chartPreviousClose` 방식 → `range=5d` + timestamp 기반 오늘 제외 마지막 종가 선택. 장중/장외 무관하게 정확한 전일 종가 반환
 - **예측 변동폭 공식**: `center ± 0.5%` → `center ± σ` (center = score × β)
 
+### v3.50 (2026-03-06)
+- **KOSPI 예측 밴드 한계치 설정 (v1.6)**: 극단적인 변동성(스코어 -3.6 등) 발생 시 예상 변동률이 비현실적으로 폭주하던 선형 산식을 개선.
+  - 가속 구간(스코어 > 1.2)에서 베타 오버슈팅 방지를 위해 `Math.sqrt()` 기반 제곱근 감쇠(Dampening) 도입.
+  - 밴드폭 역시 선형 무한 확장이 아닌 제곱근 곡선으로 제한하여 서킷브레이커(-8%) 수준의 현실적 예측력 확보.
+  - 시장 지표 `KOSPI200F`를 0.0의 가중치로 부활시켜 관측용 보조 지표로 노출.
+
 ### v3.49 (2026-03-05)
 - **다중공선성 제거 (15→11개 팩터)**: ^GSPC(ES=F와 r=0.96), ^IXIC(NQ=F와 r=0.99), ^DJI(^GSPC와 r=0.84), DX-Y.NYB(USDKRW=X와 r=0.56), ^KS200(한국장 시간대 지수) 제거
 - **EWY(한국ETF) 추가**: ^KS200 대신 미국장에서 거래되는 iShares MSCI South Korea ETF — 야간 KOSPI 프록시 역할
