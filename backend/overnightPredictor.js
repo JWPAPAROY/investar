@@ -38,10 +38,9 @@ const DEFAULT_WEIGHTS = {
 };
 // 가중치 절대값 합 = 0.99 (보정 시 자동 정규화)
 
-// ─── KOSPI 민감도 (멀티플/베타) ───
-// 신규 가중치 적용으로 스코어 절대값이 작아짐. 시뮬레이션 회귀 분석 결과,
-// 스코어 예측치와 실제 변동률을 맞추기 위한 최적 Beta는 2.5
-const DEFAULT_KOSPI_BETA = 2.5;
+// ─── 회귀 기반 밴드 기본값 ───
+// 34일 OLS 회귀: 실제 KOSPI% = 0.78 × score + 0.77, 잔차σ = 3.44%
+const DEFAULT_REGRESSION = { slope: 0.78, intercept: 0.77, sigma: 3.44 };
 
 // ─── 신호 판정 테이블 (대칭형 폭 넓힘) ───
 const SIGNAL_TABLE = [
@@ -53,40 +52,26 @@ const SIGNAL_TABLE = [
 ];
 
 /**
- * 스코어 기반 예측 변동폭 계산
- * 스코어 × KOSPI 베타(멀티플)를 중심점으로 사용
- * 밴드: 최근 20일 KOSPI 일일 변동률 표준편차(σ) 기반 동적 조절 (fallback: 1.5%)
+ * 회귀 기반 예측 변동폭 계산 (v2.0)
+ * center = slope × score + intercept (OLS 회귀선)
+ * 밴드: ±잔차σ (회귀선 기준 대칭)
+ *
+ * 기존 방식(score × beta)은 예측 방향으로 center가 과도하게 치우쳐
+ * 밴드가 한쪽에만 넓어지는 문제가 있었음. 회귀 기반은 양의 절편(시장 상승 편향)을
+ * 반영하여 양방향 균형 잡힌 밴드를 제공.
  */
-function calcExpectedChange(score, beta, sigma) {
-  let b = beta || DEFAULT_KOSPI_BETA;
-  const absScore = Math.abs(score);
-
-  // v1.6: 백테스트 최적화 — 선형 폭주를 막기 위해 제곱근(sqrt) 감쇠 적용
-  if (absScore > 1.2) {
-    const overhang = absScore - 1.2;
-    // score 1.2 -> 1.8
-    // score 2.2 -> 1.8 + 1.0 = 2.8
-    // score 3.6 -> 1.8 + 1.54 = 3.34
-    const floorBeta = 1.8 + Math.sqrt(overhang);
-    if (b < floorBeta) b = floorBeta;
-  }
-
-  const band = sigma || 1.5;
-  const center = +(score * b).toFixed(2);
-
-  // v1.6: 밴드 역시 과대칭을 막기 위해 무한 선형 증가 대신 sqrt 활용
-  let dynamicBand = band;
-  if (absScore > 1.2) {
-    // score 1.2 -> band
-    // score 3.6 -> band + 1.54 * 2.5 ~= 5.3% 
-    dynamicBand = Math.max(band, band + Math.sqrt(absScore - 1.2) * 2.5);
-  }
+function calcExpectedChange(score, regression) {
+  const reg = regression || DEFAULT_REGRESSION;
+  const center = +(reg.slope * score + reg.intercept).toFixed(2);
+  const band = reg.sigma;
 
   return {
-    min: +(center - dynamicBand).toFixed(2),
-    max: +(center + dynamicBand).toFixed(2),
-    beta: +b.toFixed(2),
-    sigma: +dynamicBand.toFixed(2)
+    min: +(center - band).toFixed(2),
+    max: +(center + band).toFixed(2),
+    center,
+    slope: +reg.slope.toFixed(3),
+    intercept: +reg.intercept.toFixed(2),
+    sigma: +band.toFixed(2)
   };
 }
 
@@ -267,7 +252,7 @@ function calculatePrediction(data, weights) {
     vixAlert,
     factors,
     guidance: sig.guidance,
-    expectedChange: calcExpectedChange(score),
+    expectedChange: calcExpectedChange(score), // 기본값, fetchAndPredict에서 동적 보정으로 덮어씀
   };
 }
 
@@ -365,106 +350,89 @@ async function getActiveWeights() {
 }
 
 /**
- * KOSPI 동적 베타(멀티플) 보정 — EWMA 가중 회귀
- * 최근 데이터에 지수적 가중치(λ=0.94)를 부여하여 급변장 반영 속도 향상
- * 20일 미만이면 DEFAULT_KOSPI_BETA(1.3) 사용
+ * 회귀 파라미터 동적 보정 (v2.0)
+ * score → kospi_close_change OLS 회귀로 slope, intercept, 잔차σ 계산
+ * 20일 미만이면 DEFAULT_REGRESSION 사용
+ * 20일 이상이면 EWMA(λ=0.94) 가중 회귀로 최근 데이터 우선 반영
  */
-async function getKospiBeta() {
-  if (!supabase) return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
+async function getRegressionParams() {
+  if (!supabase) return { ...DEFAULT_REGRESSION, source: 'default' };
 
   try {
     const { data, error } = await supabase
       .from('overnight_predictions')
-      .select('score, kospi_open_change')
-      .not('kospi_open_change', 'is', null)
+      .select('score, kospi_close_change')
+      .not('kospi_close_change', 'is', null)
       .not('score', 'is', null)
       .order('prediction_date', { ascending: false })
       .limit(60);
 
     if (error || !data || data.length < 20) {
-      return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
+      return { ...DEFAULT_REGRESSION, source: 'default', n: data?.length || 0 };
     }
 
-    // EWMA 가중 회귀: λ=0.94, 최근 데이터일수록 높은 가중치
-    const lambda = 0.94;
     const n = data.length;
+    const lambda = 0.94;
 
-    // 가중치 계산 (data[0]=최신, data[n-1]=가장 오래된)
-    const weights = data.map((_, i) => Math.pow(lambda, i));
-    const sumW = weights.reduce((a, b) => a + b, 0);
+    // EWMA 가중치 (data[0]=최신)
+    const w = data.map((_, i) => Math.pow(lambda, i));
+    const sumW = w.reduce((a, b) => a + b, 0);
 
     // 가중 평균
     let meanX = 0, meanY = 0;
     for (let i = 0; i < n; i++) {
-      meanX += weights[i] * data[i].score;
-      meanY += weights[i] * data[i].kospi_open_change;
+      meanX += w[i] * data[i].score;
+      meanY += w[i] * data[i].kospi_close_change;
     }
     meanX /= sumW;
     meanY /= sumW;
 
-    // 가중 회귀 기울기
+    // 가중 회귀 (slope, intercept)
     let ssXY = 0, ssXX = 0;
     for (let i = 0; i < n; i++) {
       const dx = data[i].score - meanX;
-      const dy = data[i].kospi_open_change - meanY;
-      ssXY += weights[i] * dx * dy;
-      ssXX += weights[i] * dx * dx;
+      const dy = data[i].kospi_close_change - meanY;
+      ssXY += w[i] * dx * dy;
+      ssXX += w[i] * dx * dx;
     }
 
     if (ssXX === 0) {
-      return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
+      return { ...DEFAULT_REGRESSION, source: 'default', n };
     }
 
     const slope = ssXY / ssXX;
+    const intercept = meanY - slope * meanX;
 
-    // 베타는 최소 0.5, 최대 8.0으로 클램핑 (급변장 허용)
-    const clampedBeta = +Math.min(Math.max(slope, 0.5), 8.0).toFixed(2);
+    // 잔차 σ (가중)
+    let ssResid = 0;
+    for (let i = 0; i < n; i++) {
+      const predicted = slope * data[i].score + intercept;
+      const resid = data[i].kospi_close_change - predicted;
+      ssResid += w[i] * resid * resid;
+    }
+    const sigma = Math.sqrt(ssResid / sumW);
 
-    console.log(`📊 EWMA 베타: slope=${slope.toFixed(3)}, clamped=${clampedBeta} (λ=0.94, N=${n})`);
-    return { beta: clampedBeta, source: 'ewma_calibrated' };
+    // 클램핑: slope [0.1, 5.0], intercept [-5, 5], sigma [1.0, 10.0]
+    const result = {
+      slope: +Math.min(Math.max(slope, 0.1), 5.0).toFixed(3),
+      intercept: +Math.min(Math.max(intercept, -5), 5).toFixed(2),
+      sigma: +Math.min(Math.max(sigma, 1.0), 10.0).toFixed(2),
+      source: 'ewma_regression',
+      n,
+    };
+
+    console.log(`📊 회귀 보정: y = ${result.slope}×score + ${result.intercept}, σ=${result.sigma}% (λ=0.94, N=${n})`);
+    return result;
   } catch (err) {
-    console.warn('⚠️ 베타 보정 실패, 기본값 사용:', err.message);
-    return { beta: DEFAULT_KOSPI_BETA, source: 'default' };
-  }
-}
-
-/**
- * KOSPI 최근 변동성(σ) 조회
- * 최근 20일 KOSPI 일일 변동률의 표준편차를 반환
- * 예측 변동폭 밴드를 동적으로 조절하는 데 사용 (±1σ)
- */
-async function getRecentVolatility() {
-  if (!supabase) return 1.5; // 기본값
-
-  try {
-    const { data, error } = await supabase
-      .from('overnight_predictions')
-      .select('kospi_close_change')
-      .not('kospi_close_change', 'is', null)
-      .order('prediction_date', { ascending: false })
-      .limit(20);
-
-    if (error || !data || data.length < 5) return 1.5;
-
-    const changes = data.map(d => d.kospi_close_change);
-    const mean = changes.reduce((a, b) => a + b, 0) / changes.length;
-    const variance = changes.reduce((a, c) => a + Math.pow(c - mean, 2), 0) / changes.length;
-    const sigma = Math.sqrt(variance);
-
-    // 최소 0.5%, 최대 10%로 클램핑
-    const clampedSigma = +Math.min(Math.max(sigma, 0.5), 10.0).toFixed(2);
-    console.log(`📉 KOSPI 변동성 σ=${sigma.toFixed(3)}%, clamped=${clampedSigma}% (N=${data.length})`);
-    return clampedSigma;
-  } catch (err) {
-    console.warn('⚠️ 변동성 조회 실패, 기본값 사용:', err.message);
-    return 1.5;
+    console.warn('⚠️ 회귀 보정 실패, 기본값 사용:', err.message);
+    return { ...DEFAULT_REGRESSION, source: 'default' };
   }
 }
 
 /**
  * 2-7. 예측 결과 Supabase 저장 (upsert)
  */
-async function savePrediction(prediction, weights, weightsSource, previousKospi, kospiBeta, expChg, aiInterpretation, previousKospiDate, usMarketDate) {
+async function savePrediction(prediction, weights, weightsSource, previousKospi, regression, expChg, aiInterpretation, previousKospiDate, usMarketDate) {
   if (!supabase) return;
 
   const today = getTodayKST();
@@ -480,7 +448,7 @@ async function savePrediction(prediction, weights, weightsSource, previousKospi,
         weights: weights,
         weights_source: weightsSource,
         previous_kospi: previousKospi,
-        kospi_beta: kospiBeta,
+        kospi_beta: regression?.slope || null,
         ai_interpretation: aiInterpretation,
         expected_change: expChg,
         previous_kospi_date: previousKospiDate,
@@ -609,7 +577,7 @@ async function getAccuracy() {
  * 최근 30일 예측 히스토리 조회 (차트용)
  * @returns {Array} [{ date, score, signal, hit, kospiCloseChange }]
  */
-async function getRecentHistory(previousKospi) {
+async function getRecentHistory(previousKospi, regression) {
   if (!supabase) return [];
 
   try {
@@ -651,7 +619,7 @@ async function getRecentHistory(previousKospi) {
       hit: d.hit,
       kospiChange: d.kospi_close_change != null ? +d.kospi_close_change : null,
       kospiClose: kospiCloses[i],
-      expectedChange: calcExpectedChange(+d.score),
+      expectedChange: calcExpectedChange(+d.score, regression),
     }));
   } catch (err) {
     return [];
@@ -759,9 +727,9 @@ async function fetchAndPredict(bypassCache = false) {
 
           // 신호 판정 재계산
           const sig = SIGNAL_TABLE.find(s => existing.score >= s.min);
-          const [{ beta: cachedBeta }, cachedSigma] = await Promise.all([getKospiBeta(), getRecentVolatility()]);
-          const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
-          const expChg = calcExpectedChange(+existing.score, cachedBeta, cachedSigma);
+          const cachedRegression = await getRegressionParams();
+          const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi, cachedRegression)]);
+          const expChg = calcExpectedChange(+existing.score, cachedRegression);
 
           let aiInterpretation = existing.ai_interpretation;
           if (!aiInterpretation && existing.factors) {
@@ -790,7 +758,7 @@ async function fetchAndPredict(bypassCache = false) {
             guidance: sig.guidance,
             weightsSource: existing.weights ? 'calibrated_60d' : 'default',
             previousKospi,
-            kospiBeta: cachedBeta,
+            regression: cachedRegression,
             expectedChange: expChg,
             estimatedKospi: previousKospi ? {
               min: Math.round(previousKospi * (1 + expChg.min / 100)),
@@ -822,7 +790,7 @@ async function fetchAndPredict(bypassCache = false) {
 
   // 새 예측 계산
   const { weights, source } = await getActiveWeights();
-  const [{ beta: dynamicBeta }, dynamicSigma] = await Promise.all([getKospiBeta(), getRecentVolatility()]);
+  const regression = await getRegressionParams();
   const data = await fetchOvernightData();
   const prediction = calculatePrediction(data, weights);
 
@@ -838,13 +806,13 @@ async function fetchAndPredict(bypassCache = false) {
     usMarketDate = data[usFactor.ticker].dataDate;
   }
 
-  const expChg = calcExpectedChange(prediction.score, dynamicBeta, dynamicSigma);
+  const expChg = calcExpectedChange(prediction.score, regression);
 
-  // 저장 (aiInterpretation 등 전체 prediction 객체 저장 여부 확인 필요 시 확장)
-  await savePrediction(prediction, weights, source, previousKospi, dynamicBeta, expChg, aiInterpretation, previousKospiDate, usMarketDate);
+  // 저장
+  await savePrediction(prediction, weights, source, previousKospi, regression, expChg, aiInterpretation, previousKospiDate, usMarketDate);
 
   // 적중률 + 히스토리 조회
-  const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi)]);
+  const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi, regression)]);
 
   return {
     ...prediction,
@@ -852,7 +820,7 @@ async function fetchAndPredict(bypassCache = false) {
     previousKospi,
     previousKospiDate,
     usMarketDate,
-    kospiBeta: dynamicBeta,
+    regression,
     expectedChange: expChg,
     estimatedKospi: previousKospi ? {
       min: Math.round(previousKospi * (1 + expChg.min / 100)),
@@ -958,9 +926,8 @@ module.exports = {
   fetchOvernightData,
   calculatePrediction,
   getActiveWeights,
-  getKospiBeta,
-  getRecentVolatility,
+  getRegressionParams,
   DEFAULT_WEIGHTS,
-  DEFAULT_KOSPI_BETA,
+  DEFAULT_REGRESSION,
   generateAiInterpretation,
 };

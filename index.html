@@ -1320,9 +1320,9 @@
                             <p className="font-semibold mb-1">📐 예측 스코어 계산법</p>
                             <p className="mb-1"><b>기여도</b> = 변동률 × 가중치. 각 지수가 오늘 예측 스코어에 얼마나 기여했는지를 나타냅니다.</p>
                             <p className="mb-1"><b>스코어</b> = 모든 기여도의 합산 = <b>{prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(3)}</b></p>
-                            <p className="mb-1"><b>예측 변동</b> = 스코어 × KOSPI 베타(β={prediction.expectedChange?.beta || '1.30'}) ± σ({prediction.expectedChange?.sigma || '1.50'}%)</p>
+                            <p className="mb-1"><b>예측 밴드</b> = {prediction.expectedChange?.slope || '0.78'} × 스코어 + {prediction.expectedChange?.intercept || '0.77'}% ± σ({prediction.expectedChange?.sigma || '3.44'}%)</p>
                             <p className="text-blue-600"><b>가중치 +%</b>: 해당 지수 상승 → KOSPI↑ (동행) | <b>가중치 -%</b>: 해당 지수 상승 → KOSPI↓ (역행)</p>
-                            <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>가중치·베타 모두 60일 이상 데이터 축적 시 KOSPI와의 회귀분석 기반으로 매일 자동 보정됩니다.</p>
+                            <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>가중치·회귀 파라미터 모두 20일 이상 데이터 축적 시 EWMA 가중 회귀(λ=0.94) 기반으로 매일 자동 보정됩니다.</p>
                           </div>
                         </div>
                       )}
