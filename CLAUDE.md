@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.52
+- **버전**: 3.53
 - **최종 업데이트**: 2026-03-06
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
@@ -585,23 +585,24 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 **VIX 스파이크**: VIX 변동 ≥ +15% → 별도 경고
 
-### 예측 KOSPI 범위
+### 예측 KOSPI 범위 (OLS 회귀 기반)
 
-KOSPI 베타(멀티플)를 적용하여 예측 변동폭 산출:
+EWMA 가중 OLS 회귀로 score→KOSPI 변동률 관계를 모델링:
 ```
-center = score × kospiBeta
-expectedChange = { min: center - 0.5, max: center + 0.5 }
+center = slope × score + intercept
+expectedChange = { min: center - sigma, max: center + sigma }
 estimatedKospi = previousKospi × (1 + expectedChange / 100)
 ```
-- `DEFAULT_KOSPI_BETA = 1.3` (KOSPI는 해외 합산 스코어 대비 1.3배 크게 반응)
-- 60일 데이터 축적 후 `getKospiBeta()`로 OLS 회귀 기울기 기반 동적 보정 (0.5~3.0 클램핑)
+- `DEFAULT_REGRESSION = { slope: 0.78, intercept: 0.77, sigma: 3.44 }`
+- 20일+ 데이터부터 `getRegressionParams()`로 EWMA(λ=0.94) 가중 OLS 회귀 동적 보정
+- 클램핑: slope [0.1, 5.0], intercept [-5, 5], sigma [1.0, 10.0]
 
-### 가중치·베타 자동 보정
+### 가중치·회귀 자동 보정
 
-- 60일 미만 데이터: `DEFAULT_WEIGHTS`, `DEFAULT_KOSPI_BETA` 사용
-- 60일 이상: **매 호출 시**
+- 20일 미만 데이터: `DEFAULT_WEIGHTS`, `DEFAULT_REGRESSION` 사용
+- 20일 이상: **매 호출 시**
   - **가중치**: 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 → 부호 보존, 절대값 비례 → 합계 1.0 정규화
-  - **베타**: score→KOSPI 개장 변동률 OLS 회귀 기울기 → 0.5~3.0 클램핑
+  - **회귀**: score→KOSPI 개장 변동률 EWMA 가중 OLS 회귀 → slope/intercept/sigma 산출
 - 팩터 수 변경 시 캐시 자동 무효화
 
 ### 적중률 추적
@@ -628,7 +629,7 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 ```
 08:00 KST (alert 모드):
   fetchAndPredict() → Yahoo Finance chart API × 11개
-  → 가중 스코어 계산 × KOSPI 베타 → Supabase 저장 → 텔레그램 전송
+  → 가중 스코어 계산 → OLS 회귀 예측 범위 → Supabase 저장 → 텔레그램 전송
 
 16:10 KST (save 모드):
   updateActualResult() → KOSPI/KOSDAQ 실제 변동률 기록 → hit 판정
@@ -833,6 +834,12 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.53 (2026-03-06)
+- **회귀 기반 예측 밴드 전환**: 기존 `score × beta ± σ` 비대칭 밴드 → `slope × score + intercept ± σ` OLS 회귀 대칭 밴드로 교체. 스코어 -2.5일 때 기존 밴드(-14.7%~+0.04%)가 비현실적이던 문제 해결 → 새 밴드(-7.2%~+0.8%)로 현실적 범위 제공
+- **`getRegressionParams()` 신규**: `getKospiBeta()` + `getRecentVolatility()` 통합 대체. EWMA(λ=0.94) 가중 OLS 회귀로 slope/intercept/sigma 동시 산출. 20일+ 데이터부터 동적 보정, 미만 시 DEFAULT_REGRESSION(slope=0.78, intercept=0.77, σ=3.44%) 사용
+- **클램핑**: slope [0.1, 5.0], intercept [-5, 5], sigma [1.0, 10.0]
+- **프론트엔드 동기화**: 계산법 설명 `score × β ± σ` → `slope × score + intercept ± σ` 변경
 
 ### v3.52 (2026-03-06)
 - **KOSPI200F 가중치 복원 (v1.7)**: EWY 단독 최대 가중치(+0.21) → KOSPI200F(+0.20, 최대) + EWY(0, 관측용)로 재조정. EWY와 KOSPI200F는 둘 다 한국 시장 프록시라 가중치 동시 부여 시 이중 반영 문제 발생. 야간선물이 06:00 KST까지 거래되어 가장 최신 데이터를 반영하므로 단독 사용.
