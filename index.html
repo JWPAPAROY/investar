@@ -1315,9 +1315,9 @@
                   </div>
                 ) : (
                   <div className="space-y-6">
-                    <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-indigo-100 rounded-xl shadow-sm p-4 md:p-6 text-gray-800">
-                      <h2 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2 flex items-center gap-2"><span className="text-3xl">🌏</span> 오늘의 시장 전망</h2>
-                      <p className="text-indigo-900 text-sm md:text-base font-semibold">
+                    <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg p-4 md:p-6 text-white">
+                      <h2 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2 flex items-center gap-2">🌏 오늘의 시장 전망</h2>
+                      <p className="text-blue-100 text-sm md:text-base">
                         미국 국채, 환율, VIX 및 선물을 통해 한국 시장 방향성을 AI와 함께 분석합니다
                       </p>
                     </div>
@@ -1331,10 +1331,9 @@
                       </p>
                       <button
                         onClick={fetchPrediction}
-                        className="px-6 py-3 md:px-10 md:py-4 bg-indigo-600 text-white rounded-full hover:bg-indigo-700 transition font-bold shadow-xl text-base md:text-xl flex items-center justify-center gap-2 mx-auto transform hover:scale-105"
+                        className="px-6 py-3 md:px-8 md:py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition font-bold shadow-lg text-sm md:text-base flex items-center justify-center gap-2 mx-auto disabled:opacity-50"
                       >
-                        <span>데이터 분석 시작</span>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                        <span>🔮 데이터 분석 시작</span>
                       </button>
                     </div>
                   </div>
