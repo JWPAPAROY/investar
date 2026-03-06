@@ -20,14 +20,13 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // 제거됨: ^GSPC(ES=F와 중복), ^IXIC(NQ=F와 중복),
 //         ^DJI(^GSPC와 r=0.84), DX-Y.NYB(USDKRW=X와 r=0.56),
 //         ^KS200(한국장 시간대 지수), EWY(KOSPI200F와 중복)
-//
-// KOSPI200F: 코스피200 선물 (KIS API) — 야간 거래 반영,
-//            가장 직접적인 다음날 코스피 지표이므로 최고 가중치.
-//            S&P/나스닥 영향이 이미 반영되어 있어 해당 지표 가중치 하향.
+// EWY: iShares MSCI South Korea ETF (미국장 상장 KOSPI 추종 ETF)
+//            미국 본장 시간대에 거래되므로 아침 6시 이후에 100% 확정 데이터를 얻을 수 있음.
+//            KOSPI200F를 대체하여 아침 일찍 가장 강력한 선행 지표로 활용.
 // ─── 기본 가중치 (상관계수 비례 최적화 적용) ───
 // 분석: 과거 40일 KOSPI 다음날 변동률과의 피어슨 상관계수 기준 분배 (총합 정규화)
 const DEFAULT_WEIGHTS = {
-  'KOSPI200F': { name: '코스피200선물', weight: +0.21 }, // r=+0.850 (기준)
+  'EWY': { name: '한국 ETF(EWY)', weight: +0.21 }, // KOSPI 선행 지표 (기준)
   '^SOX': { name: 'SOX 반도체', weight: +0.15 }, // r=+0.582
   'NQ=F': { name: '나스닥 선물', weight: +0.11 }, // r=+0.454
   'CL=F': { name: 'WTI 원유', weight: -0.11 }, // r=-0.423
@@ -158,9 +157,7 @@ async function fetchOvernightData() {
   const tickers = Object.keys(DEFAULT_WEIGHTS);
   const results = {};
 
-  // Yahoo Finance 지표 (KOSPI200F 제외)
-  const yahooTickers = tickers.filter(t => t !== 'KOSPI200F');
-  const promises = yahooTickers.map(async (ticker) => {
+  const promises = tickers.map(async (ticker) => {
     try {
       const quote = await yahooQuote(ticker);
       return { ticker, ...quote };
@@ -170,36 +167,11 @@ async function fetchOvernightData() {
     }
   });
 
-  // KOSPI200F: KIS API로 별도 조회
-  const kisPromise = (async () => {
-    try {
-      const futures = await kisApi.getKospi200FuturesPrice();
-      if (futures) {
-        return {
-          ticker: 'KOSPI200F',
-          price: futures.price,
-          previousClose: futures.previousClose,
-          change: futures.change,
-        };
-      }
-      console.warn('⚠️ KOSPI200F 데이터 null — 기본값 사용');
-      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0 };
-    } catch (err) {
-      console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message}`);
-      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0 };
-    }
-  })();
-
-  // 병렬 실행
-  const [yahooResults, kospiResult] = await Promise.all([
-    Promise.all(promises),
-    kisPromise
-  ]);
+  const yahooResults = await Promise.all(promises);
 
   for (const item of yahooResults) {
     results[item.ticker] = item;
   }
-  results[kospiResult.ticker] = kospiResult;
 
   return results;
 }
@@ -659,49 +631,67 @@ async function fetchAndPredict(bypassCache = false) {
   const today = getTodayKST();
 
   // KOSPI 전일 종가 (예상 지수 산출용)
-  // range=5d로 충분한 일봉을 가져온 뒤, 오늘(KST 기준)을 제외한 마지막 종가 사용
+  // 1순위: KIS API 활용 (0001 일봉 데이터)
   let previousKospi = null;
   let previousKospiDate = null;
   try {
-    const kospiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?range=5d&interval=1d`;
-    const kospiData = await new Promise((resolve, reject) => {
-      https.get(kospiUrl, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-      }, (res) => {
-        let data = '';
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
-        });
-      }).on('error', reject);
-    });
+    const chartData = await kisApi.getIndexChart('0001', 5);
+    if (chartData && chartData.length > 0) {
+      const todayKSTStr = getTodayKST().replace(/-/g, '');
 
-    const result = kospiData.chart?.result?.[0];
-    if (result) {
-      const timestamps = result.timestamp || [];
-      const closes = result.indicators?.quote?.[0]?.close || [];
-
-      // KST 기준 오늘 날짜
-      const todayKST = getTodayKST(); // 'YYYY-MM-DD'
-
-      // timestamp → KST 날짜로 변환, 오늘 제외한 마지막 종가 사용
-      let lastClose = null;
-      let lastDateStr = null;
-      for (let i = timestamps.length - 1; i >= 0; i--) {
-        const date = new Date((timestamps[i] + 9 * 3600) * 1000);
-        const dateStr = date.toISOString().slice(0, 10);
-        if (dateStr !== todayKST && closes[i] != null) {
-          lastClose = closes[i];
-          lastDateStr = dateStr;
-          console.log(`📈 KOSPI 전일 종가: ${lastClose} (${dateStr})`);
-          break;
-        }
+      let targetItem = chartData[0];
+      // 만약 최신 데이터가 오늘 날짜라면, overnightPredictor의 목적상 "전일" 종가를 사용
+      if (targetItem.date === todayKSTStr && chartData.length > 1) {
+        targetItem = chartData[1];
       }
-      previousKospi = lastClose ? +lastClose.toFixed(2) : null;
-      previousKospiDate = lastDateStr;
+
+      previousKospi = targetItem.close;
+      previousKospiDate = `${targetItem.date.slice(0, 4)}-${targetItem.date.slice(4, 6)}-${targetItem.date.slice(6, 8)}`;
+      console.log(`📈 KOSPI 전일 종가 (KIS API): ${previousKospi} (${previousKospiDate})`);
     }
   } catch (e) {
-    console.warn('⚠️ KOSPI 전일 종가 조회 실패:', e.message);
+    console.warn('⚠️ KOSPI 전일 종가 조회 실패(KIS API):', e.message);
+  }
+
+  // 2순위: KIS API 실패 시 Yahoo Finance(^KS11) 폴백
+  if (previousKospi === null) {
+    try {
+      const kospiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?range=5d&interval=1d`;
+      const kospiData = await new Promise((resolve, reject) => {
+        https.get(kospiUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        }, (res) => {
+          let data = '';
+          res.on('data', chunk => data += chunk);
+          res.on('end', () => {
+            try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+          });
+        }).on('error', reject);
+      });
+
+      const result = kospiData.chart?.result?.[0];
+      if (result) {
+        const timestamps = result.timestamp || [];
+        const closes = result.indicators?.quote?.[0]?.close || [];
+        const todayKST = getTodayKST(); // 'YYYY-MM-DD'
+        let lastClose = null;
+        let lastDateStr = null;
+        for (let i = timestamps.length - 1; i >= 0; i--) {
+          const date = new Date((timestamps[i] + 9 * 3600) * 1000);
+          const dateStr = date.toISOString().slice(0, 10);
+          if (dateStr !== todayKST && closes[i] != null) {
+            lastClose = closes[i];
+            lastDateStr = dateStr;
+            console.log(`📈 KOSPI 전일 종가 (Yahoo 폴백): ${lastClose} (${dateStr})`);
+            break;
+          }
+        }
+        previousKospi = lastClose ? +lastClose.toFixed(2) : null;
+        previousKospiDate = lastDateStr;
+      }
+    } catch (e) {
+      console.warn('⚠️ KOSPI 전일 종가 폴백 조회 실패 (Yahoo):', e.message);
+    }
   }
 
   // 캐시 확인: 오늘 이미 예측 저장되어 있고 bypassCache가 false면 읽기
