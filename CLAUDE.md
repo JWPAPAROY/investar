@@ -560,7 +560,7 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 | 현물 | USDKRW=X | 달러/원 | -0.03 | 원화 약세 = 하락 |
 | 현물 | ^TNX | 미국10년물 | -0.01 | 금리 상승 = 하락 |
 | 현물 | ^N225 | 닛케이 | +0.03 | 아시아 연동 |
-| 현물 | EWY | 한국ETF | +0.08 | 미국장 KOSPI 프록시, 보조 |
+| 현물 | EWY | 한국ETF | 0 | 관측용 (KOSPI200F와 중복) |
 | 현물 | CL=F | WTI 원유 | -0.11 | |
 
 **제거됨** (다중공선성): ^GSPC(ES=F r=0.96), ^IXIC(NQ=F r=0.99), ^DJI(^GSPC r=0.84), DX-Y.NYB(USDKRW=X r=0.56), ^KS200(한국장 시간대 지수)
@@ -835,7 +835,7 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ## 📝 변경 이력
 
 ### v3.52 (2026-03-06)
-- **KOSPI200F 가중치 복원 (v1.7)**: EWY 단독 최대 가중치(+0.21) → KOSPI200F(+0.20, 최대) + EWY(+0.08, 보조)로 재조정. 야간선물이 미국장 마감 후에도 06:00 KST까지 거래되어 EWY보다 6~8시간 최신 데이터를 반영. 두 지표가 괴리 시 야간선물이 더 정확.
+- **KOSPI200F 가중치 복원 (v1.7)**: EWY 단독 최대 가중치(+0.21) → KOSPI200F(+0.20, 최대) + EWY(0, 관측용)로 재조정. EWY와 KOSPI200F는 둘 다 한국 시장 프록시라 가중치 동시 부여 시 이중 반영 문제 발생. 야간선물이 06:00 KST까지 거래되어 가장 최신 데이터를 반영하므로 단독 사용.
 - **Supabase 스키마 업데이트**: `overnight_predictions` 테이블에 누락 컬럼 7개 추가 (`ai_interpretation`, `weights_source`, `previous_kospi`, `kospi_beta`, `expected_change`, `previous_kospi_date`, `us_market_date`). 컬럼 부재로 인해 savePrediction upsert가 PGRST204 에러로 실패하던 문제 해결.
 - **AI 프롬프트 동기화**: 12개 팩터 반영, KOSPI200F/EWY 시간대 차이 설명 추가, "노이즈 필터링" 항목을 선물-EWY 괴리 판단으로 개선
 

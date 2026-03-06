@@ -24,7 +24,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // EWY: iShares MSCI South Korea ETF — 미국 본장(~06:00 KST) 마감 기준, 보조 지표
 const DEFAULT_WEIGHTS = {
   'KOSPI200F': { name: '코스피200선물', weight: +0.20 }, // 야간선물 최신 데이터, 최대 가중치
-  'EWY': { name: '한국 ETF(EWY)', weight: +0.08 }, // 미국장 KOSPI 프록시, 보조
+  'EWY': { name: '한국 ETF(EWY)', weight: 0 }, // 관측용 (KOSPI200F와 중복, 미국장 마감 기준이라 6~8h 지연)
   '^SOX': { name: 'SOX 반도체', weight: +0.15 }, // r=+0.582
   'NQ=F': { name: '나스닥 선물', weight: +0.11 }, // r=+0.454
   'CL=F': { name: 'WTI 원유', weight: -0.11 }, // r=-0.423
@@ -36,7 +36,7 @@ const DEFAULT_WEIGHTS = {
   '^N225': { name: '닛케이', weight: +0.03 }, // r=+0.103
   '^TNX': { name: '미국10년물', weight: -0.01 }, // r=+0.036
 };
-// 가중치 절대값 합 = 1.07 (보정 시 자동 정규화)
+// 가중치 절대값 합 = 0.99 (보정 시 자동 정규화)
 
 // ─── KOSPI 민감도 (멀티플/베타) ───
 // 신규 가중치 적용으로 스코어 절대값이 작아짐. 시뮬레이션 회귀 분석 결과,
