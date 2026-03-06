@@ -26,6 +26,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // ─── 기본 가중치 (상관계수 비례 최적화 적용) ───
 // 분석: 과거 40일 KOSPI 다음날 변동률과의 피어슨 상관계수 기준 분배 (총합 정규화)
 const DEFAULT_WEIGHTS = {
+  'KOSPI200F': { name: '코스피200선물', weight: 0 }, // 관측 및 참고용 (예측 점수 미반영)
   'EWY': { name: '한국 ETF(EWY)', weight: +0.21 }, // KOSPI 선행 지표 (기준)
   '^SOX': { name: 'SOX 반도체', weight: +0.15 }, // r=+0.582
   'NQ=F': { name: '나스닥 선물', weight: +0.11 }, // r=+0.454
@@ -157,7 +158,9 @@ async function fetchOvernightData() {
   const tickers = Object.keys(DEFAULT_WEIGHTS);
   const results = {};
 
-  const promises = tickers.map(async (ticker) => {
+  // Yahoo Finance 지표 (KOSPI200F 제외)
+  const yahooTickers = tickers.filter(t => t !== 'KOSPI200F');
+  const promises = yahooTickers.map(async (ticker) => {
     try {
       const quote = await yahooQuote(ticker);
       return { ticker, ...quote };
@@ -167,11 +170,36 @@ async function fetchOvernightData() {
     }
   });
 
-  const yahooResults = await Promise.all(promises);
+  // KOSPI200F: KIS API로 별도 조회
+  const kisPromise = (async () => {
+    try {
+      const futures = await kisApi.getKospi200FuturesPrice();
+      if (futures) {
+        return {
+          ticker: 'KOSPI200F',
+          price: futures.price,
+          previousClose: futures.previousClose,
+          change: futures.change,
+        };
+      }
+      console.warn('⚠️ KOSPI200F 데이터 null — 기본값 사용');
+      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0 };
+    } catch (err) {
+      console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message}`);
+      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0 };
+    }
+  })();
+
+  // 병렬 실행
+  const [yahooResults, kospiResult] = await Promise.all([
+    Promise.all(promises),
+    kisPromise
+  ]);
 
   for (const item of yahooResults) {
     results[item.ticker] = item;
   }
+  results[kospiResult.ticker] = kospiResult;
 
   return results;
 }
@@ -306,12 +334,17 @@ async function getActiveWeights() {
         totalAbsCorr += Math.abs(DEFAULT_WEIGHTS[ticker].weight);
       } else {
         const originalSign = Math.sign(DEFAULT_WEIGHTS[ticker].weight);
+        const isReferenceOnly = DEFAULT_WEIGHTS[ticker].weight === 0;
+
         const absCorr = Math.abs(corr);
         calibrated[ticker] = {
           ...DEFAULT_WEIGHTS[ticker],
-          weight: originalSign * absCorr,
+          weight: isReferenceOnly ? 0 : originalSign * absCorr,
         };
-        totalAbsCorr += absCorr;
+
+        if (!isReferenceOnly) {
+          totalAbsCorr += absCorr;
+        }
       }
     }
 
@@ -653,13 +686,14 @@ async function fetchAndPredict(bypassCache = false) {
     console.warn('⚠️ KOSPI 전일 종가 조회 실패(KIS API):', e.message);
   }
 
-  // 2순위: KIS API 실패 시 Yahoo Finance(^KS11) 폴백
+  // 2순위: KIS API 실패 시 Naver Finance 폴백
   if (previousKospi === null) {
     try {
-      const kospiUrl = `https://query1.finance.yahoo.com/v8/finance/chart/%5EKS11?range=5d&interval=1d`;
-      const kospiData = await new Promise((resolve, reject) => {
-        https.get(kospiUrl, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+      // Naver Finance API는 안정적이며 KOSPI 종가 및 등락률을 제공함
+      const naverUrl = `https://m.stock.naver.com/api/index/KOSPI/basic`;
+      const naverData = await new Promise((resolve, reject) => {
+        https.get(naverUrl, {
+          headers: { 'User-Agent': 'Mozilla/5.0' }
         }, (res) => {
           let data = '';
           res.on('data', chunk => data += chunk);
@@ -669,28 +703,31 @@ async function fetchAndPredict(bypassCache = false) {
         }).on('error', reject);
       });
 
-      const result = kospiData.chart?.result?.[0];
-      if (result) {
-        const timestamps = result.timestamp || [];
-        const closes = result.indicators?.quote?.[0]?.close || [];
-        const todayKST = getTodayKST(); // 'YYYY-MM-DD'
-        let lastClose = null;
-        let lastDateStr = null;
-        for (let i = timestamps.length - 1; i >= 0; i--) {
-          const date = new Date((timestamps[i] + 9 * 3600) * 1000);
-          const dateStr = date.toISOString().slice(0, 10);
-          if (dateStr !== todayKST && closes[i] != null) {
-            lastClose = closes[i];
-            lastDateStr = dateStr;
-            console.log(`📈 KOSPI 전일 종가 (Yahoo 폴백): ${lastClose} (${dateStr})`);
-            break;
-          }
+      if (naverData && naverData.closePrice) {
+        // Naver API는 현재가(closePrice)와 전일대비(compareToPreviousClosePrice)를 제공
+        // 장 개장 전이거나 오늘 휴장일이라면 closePrice가 곧 전일 종가와 동일한 의미를 가짐.
+        // 보다 정확한 전일 종가(previousClose) = 현재가 - 전일대비 증감액
+        const currentPrice = parseFloat(naverData.closePrice.replace(/,/g, ''));
+        const diff = parseFloat((naverData.compareToPreviousClosePrice || '0').replace(/,/g, ''));
+
+        const todayKST = getTodayKST().replace(/-/g, '');
+        const tradeDateStr = naverData.localTrdDd; // ex) "20260306"
+
+        if (tradeDateStr === todayKST) {
+          // 오늘 장이 열려서 데이터가 오늘 날짜인 경우, "전일 종가"를 구해야 하므로 증감액을 빼줌
+          previousKospi = +(currentPrice - diff).toFixed(2);
+          // 전일 날짜는 정확히 알기 어렵지만 예측 로직상 값 자체가 중요함
+          previousKospiDate = `${tradeDateStr.slice(0, 4)}-${tradeDateStr.slice(4, 6)}-${tradeDateStr.slice(6, 8)} (Derived)`;
+        } else {
+          // 오늘 장이 안 열렸거나(휴장) 개장 전이라 마지막 거래일 데이터인 경우, 그 자체가 전일 종가임
+          previousKospi = currentPrice;
+          previousKospiDate = `${tradeDateStr.slice(0, 4)}-${tradeDateStr.slice(4, 6)}-${tradeDateStr.slice(6, 8)}`;
         }
-        previousKospi = lastClose ? +lastClose.toFixed(2) : null;
-        previousKospiDate = lastDateStr;
+
+        console.log(`📈 KOSPI 전일 종가 (Naver 폴백): ${previousKospi} (${previousKospiDate})`);
       }
     } catch (e) {
-      console.warn('⚠️ KOSPI 전일 종가 폴백 조회 실패 (Yahoo):', e.message);
+      console.warn('⚠️ KOSPI 전일 종가 폴백 조회 실패 (Naver):', e.message);
     }
   }
 
