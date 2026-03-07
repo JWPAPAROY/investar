@@ -473,6 +473,72 @@ module.exports = async (req, res) => {
           };
         }
 
+        // === 당일 동향 진단 (check-today 로직) ===
+        let diagnosis = null;
+        if (rec.is_top3 && dailyPrices.length >= 2) {
+          const latest = dailyPrices[dailyPrices.length - 1];
+          const prev = dailyPrices[dailyPrices.length - 2];
+          const latestVol = latest.volume || 0;
+          const prevVol = prev.volume || 0;
+          const volRatio = prevVol > 0 ? latestVol / prevVol : 0;
+          // 5일 평균 거래량 대비 비율 (노이즈 감소)
+          const recent5 = dailyPrices.slice(-Math.min(6, dailyPrices.length), -1);
+          const avg5Vol = recent5.length > 0
+            ? recent5.reduce((s, p) => s + (p.volume || 0), 0) / recent5.length
+            : prevVol;
+          const volRatio5d = avg5Vol > 0 ? latestVol / avg5Vol : volRatio;
+          const dayReturn = prev.price > 0
+            ? ((latest.price - prev.price) / prev.price * 100)
+            : 0;
+          const instDays = rec.institution_days || 0;
+          const forDays = rec.foreign_days || 0;
+          const hasMajorSupply = instDays >= 2 || forDays >= 2;
+
+          // 전일 대비와 5일 평균 대비 중 안정적인 쪽 기준 사용
+          const vr = volRatio5d;
+          let badge, comment;
+          if (dayReturn < -3 && vr < 0.4) {
+            badge = 'shield';
+            comment = '거래량 미동반 하락 — 시장 동조 가능성 (패닉셀)';
+          } else if (dayReturn < -3 && vr >= 0.8) {
+            if (hasMajorSupply) {
+              badge = 'caution';
+              comment = '대량 하락이나 기관/외인 수급 유지 — 일시적 조정 가능성';
+            } else {
+              badge = 'danger';
+              comment = '거래량 동반 하락 — 매수 주체 이탈 가능성';
+            }
+          } else if (dayReturn < -3 && vr >= 0.4 && vr < 0.8) {
+            badge = 'shield';
+            comment = '소량 거래 하락 — 본격 이탈보다 눌림목 가능성';
+          } else if (dayReturn > 3 && vr >= 1.5) {
+            badge = 'rocket';
+            comment = '거래량 동반 급등 — 강한 추세 형성 중';
+          } else if (dayReturn > 3 && vr < 0.5) {
+            badge = 'caution';
+            comment = '저거래량 급등 — 지속성 불확실';
+          } else if (dayReturn > 0 && hasMajorSupply) {
+            badge = 'thumbsup';
+            comment = '메이저 수급 유입 중 — 양호한 흐름';
+          } else if (dayReturn < 0 && hasMajorSupply) {
+            badge = 'thumbsup';
+            comment = '소폭 하락이나 메이저 수급 유지 — 홀딩 유효';
+          } else {
+            badge = 'neutral';
+            comment = '특이 동향 없음 — 정상 범위 내 변동';
+          }
+
+          diagnosis = {
+            badge,
+            comment,
+            dayReturn: parseFloat(dayReturn.toFixed(2)),
+            volumeRatio: parseFloat(volRatio.toFixed(2)),
+            volumeRatio5d: parseFloat(volRatio5d.toFixed(2)),
+            institutionDays: instDays,
+            foreignDays: forDays
+          };
+        }
+
         stocksWithPerformance.push({
           ...rec,
           current_price: currentPrice,
@@ -480,10 +546,11 @@ module.exports = async (req, res) => {
           days_since_recommendation: daysSince,
           consecutive_rise_days: consecutiveRiseDays,
           is_winning: returnPct > 0,
-          is_rising: consecutiveRiseDays >= 2 && returnPct > 0, // 2일 이상 연속 상승 + 수익 중
-          daily_prices: dailyPrices, // 날짜별 가격 데이터 추가
-          sell_signals: sellSignals.length > 0 ? sellSignals : null, // 매도 신호 추가
-          rise_analysis: riseAnalysis // 🆕 연속 급등 분석
+          is_rising: consecutiveRiseDays >= 2 && returnPct > 0,
+          daily_prices: dailyPrices,
+          sell_signals: sellSignals.length > 0 ? sellSignals : null,
+          rise_analysis: riseAnalysis,
+          diagnosis // 당일 동향 진단
         });
 
         // Supabase만 조회하므로 Rate limit 대기 불필요 (KIS API 호출 제거됨)

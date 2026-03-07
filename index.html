@@ -2873,22 +2873,46 @@
                         const today = new Date();
                         const recLabel = recDate ? `${recDate.getMonth() + 1}/${recDate.getDate()}` : '-';
                         const todayLabel = `${today.getMonth() + 1}/${today.getDate()}`;
+                        const diag = stock.diagnosis;
+                        const diagEmoji = diag ? ({
+                          shield: '🛡️', danger: '⚠️', caution: '⚡', rocket: '🚀', thumbsup: '👍', neutral: '📊'
+                        })[diag.badge] || '📊' : null;
+                        const diagColor = diag ? ({
+                          shield: 'bg-blue-50 text-blue-700 border-blue-200',
+                          danger: 'bg-red-50 text-red-700 border-red-200',
+                          caution: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+                          rocket: 'bg-green-50 text-green-700 border-green-200',
+                          thumbsup: 'bg-green-50 text-green-700 border-green-200',
+                          neutral: 'bg-gray-50 text-gray-600 border-gray-200'
+                        })[diag.badge] || 'bg-gray-50 text-gray-600 border-gray-200' : null;
                         return (
-                          <div key={stock.stock_code + stock.recommendation_date} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded gap-2">
-                            <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
-                              <span className="font-bold text-orange-600 text-sm">#{index + 1}</span>
-                              <span className="font-semibold text-sm truncate">{stock.stock_name}</span>
-                              <span className="text-[10px] md:text-xs text-gray-400">{stock.stock_code}</span>
-                              {stock.is_rising && <span className="text-[10px] md:text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">🔥</span>}
+                          <div key={stock.stock_code + stock.recommendation_date} className="p-2 hover:bg-gray-50 rounded">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-1 md:gap-2 min-w-0 flex-wrap">
+                                <span className="font-bold text-orange-600 text-sm">#{index + 1}</span>
+                                <span className="font-semibold text-sm truncate">{stock.stock_name}</span>
+                                <span className="text-[10px] md:text-xs text-gray-400">{stock.stock_code}</span>
+                                {stock.is_rising && <span className="text-[10px] md:text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded">🔥</span>}
+                              </div>
+                              <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
+                                <span className="text-[10px] md:text-xs text-gray-400">
+                                  {recLabel}→{todayLabel}
+                                </span>
+                                <span className={`font-bold text-sm ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
+                                  {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
+                                </span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-1 md:gap-3 flex-shrink-0">
-                              <span className="text-[10px] md:text-xs text-gray-400">
-                                {recLabel}→{todayLabel}
-                              </span>
-                              <span className={`font-bold text-sm ${stock.is_winning ? 'text-green-600' : 'text-red-600'}`}>
-                                {stock.current_return > 0 ? '+' : ''}{stock.current_return.toFixed(1)}%
-                              </span>
-                            </div>
+                            {diag && (
+                              <div className={`mt-1 ml-6 px-2 py-1 rounded border text-[10px] md:text-xs ${diagColor}`}>
+                                {diagEmoji} {diag.comment}
+                                <span className="ml-1 opacity-70">
+                                  (당일 {diag.dayReturn > 0 ? '+' : ''}{diag.dayReturn}%, 거래량 {diag.volumeRatio5d || diag.volumeRatio}배
+                                  {diag.institutionDays >= 2 ? ` · 기관${diag.institutionDays}일` : ''}
+                                  {diag.foreignDays >= 2 ? ` · 외인${diag.foreignDays}일` : ''})
+                                </span>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
