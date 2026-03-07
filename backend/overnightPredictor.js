@@ -502,12 +502,14 @@ async function updateActualResult(date) {
     // KOSPI(^KS11), KOSDAQ(^KQ11) 데이터 가져오기
     let kospiChange = null, kosdaqChange = null;
     let kospiCloseChange = null, kosdaqCloseChange = null;
+    let kospiClosePrice = null, kosdaqClosePrice = null;
 
     try {
       const kospiQuote = await yahooQuote('^KS11');
       if (kospiQuote.previousClose) {
         kospiChange = +((kospiQuote.open - kospiQuote.previousClose) / kospiQuote.previousClose * 100).toFixed(3);
         kospiCloseChange = +kospiQuote.change.toFixed(3);
+        kospiClosePrice = +kospiQuote.price.toFixed(2);
       }
     } catch (e) {
       console.warn('⚠️ KOSPI 데이터 수집 실패:', e.message);
@@ -518,6 +520,7 @@ async function updateActualResult(date) {
       if (kosdaqQuote.previousClose) {
         kosdaqChange = +((kosdaqQuote.open - kosdaqQuote.previousClose) / kosdaqQuote.previousClose * 100).toFixed(3);
         kosdaqCloseChange = +kosdaqQuote.change.toFixed(3);
+        kosdaqClosePrice = +kosdaqQuote.price.toFixed(2);
       }
     } catch (e) {
       console.warn('⚠️ KOSDAQ 데이터 수집 실패:', e.message);
@@ -537,22 +540,34 @@ async function updateActualResult(date) {
       hit = true;
     }
 
-    const { error } = await supabase
+    const updatePayload = {
+      kospi_open_change: kospiChange,
+      kospi_close_change: kospiCloseChange,
+      kosdaq_open_change: kosdaqChange,
+      kosdaq_close_change: kosdaqCloseChange,
+      actual_direction: actualDirection,
+      hit,
+    };
+
+    // kospi_close/kosdaq_close 컬럼이 있으면 저장 (신규 컬럼, 없을 수 있음)
+    let { error } = await supabase
       .from('overnight_predictions')
-      .update({
-        kospi_open_change: kospiChange,
-        kospi_close_change: kospiCloseChange,
-        kosdaq_open_change: kosdaqChange,
-        kosdaq_close_change: kosdaqCloseChange,
-        actual_direction: actualDirection,
-        hit,
-      })
+      .update({ ...updatePayload, kospi_close: kospiClosePrice, kosdaq_close: kosdaqClosePrice })
       .eq('prediction_date', date);
+
+    // 컬럼 미존재 에러 시 fallback (신규 컬럼 없이 재시도)
+    if (error && error.message && error.message.includes('kospi_close')) {
+      console.warn('⚠️ kospi_close/kosdaq_close 컬럼 없음, 기본 필드만 저장');
+      ({ error } = await supabase
+        .from('overnight_predictions')
+        .update(updatePayload)
+        .eq('prediction_date', date));
+    }
 
     if (error) {
       console.warn('⚠️ 실제 결과 업데이트 실패:', error.message);
     } else {
-      console.log(`✅ 실제 결과 업데이트 (${date}): ${actualDirection}, hit=${hit}`);
+      console.log(`✅ 실제 결과 업데이트 (${date}): ${actualDirection}, hit=${hit}, kospi=${kospiClosePrice}, kosdaq=${kosdaqClosePrice}`);
     }
   } catch (err) {
     console.warn('⚠️ 실제 결과 업데이트 예외:', err.message);
@@ -568,17 +583,32 @@ async function getAccuracy() {
   try {
     const { data, error } = await supabase
       .from('overnight_predictions')
-      .select('hit')
+      .select('hit, score, kospi_close_change, expected_change')
       .not('hit', 'is', null);
 
     if (error || !data || data.length === 0) return null;
 
     const total = data.length;
     const hits = data.filter(d => d.hit === true).length;
+
+    // 밴드 적중률 계산
+    let bandTotal = 0, bandHits = 0;
+    for (const d of data) {
+      if (d.kospi_close_change == null) continue;
+      const exp = d.expected_change || calcExpectedChange(+d.score, DEFAULT_REGRESSION);
+      if (exp && exp.min != null && exp.max != null) {
+        bandTotal++;
+        if (d.kospi_close_change >= exp.min && d.kospi_close_change <= exp.max) bandHits++;
+      }
+    }
+
     return {
       total,
       hits,
       rate: +(hits / total * 100).toFixed(1),
+      bandTotal,
+      bandHits,
+      bandRate: bandTotal > 0 ? +(bandHits / bandTotal * 100).toFixed(1) : null,
     };
   } catch (err) {
     return null;
@@ -693,7 +723,7 @@ async function fetchAndPredict(bypassCache = false) {
             : generateRuleBriefing(lastPred.factors || [], sig, +lastPred.score),
           factors: lastPred.factors || [],
           guidance: sig.guidance,
-          weightsSource: lastPred.weights ? 'calibrated_60d' : 'default',
+          weightsSource: lastPred.weights_source || (lastPred.weights ? 'calibrated_60d' : 'default'),
           previousKospi: lastPred.previous_kospi,
           regression,
           expectedChange: expChg,
@@ -710,8 +740,10 @@ async function fetchAndPredict(bypassCache = false) {
           todayResult: lastPred.hit != null ? {
             kospiCloseChange: lastPred.kospi_close_change != null ? +lastPred.kospi_close_change : null,
             kosdaqCloseChange: lastPred.kosdaq_close_change != null ? +lastPred.kosdaq_close_change : null,
-            kospiClose: (lastPred.kospi_close_change != null && lastPred.previous_kospi)
-              ? Math.round(lastPred.previous_kospi * (1 + lastPred.kospi_close_change / 100)) : null,
+            kospiClose: lastPred.kospi_close != null ? +lastPred.kospi_close
+              : (lastPred.kospi_close_change != null && lastPred.previous_kospi)
+                ? Math.round(lastPred.previous_kospi * (1 + lastPred.kospi_close_change / 100)) : null,
+            kosdaqClose: lastPred.kosdaq_close != null ? +lastPred.kosdaq_close : null,
             bandHit: (lastPred.kospi_close_change != null && expChg)
               ? (lastPred.kospi_close_change >= expChg.min && lastPred.kospi_close_change <= expChg.max) : null,
             actualDirection: lastPred.actual_direction,
@@ -863,7 +895,7 @@ async function fetchAndPredict(bypassCache = false) {
             aiInterpretation,
             factors: existing.factors || [],
             guidance: sig.guidance,
-            weightsSource: existing.weights ? 'calibrated_60d' : 'default',
+            weightsSource: existing.weights_source || (existing.weights ? 'calibrated_60d' : 'default'),
             previousKospi,
             regression: cachedRegression,
             expectedChange: expChg,
@@ -880,8 +912,10 @@ async function fetchAndPredict(bypassCache = false) {
             todayResult: existing.hit != null ? {
               kospiCloseChange: existing.kospi_close_change != null ? +existing.kospi_close_change : null,
               kosdaqCloseChange: existing.kosdaq_close_change != null ? +existing.kosdaq_close_change : null,
-              kospiClose: (existing.kospi_close_change != null && previousKospi)
-                ? Math.round(previousKospi * (1 + existing.kospi_close_change / 100)) : null,
+              kospiClose: existing.kospi_close != null ? +existing.kospi_close
+                : (existing.kospi_close_change != null && previousKospi)
+                  ? Math.round(previousKospi * (1 + existing.kospi_close_change / 100)) : null,
+              kosdaqClose: existing.kosdaq_close != null ? +existing.kosdaq_close : null,
               bandHit: (existing.kospi_close_change != null && expChg)
                 ? (existing.kospi_close_change >= expChg.min && existing.kospi_close_change <= expChg.max) : null,
               actualDirection: existing.actual_direction,

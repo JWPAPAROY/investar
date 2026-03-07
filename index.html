@@ -146,7 +146,9 @@
 
         const scores = history.map(d => d.score);
         const kospiChanges = history.filter(d => d.kospiChange != null).map(d => d.kospiChange);
-        const allVals = [...scores, ...kospiChanges];
+        const bandMins = history.filter(d => d.expectedChange).map(d => d.expectedChange.min);
+        const bandMaxs = history.filter(d => d.expectedChange).map(d => d.expectedChange.max);
+        const allVals = [...scores, ...kospiChanges, ...bandMins, ...bandMaxs];
         const minVal = Math.min(...allVals, -0.5);
         const maxVal = Math.max(...allVals, 0.5);
         const range = maxVal - minVal || 1;
@@ -209,6 +211,41 @@
           ctx.fillText(d.slice(5).replace('-', '/'), toX(i), h - pad.bottom + 6);
         });
 
+        // 예측 밴드 영역 (반투명)
+        ctx.fillStyle = 'rgba(59, 130, 246, 0.08)';
+        ctx.beginPath();
+        history.forEach((d, i) => {
+          if (!d.expectedChange) return;
+          const x = toX(i);
+          const yMax = toY(d.expectedChange.max);
+          if (i === 0) ctx.moveTo(x, yMax);
+          else ctx.lineTo(x, yMax);
+        });
+        for (let i = history.length - 1; i >= 0; i--) {
+          if (!history[i].expectedChange) continue;
+          ctx.lineTo(toX(i), toY(history[i].expectedChange.min));
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // 밴드 상/하한선 (점선)
+        ctx.strokeStyle = 'rgba(59, 130, 246, 0.2)';
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([3, 3]);
+        ['max', 'min'].forEach(key => {
+          ctx.beginPath();
+          let s = false;
+          history.forEach((d, i) => {
+            if (!d.expectedChange) return;
+            const x = toX(i);
+            const y = toY(d.expectedChange[key]);
+            if (!s) { ctx.moveTo(x, y); s = true; }
+            else ctx.lineTo(x, y);
+          });
+          ctx.stroke();
+        });
+        ctx.setLineDash([]);
+
         // KOSPI 실제 변동률 선
         ctx.strokeStyle = '#d1d5db';
         ctx.lineWidth = 1.5;
@@ -251,6 +288,7 @@
         const legendY = 8;
         const items = [
           { color: '#3b82f6', label: '예측 스코어', type: 'line' },
+          { color: 'rgba(59,130,246,0.15)', label: '예측 밴드', type: 'band' },
           { color: '#d1d5db', label: 'KOSPI 실제', type: 'line' },
           { color: '#22c55e', label: '적중', type: 'dot' },
           { color: '#ef4444', label: '미적중', type: 'dot' },
@@ -266,6 +304,9 @@
             ctx.moveTo(legendX, legendY);
             ctx.lineTo(legendX + 14, legendY);
             ctx.stroke();
+          } else if (item.type === 'band') {
+            ctx.fillStyle = item.color;
+            ctx.fillRect(legendX, legendY - 5, 14, 10);
           } else {
             ctx.beginPath();
             ctx.arc(legendX + 7, legendY, 3, 0, Math.PI * 2);
@@ -279,31 +320,38 @@
         });
       }, [history]);
 
-      const handleMouseMove = useCallback((e) => {
+      const findNearest = useCallback((clientX) => {
         const points = chartMapRef.current;
         const canvas = canvasRef.current;
-        if (!points || !canvas || !history || history.length < 2) return;
+        if (!points || !canvas || !history || history.length < 2) return null;
 
         const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        // rect.width = 렌더된 CSS 크기, clientWidth = 요소 CSS 크기 (동일해야 하지만 안전하게)
+        const mouseX = clientX - rect.left;
         const scale = canvas.clientWidth / rect.width;
         const scaledX = mouseX * scale;
 
-        // 가장 가까운 데이터 포인트 찾기
         let nearestIdx = 0, minDist = Infinity;
         points.forEach((p, i) => {
           const dist = Math.abs(scaledX - p.x);
           if (dist < minDist) { minDist = dist; nearestIdx = i; }
         });
 
-        if (minDist > 25) { setTooltip(null); return; }
+        if (minDist > 25) return null;
 
         const d = history[nearestIdx];
         const pt = points[nearestIdx];
-        // +8px = canvas의 p-2 컨테이너 패딩 보정
-        setTooltip({ x: pt.x + 8, y: pt.y + 8, d });
+        return { x: pt.x + 8, y: pt.y + 8, d };
       }, [history]);
+
+      const handleMouseMove = useCallback((e) => {
+        setTooltip(findNearest(e.clientX));
+      }, [findNearest]);
+
+      const handleTouchMove = useCallback((e) => {
+        e.preventDefault();
+        const touch = e.touches[0];
+        if (touch) setTooltip(findNearest(touch.clientX));
+      }, [findNearest]);
 
       if (!history || history.length < 2) return null;
 
@@ -313,7 +361,10 @@
             ref={canvasRef}
             onMouseMove={handleMouseMove}
             onMouseLeave={() => setTooltip(null)}
-            style={{ width: '100%', height: '280px', display: 'block', cursor: 'crosshair' }}
+            onTouchStart={handleTouchMove}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={() => setTooltip(null)}
+            style={{ width: '100%', height: '280px', display: 'block', cursor: 'crosshair', touchAction: 'none' }}
           />
           {tooltip && (
             <div
@@ -1134,12 +1185,18 @@
                           </p>
                         )}
 
-                        <div className="flex items-center justify-center gap-3 text-xs text-gray-500 mt-3">
+                        <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-gray-500 mt-3">
                           {prediction.accuracy && (
-                            <span>📊 적중률 {prediction.accuracy.rate}% ({prediction.accuracy.hits}/{prediction.accuracy.total})</span>
+                            <span>📊 방향 적중 {prediction.accuracy.rate}% ({prediction.accuracy.hits}/{prediction.accuracy.total})</span>
+                          )}
+                          {prediction.accuracy?.bandRate != null && (
+                            <>
+                              <span>|</span>
+                              <span>📏 밴드 적중 {prediction.accuracy.bandRate}% ({prediction.accuracy.bandHits}/{prediction.accuracy.bandTotal})</span>
+                            </>
                           )}
                           <span>|</span>
-                          <span>가중치: {prediction.weightsSource === 'calibrated_60d' ? '자동보정 60일' : '기본값'}</span>
+                          <span>가중치: {prediction.weightsSource === 'calibrated_60d' ? '자동보정' : prediction.weightsSource === 'default' ? '기본값' : prediction.weightsSource || '기본값'}</span>
                         </div>
                       </div>
 
@@ -1150,29 +1207,43 @@
                             <span className="text-2xl">🤖</span> AI 시장 분석 브리핑
                           </h3>
                           <div className="prose prose-sm md:prose-base max-w-none text-gray-700">
-                            {/* 아주 간단한 Markdown 파서 구현 또는 줄바꿈 처리 처리 */}
-                            {prediction.aiInterpretation.split('\n').map((line, i) => {
-                              if (line.trim().startsWith('**') && line.trim().endsWith('**')) {
-                                return <h4 key={i} className="font-bold text-indigo-800 mt-3 mb-1">{line.replace(/\*\*/g, '')}</h4>;
-                              } else if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
-                                return <li key={i} className="ml-4">{line.substring(2).replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</li>;
-                              } else if (line.trim() === '') {
-                                return <br key={i} />;
-                              } else {
-                                // 인라인 볼드체 처리
-                                const parts = line.split(/(\*\*.*?\*\*)/g);
-                                return (
-                                  <p key={i} className="mb-1 leading-relaxed">
-                                    {parts.map((p, j) => {
-                                      if (p.startsWith('**') && p.endsWith('**')) {
-                                        return <strong key={j} className="text-gray-900">{p.slice(2, -2)}</strong>;
-                                      }
-                                      return p;
-                                    })}
-                                  </p>
-                                );
-                              }
-                            })}
+                            {(() => {
+                              const lines = prediction.aiInterpretation.split('\n');
+                              const elements = [];
+                              let listItems = [];
+                              const renderBold = (text) => {
+                                const parts = text.split(/(\*\*.*?\*\*)/g);
+                                return parts.map((p, j) => {
+                                  if (p.startsWith('**') && p.endsWith('**')) {
+                                    return React.createElement('strong', { key: j, className: 'text-gray-900' }, p.slice(2, -2));
+                                  }
+                                  return p;
+                                });
+                              };
+                              const flushList = () => {
+                                if (listItems.length > 0) {
+                                  elements.push(React.createElement('ul', { key: 'ul-' + elements.length, className: 'list-disc ml-5 mb-2 space-y-0.5' }, listItems));
+                                  listItems = [];
+                                }
+                              };
+                              lines.forEach((line, i) => {
+                                if (line.trim().startsWith('**') && line.trim().endsWith('**')) {
+                                  flushList();
+                                  elements.push(React.createElement('h4', { key: i, className: 'font-bold text-indigo-800 mt-3 mb-1' }, line.replace(/\*\*/g, '')));
+                                } else if (line.trim().startsWith('- ') || line.trim().startsWith('* ')) {
+                                  const content = line.trim().startsWith('- ') ? line.trim().substring(2) : line.trim().substring(2);
+                                  listItems.push(React.createElement('li', { key: i, className: 'text-gray-700' }, renderBold(content)));
+                                } else if (line.trim() === '') {
+                                  flushList();
+                                  elements.push(React.createElement('br', { key: i }));
+                                } else {
+                                  flushList();
+                                  elements.push(React.createElement('p', { key: i, className: 'mb-1 leading-relaxed' }, renderBold(line)));
+                                }
+                              });
+                              flushList();
+                              return elements;
+                            })()}
                           </div>
                           <div className="text-xs text-gray-400 text-right mt-3">
                             Powered by Gemini AI
@@ -1210,7 +1281,8 @@
                                 <div className="text-sm">
                                   <span className="text-gray-600">KOSDAQ: </span>
                                   <span className={`font-bold ${tr.kosdaqCloseChange >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                                    {kosdaqSign}{tr.kosdaqCloseChange?.toFixed(2)}%
+                                    {tr.kosdaqClose ? tr.kosdaqClose.toLocaleString() + 'p ' : ''}
+                                    ({kosdaqSign}{tr.kosdaqCloseChange?.toFixed(2)}%)
                                   </span>
                                 </div>
                               )}
@@ -1242,7 +1314,7 @@
                       {prediction.history && prediction.history.length >= 2 && (
                         <div className="bg-white border border-gray-200 rounded-xl p-3 md:p-4 mb-4 shadow-sm">
                           <h3 className="text-sm font-semibold text-gray-700 mb-1">📈 예측 스코어 추이 (최근 30거래일)</h3>
-                          <p className="text-xs text-gray-400 mb-2">파란선: 예측 스코어 | 회색선: KOSPI 실제 변동률 | 🟢적중 🔴미적중 (마우스 오버 시 상세)</p>
+                          <p className="text-xs text-gray-400 mb-2">파란선: 예측 스코어 | 파란영역: 예측 밴드(±σ) | 회색선: KOSPI 실제 | 🟢적중 🔴미적중 (터치/마우스 시 상세)</p>
                           <PredictionChart history={prediction.history} />
                         </div>
                       )}
@@ -1278,6 +1350,7 @@
                               const changeSign = f.change >= 0 ? '+' : '';
                               const weightPct = (Math.abs(f.weight) * 100).toFixed(0);
                               const weightSign = f.weight >= 0 ? '+' : '-';
+                              const isObservation = f.weight === 0;
                               const unitLabel = f.unit || '';
                               const priceStr = f.price
                                 ? (f.price >= 1000
@@ -1313,8 +1386,8 @@
                               return (
                                 <div key={i}>
                                   {/* 데스크탑 */}
-                                  <div className="hidden md:flex items-center gap-1.5 text-sm">
-                                    <span className="w-24 text-left text-gray-700 truncate flex-shrink-0 font-medium">{f.name}</span>
+                                  <div className={`hidden md:flex items-center gap-1.5 text-sm ${isObservation ? 'opacity-45' : ''}`}>
+                                    <span className="w-24 text-left text-gray-700 truncate flex-shrink-0 font-medium">{f.name}{isObservation && <span className="text-xs text-gray-400 ml-0.5">👁</span>}</span>
                                     <span className="w-20 text-right font-mono text-gray-500 flex-shrink-0 text-xs">
                                       {priceStr}{unitLabel && <span className="text-gray-400 ml-0.5">{unitLabel}</span>}
                                     </span>
@@ -1345,7 +1418,7 @@
                                     </span>
                                   </div>
                                   {/* 모바일 */}
-                                  <div className="flex md:hidden items-center gap-1 text-xs" style={{ minWidth: 0 }}>
+                                  <div className={`flex md:hidden items-center gap-1 text-xs ${isObservation ? 'opacity-45' : ''}`} style={{ minWidth: 0 }}>
                                     <span className="w-14 flex-shrink-0 text-gray-700 font-medium truncate" style={{ fontSize: '11px' }}>{f.name}</span>
                                     <span className={`w-12 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`} style={{ fontSize: '11px' }}>
                                       {changeSign}{f.change}%
