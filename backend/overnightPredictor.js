@@ -232,7 +232,7 @@ function calculatePrediction(data, weights, correlations) {
   }
 
   // 기여도 절대값 내림차순 정렬
-  factors.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+  factors.sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
 
   // 신호 판정
   const sig = SIGNAL_TABLE.find(s => score >= s.min);

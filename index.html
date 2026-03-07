@@ -1331,7 +1331,7 @@
                             <span style={{ width: '85px' }} className="text-center">기준시각</span>
                             <span className="w-12 text-right">상관(r)</span>
                             <span className="w-10 text-right">가중치</span>
-                            <span style={{ width: '36px' }}></span>
+                            <span className="flex-1"></span>
                             <span className="w-14 text-right">기여도</span>
                           </div>
                           {/* 모바일 테이블 헤더 */}
@@ -1350,7 +1350,7 @@
                               const changeSign = f.change >= 0 ? '+' : '';
                               const weightPct = (Math.abs(f.weight) * 100).toFixed(0);
                               const weightSign = f.weight >= 0 ? '+' : '-';
-                              const isObservation = f.weight === 0;
+                              const isObservation = f.weight === 0 && f.ticker !== 'EWY';
                               const unitLabel = f.unit || '';
                               const priceStr = f.price
                                 ? (f.price >= 1000
@@ -1407,7 +1407,7 @@
                                     <span className="w-10 text-right font-mono text-xs text-gray-400 flex-shrink-0">
                                       {weightSign}{weightPct}%
                                     </span>
-                                    <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex-shrink-0" style={{ width: '36px' }}>
+                                    <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: '20px' }}>
                                       <div
                                         className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
                                         style={{ width: barWidth + '%' }}
