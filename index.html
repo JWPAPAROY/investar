@@ -1059,7 +1059,7 @@
                   const hasFactorData = factors.some(f => f.change !== 0);
                   const maxAbsContrib = Math.max(...factors.map(f => Math.abs(f.contribution)), 0.01);
                   const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
-                  const displayFactors = factors;
+                  const displayFactors = [...factors].sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
                   const sign = prediction.score >= 0 ? '+' : '';
                   const todayDateStr = (() => {
                     const d = new Date();
