@@ -1257,28 +1257,37 @@
                             <span className="w-24 text-right">종가</span>
                             <span className="w-16 text-right">변동률</span>
                             <span className="w-10 text-center">날짜</span>
-                            <span className="w-16 text-right">기여도</span>
+                            <span className="w-10 text-right">가중치</span>
+                            <span style={{ width: '60px' }}></span>
+                            <span className="w-14 text-right">기여도</span>
                           </div>
                           {/* 모바일 테이블 헤더 */}
                           <div className="flex md:hidden items-center text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{ fontSize: '10px' }}>
                             <span className="w-16 flex-shrink-0 text-left">지수</span>
-                            <span className="w-14 text-right flex-shrink-0">변동률</span>
-                            <span className="w-9 text-center flex-shrink-0">날짜</span>
-                            <span className="w-14 text-right flex-shrink-0">기여도</span>
+                            <span className="w-12 text-right flex-shrink-0">변동률</span>
+                            <span className="w-8 text-center flex-shrink-0">날짜</span>
+                            <span className="w-8 text-right flex-shrink-0">가중</span>
+                            <span className="flex-1"></span>
+                            <span className="w-12 text-right flex-shrink-0">기여도</span>
                           </div>
                           <div className="space-y-1">
                             {displayFactors.map((f, i) => {
+                              const barWidth = Math.min(Math.abs(f.contribution) / maxAbsContrib * 100, 100);
                               const isPositive = f.contribution >= 0;
                               const changeSign = f.change >= 0 ? '+' : '';
+                              const weightPct = (Math.abs(f.weight) * 100).toFixed(0);
+                              const weightSign = f.weight >= 0 ? '+' : '-';
                               const unitLabel = f.unit || '';
                               const priceStr = f.price
                                 ? (f.price >= 1000
                                   ? f.price.toLocaleString(undefined, { maximumFractionDigits: 0 })
                                   : f.price.toFixed(2))
                                 : '-';
-                              const dateLabel = f.dataDate
-                                ? (() => { const d = new Date(f.dataDate); return `${d.getMonth()+1}/${d.getDate()}`; })()
-                                : '-';
+                              // 날짜: factor별 dataDate → prediction.usMarketDate fallback
+                              const rawDate = f.dataDate || prediction.usMarketDate;
+                              const dateLabel = rawDate
+                                ? (() => { const d = new Date(rawDate); return `${d.getMonth()+1}/${d.getDate()}`; })()
+                                : '';
                               return (
                                 <div key={i}>
                                   {/* 데스크탑 */}
@@ -1293,20 +1302,38 @@
                                     <span className="w-10 text-center font-mono text-xs text-gray-400 flex-shrink-0">
                                       {dateLabel}
                                     </span>
-                                    <span className={`w-16 text-right font-mono text-xs font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                    <span className="w-10 text-right font-mono text-xs text-gray-400 flex-shrink-0">
+                                      {weightSign}{weightPct}%
+                                    </span>
+                                    <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex-shrink-0" style={{ width: '60px' }}>
+                                      <div
+                                        className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
+                                        style={{ width: barWidth + '%' }}
+                                      />
+                                    </div>
+                                    <span className={`w-14 text-right font-mono text-xs font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
                                       {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                     </span>
                                   </div>
                                   {/* 모바일 */}
                                   <div className="flex md:hidden items-center gap-1 text-xs" style={{ minWidth: 0 }}>
                                     <span className="w-16 flex-shrink-0 text-gray-700 font-medium truncate" style={{ fontSize: '11px' }}>{f.name}</span>
-                                    <span className={`w-14 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`} style={{ fontSize: '11px' }}>
+                                    <span className={`w-12 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`} style={{ fontSize: '11px' }}>
                                       {changeSign}{f.change}%
                                     </span>
-                                    <span className="w-9 text-center font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '10px' }}>
+                                    <span className="w-8 text-center font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '9px' }}>
                                       {dateLabel}
                                     </span>
-                                    <span className={`w-14 text-right font-mono font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`} style={{ fontSize: '10px' }}>
+                                    <span className="w-8 text-right font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '9px' }}>
+                                      {weightSign}{weightPct}%
+                                    </span>
+                                    <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: '16px' }}>
+                                      <div
+                                        className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
+                                        style={{ width: barWidth + '%' }}
+                                      />
+                                    </div>
+                                    <span className={`w-12 text-right font-mono font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`} style={{ fontSize: '10px' }}>
                                       {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                     </span>
                                   </div>

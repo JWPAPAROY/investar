@@ -674,7 +674,9 @@ async function fetchAndPredict(bypassCache = false) {
           label: sig.label,
           summary: buildSummaryFromFactors(lastPred.factors, sig),
           vixAlert: detectVixAlertFromFactors(lastPred.factors),
-          aiInterpretation: lastPred.ai_interpretation || '주말에는 시장이 열리지 않아 새로운 AI 분석이 제공되지 않습니다. 금요일 기준 데이터입니다.',
+          aiInterpretation: (lastPred.ai_interpretation && !lastPred.ai_interpretation.includes('실패'))
+            ? lastPred.ai_interpretation
+            : generateRuleBriefing(lastPred.factors || [], sig, +lastPred.score),
           factors: lastPred.factors || [],
           guidance: sig.guidance,
           weightsSource: lastPred.weights ? 'calibrated_60d' : 'default',
@@ -817,9 +819,13 @@ async function fetchAndPredict(bypassCache = false) {
           const expChg = calcExpectedChange(+existing.score, cachedRegression);
 
           let aiInterpretation = existing.ai_interpretation;
-          if (!aiInterpretation && existing.factors) {
+          if ((!aiInterpretation || aiInterpretation.includes('실패')) && existing.factors) {
             aiInterpretation = await generateAiInterpretation(existing.factors, sig, existing.score);
-            // 캐시된 행에 AI 해석이 없으면 업데이트 (에러 메시지가 아닌 경우만)
+            // AI도 실패하면 규칙 기반 fallback
+            if (aiInterpretation && aiInterpretation.includes('실패')) {
+              aiInterpretation = generateRuleBriefing(existing.factors, sig, existing.score);
+            }
+            // 성공한 해석만 DB에 저장
             if (aiInterpretation && !aiInterpretation.includes('실패') && !aiInterpretation.includes('오류')) {
               await supabase
                 .from('overnight_predictions')
@@ -1003,7 +1009,63 @@ async function generateAiInterpretation(factors, sig, score) {
     }
   }
 
-  return `AI 브리핑 생성에 실패했습니다. (시도된 모델 오류: ${accumulatedErrors.join(' | ')})`;
+  // 모든 모델 실패 시 규칙 기반 fallback 브리핑 생성
+  console.log('⚠️ 모든 AI 모델 실패 — 규칙 기반 브리핑 생성');
+  return generateRuleBriefing(factors, sig, score);
+}
+
+/**
+ * AI 실패 시 규칙 기반 브리핑 생성
+ */
+function generateRuleBriefing(factors, sig, score) {
+  const sorted = [...factors].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+  const top3 = sorted.slice(0, 3);
+  const vix = factors.find(f => f.ticker === '^VIX');
+  const usdkrw = factors.find(f => f.ticker === 'USDKRW=X');
+  const kospi200f = factors.find(f => f.ticker === 'KOSPI200F');
+
+  let brief = '';
+
+  // 방향 요약
+  if (score >= 0.5) {
+    brief += `해외 시장 전반이 강세를 보이며 오늘 코스피는 상승 출발이 예상됩니다. `;
+  } else if (score >= 0.15) {
+    brief += `해외 시장이 소폭 강세를 보여 코스피는 약보합~소폭 상승이 예상됩니다. `;
+  } else if (score >= -0.35) {
+    brief += `해외 시장 혼조세로 코스피 방향성이 불확실합니다. `;
+  } else if (score >= -0.75) {
+    brief += `해외 시장 약세 영향으로 코스피는 하락 출발이 예상됩니다. `;
+  } else {
+    brief += `해외 시장이 전반적으로 급락하며 코스피도 상당한 하방 압력을 받을 것으로 보입니다. `;
+  }
+
+  // 주요 팩터 설명
+  const topDesc = top3.map(f => {
+    const dir = f.change >= 0 ? '상승' : '하락';
+    return `${f.name}(${f.change > 0 ? '+' : ''}${f.change}% ${dir})`;
+  }).join(', ');
+  brief += `주요 영향 요인은 ${topDesc}입니다. `;
+
+  // VIX 경고
+  if (vix && vix.change >= 10) {
+    brief += `VIX가 ${vix.change.toFixed(1)}% 급등하여 시장 변동성 확대에 주의가 필요합니다. `;
+  } else if (vix && vix.change <= -5) {
+    brief += `VIX가 하락하며 위험 선호 심리가 개선되고 있습니다. `;
+  }
+
+  // 환율
+  if (usdkrw && Math.abs(usdkrw.change) >= 0.5) {
+    brief += usdkrw.change > 0
+      ? `원화 약세(${usdkrw.change > 0 ? '+' : ''}${usdkrw.change}%)도 외국인 매도 압력 요인입니다. `
+      : `원화 강세(${usdkrw.change}%)는 외국인 수급에 긍정적입니다. `;
+  }
+
+  // KOSPI200F
+  if (kospi200f && kospi200f.change !== 0) {
+    brief += `코스피200 야간선물은 ${kospi200f.change > 0 ? '+' : ''}${kospi200f.change}%로 마감하여 시초가 방향을 가늠할 수 있습니다.`;
+  }
+
+  return brief.trim();
 }
 
 module.exports = {
