@@ -23,18 +23,18 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // KOSPI200F: KIS API 경유 야간선물 — 한국시간 06:00까지 거래, 가장 최신 데이터
 // EWY: iShares MSCI South Korea ETF — 미국 본장(~06:00 KST) 마감 기준, 보조 지표
 const DEFAULT_WEIGHTS = {
-  'KOSPI200F': { name: '코스피200선물', weight: +0.20 }, // 야간선물 최신 데이터, 최대 가중치
-  'EWY': { name: '한국 ETF(EWY)', weight: 0 }, // 관측용 (KOSPI200F와 중복, 미국장 마감 기준이라 6~8h 지연)
-  '^SOX': { name: 'SOX 반도체', weight: +0.15 }, // r=+0.582
-  'NQ=F': { name: '나스닥 선물', weight: +0.11 }, // r=+0.454
-  'CL=F': { name: 'WTI 원유', weight: -0.11 }, // r=-0.423
-  'ES=F': { name: 'S&P500 선물', weight: +0.10 }, // r=+0.418
-  '^VIX': { name: 'VIX 공포', weight: -0.10 }, // r=-0.416
-  'GC=F': { name: '금 선물', weight: +0.08 }, // r=+0.308
-  'HG=F': { name: '구리 선물', weight: +0.07 }, // r=+0.297
-  'USDKRW=X': { name: '달러/원', weight: -0.03 }, // 환리스크 장기악재 유지
-  '^N225': { name: '닛케이', weight: +0.03 }, // r=+0.103
-  '^TNX': { name: '미국10년물', weight: -0.01 }, // r=+0.036
+  'KOSPI200F': { name: '코스피200선물', weight: +0.20, unit: 'pt' }, // 야간선물 최신 데이터, 최대 가중치
+  'EWY': { name: '한국 ETF(EWY)', weight: 0, unit: '$' }, // 관측용 (KOSPI200F와 중복)
+  '^SOX': { name: 'SOX 반도체', weight: +0.15, unit: 'pt' }, // r=+0.582
+  'NQ=F': { name: '나스닥 선물', weight: +0.11, unit: 'pt' }, // r=+0.454
+  'CL=F': { name: 'WTI 원유', weight: -0.11, unit: '$/bbl' }, // r=-0.423
+  'ES=F': { name: 'S&P500 선물', weight: +0.10, unit: 'pt' }, // r=+0.418
+  '^VIX': { name: 'VIX 공포', weight: -0.10, unit: '' }, // r=-0.416
+  'GC=F': { name: '금 선물', weight: +0.08, unit: '$/oz' }, // r=+0.308
+  'HG=F': { name: '구리 선물', weight: +0.07, unit: '$/lb' }, // r=+0.297
+  'USDKRW=X': { name: '달러/원', weight: -0.03, unit: '원' }, // 환리스크 장기악재 유지
+  '^N225': { name: '닛케이', weight: +0.03, unit: '¥' }, // r=+0.103
+  '^TNX': { name: '미국10년물', weight: -0.01, unit: '%' }, // r=+0.036
 };
 // 가중치 절대값 합 = 0.99 (보정 시 자동 정규화)
 
@@ -216,6 +216,8 @@ function calculatePrediction(data, weights) {
       contribution: +contribution.toFixed(4),
       price: d.price ? +d.price.toFixed(2) : null,
       previousClose: d.previousClose ? +d.previousClose.toFixed(2) : null,
+      unit: config.unit || '',
+      dataDate: d.dataDate || null,
     });
   }
 
@@ -633,6 +635,80 @@ async function getRecentHistory(previousKospi, regression) {
 async function fetchAndPredict(bypassCache = false) {
   const today = getTodayKST();
 
+  // 주말 감지: KST 기준 토/일이면 가장 최근 거래일 캐시 반환
+  // today는 'YYYY-MM-DD' KST 기준이므로 직접 파싱
+  const [yy, mm, dd] = today.split('-').map(Number);
+  const kstDay = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay(); // 0=Sun, 6=Sat
+  const isWeekend = kstDay === 0 || kstDay === 6;
+
+  if (isWeekend && !bypassCache && supabase) {
+    try {
+      const { data: lastPred } = await supabase
+        .from('overnight_predictions')
+        .select('*')
+        .lt('prediction_date', today)
+        .not('score', 'is', null)
+        .order('prediction_date', { ascending: false })
+        .limit(1)
+        .single();
+
+      if (lastPred && lastPred.score != null) {
+        console.log(`📅 주말(${today}) — 최근 거래일(${lastPred.prediction_date}) 캐시 반환`);
+        // factors에 unit 보강
+        if (lastPred.factors) {
+          for (const f of lastPred.factors) {
+            if (!f.unit && DEFAULT_WEIGHTS[f.ticker]) f.unit = DEFAULT_WEIGHTS[f.ticker].unit || '';
+          }
+        }
+        const sig = SIGNAL_TABLE.find(s => lastPred.score >= s.min);
+        const regression = await getRegressionParams();
+        const expChg = calcExpectedChange(+lastPred.score, regression);
+        const [accuracy, history] = await Promise.all([
+          getAccuracy(),
+          getRecentHistory(lastPred.previous_kospi, regression),
+        ]);
+        return {
+          score: +lastPred.score,
+          signal: lastPred.signal,
+          emoji: sig.emoji,
+          label: sig.label,
+          summary: buildSummaryFromFactors(lastPred.factors, sig),
+          vixAlert: detectVixAlertFromFactors(lastPred.factors),
+          aiInterpretation: lastPred.ai_interpretation || '주말에는 시장이 열리지 않아 새로운 AI 분석이 제공되지 않습니다. 금요일 기준 데이터입니다.',
+          factors: lastPred.factors || [],
+          guidance: sig.guidance,
+          weightsSource: lastPred.weights ? 'calibrated_60d' : 'default',
+          previousKospi: lastPred.previous_kospi,
+          regression,
+          expectedChange: expChg,
+          estimatedKospi: lastPred.previous_kospi ? {
+            min: Math.round(lastPred.previous_kospi * (1 + expChg.min / 100)),
+            max: Math.round(lastPred.previous_kospi * (1 + expChg.max / 100)),
+          } : null,
+          accuracy,
+          history,
+          date: lastPred.prediction_date,
+          isWeekendCache: true,
+          previousKospiDate: lastPred.previous_kospi_date,
+          usMarketDate: lastPred.us_market_date,
+          todayResult: lastPred.hit != null ? {
+            kospiCloseChange: lastPred.kospi_close_change != null ? +lastPred.kospi_close_change : null,
+            kosdaqCloseChange: lastPred.kosdaq_close_change != null ? +lastPred.kosdaq_close_change : null,
+            kospiClose: (lastPred.kospi_close_change != null && lastPred.previous_kospi)
+              ? Math.round(lastPred.previous_kospi * (1 + lastPred.kospi_close_change / 100)) : null,
+            bandHit: (lastPred.kospi_close_change != null && expChg)
+              ? (lastPred.kospi_close_change >= expChg.min && lastPred.kospi_close_change <= expChg.max) : null,
+            actualDirection: lastPred.actual_direction,
+            hit: lastPred.hit,
+          } : null,
+          timestamp: lastPred.created_at,
+        };
+      }
+    } catch (e) {
+      console.warn('⚠️ 주말 캐시 조회 실패, 새 예측 진행:', e.message);
+    }
+  }
+
   // KOSPI 전일 종가 (예상 지수 산출용)
   // 1순위: KIS API 활용 (0001 일봉 데이터)
   let previousKospi = null;
@@ -725,6 +801,15 @@ async function fetchAndPredict(bypassCache = false) {
         } else {
           console.log(`📊 오늘(${today}) 예측 캐시 사용: ${existing.signal} (${existing.score})`);
 
+          // 캐시된 factors에 unit 보강 (기존 DB 데이터에 unit 필드가 없을 수 있음)
+          if (existing.factors) {
+            for (const f of existing.factors) {
+              if (!f.unit && DEFAULT_WEIGHTS[f.ticker]) {
+                f.unit = DEFAULT_WEIGHTS[f.ticker].unit || '';
+              }
+            }
+          }
+
           // 신호 판정 재계산
           const sig = SIGNAL_TABLE.find(s => existing.score >= s.min);
           const cachedRegression = await getRegressionParams();
@@ -767,6 +852,7 @@ async function fetchAndPredict(bypassCache = false) {
             accuracy,
             history,
             date: today,
+            isWeekendCache: isWeekend || undefined,
             previousKospiDate: existing.previous_kospi_date || previousKospiDate,
             usMarketDate: existing.us_market_date || null,
             todayResult: existing.hit != null ? {

@@ -1074,15 +1074,17 @@ module.exports = async (req, res) => {
     }
   }
 
-  // KRX 휴장일 체크 (cron 자동 실행만 차단, 웹훅 수동 명령은 허용)
+  // KRX 휴장일/주말 체크 (cron 자동 실행만 차단, 웹훅 수동 명령은 허용)
   const todayKST = getTodayDateKST();
-  if (!req._fromWebhook && isKRXHoliday(todayKST)) {
-    console.log(`🏖️ 오늘(${todayKST})은 KRX 휴장일 — cron 건너뜀`);
-    return res.status(200).json({
-      success: true,
-      message: `KRX holiday (${todayKST}) — skipped`,
-      holiday: true
-    });
+  if (!req._fromWebhook) {
+    if (isKRXHoliday(todayKST)) {
+      console.log(`🏖️ 오늘(${todayKST})은 KRX 휴장일 — cron 건너뜀`);
+      return res.status(200).json({ success: true, message: `KRX holiday (${todayKST}) — skipped`, holiday: true });
+    }
+    if (!isTradingDay(todayKST)) {
+      console.log(`📅 오늘(${todayKST})은 주말 — cron 건너뜀`);
+      return res.status(200).json({ success: true, message: `Weekend (${todayKST}) — skipped`, weekend: true });
+    }
   }
 
   console.log(`📊 Cron 실행 (mode: ${mode})\n`);

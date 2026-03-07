@@ -1071,8 +1071,14 @@
                           <div className="flex items-center gap-2">
                             <span className="text-3xl">🌏</span>
                             <div>
-                              <h2 className={`text-lg md:text-2xl font-bold ${textClass}`}>오늘의 시장 전망</h2>
-                              <span className="text-xs text-gray-500">{todayDateStr} (전일 해외장 마감 기준)</span>
+                              <h2 className={`text-lg md:text-2xl font-bold ${textClass}`}>
+                                {prediction.isWeekendCache ? '최근 거래일 시장 전망' : '오늘의 시장 전망'}
+                              </h2>
+                              <span className="text-xs text-gray-500">
+                                {prediction.isWeekendCache
+                                  ? `${prediction.date} 기준 (주말 — 장 미개장)`
+                                  : `${todayDateStr} (전일 해외장 마감 기준)`}
+                              </span>
                             </div>
                           </div>
                           <div className={`${textClass} font-bold text-xl md:text-2xl text-right`}>
@@ -1248,66 +1254,59 @@
                           {/* 데스크탑 테이블 헤더 */}
                           <div className="hidden md:flex items-center gap-2 text-xs text-gray-400 mb-1.5 border-b border-gray-100 pb-1">
                             <span className="w-24 text-left">지수</span>
-                            <span className="w-20 text-right">현재가</span>
+                            <span className="w-24 text-right">종가</span>
                             <span className="w-16 text-right">변동률</span>
-                            <span className="w-12 text-right">가중치</span>
-                            <span className="flex-1"></span>
+                            <span className="w-10 text-center">날짜</span>
                             <span className="w-16 text-right">기여도</span>
                           </div>
                           {/* 모바일 테이블 헤더 */}
                           <div className="flex md:hidden items-center text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{ fontSize: '10px' }}>
                             <span className="w-16 flex-shrink-0 text-left">지수</span>
                             <span className="w-14 text-right flex-shrink-0">변동률</span>
-                            <span className="w-9 text-right flex-shrink-0">가중치</span>
-                            <span className="flex-1"></span>
-                            <span className="w-12 text-right flex-shrink-0">기여도</span>
+                            <span className="w-9 text-center flex-shrink-0">날짜</span>
+                            <span className="w-14 text-right flex-shrink-0">기여도</span>
                           </div>
                           <div className="space-y-1">
                             {displayFactors.map((f, i) => {
-                              const barWidth = Math.min(Math.abs(f.contribution) / maxAbsContrib * 100, 100);
                               const isPositive = f.contribution >= 0;
                               const changeSign = f.change >= 0 ? '+' : '';
-                              const weightPct = (Math.abs(f.weight) * 100).toFixed(0);
-                              const weightSign = f.weight >= 0 ? '+' : '-';
-                              const priceStr = f.price ? (f.price >= 1000 ? f.price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : f.price.toFixed(2)) : '-';
+                              const unitLabel = f.unit || '';
+                              const priceStr = f.price
+                                ? (f.price >= 1000
+                                  ? f.price.toLocaleString(undefined, { maximumFractionDigits: 0 })
+                                  : f.price.toFixed(2))
+                                : '-';
+                              const dateLabel = f.dataDate
+                                ? (() => { const d = new Date(f.dataDate); return `${d.getMonth()+1}/${d.getDate()}`; })()
+                                : '-';
                               return (
                                 <div key={i}>
                                   {/* 데스크탑 */}
                                   <div className="hidden md:flex items-center gap-2 text-sm">
                                     <span className="w-24 text-left text-gray-700 truncate flex-shrink-0 font-medium">{f.name}</span>
-                                    <span className="w-20 text-right font-mono text-gray-500 flex-shrink-0 text-xs">{priceStr}</span>
+                                    <span className="w-24 text-right font-mono text-gray-500 flex-shrink-0 text-xs">
+                                      {priceStr}{unitLabel && <span className="text-gray-400 ml-0.5">{unitLabel}</span>}
+                                    </span>
                                     <span className={`w-16 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                                       {changeSign}{f.change}%
                                     </span>
-                                    <span className="w-12 text-right font-mono text-xs text-gray-400 flex-shrink-0">
-                                      {weightSign}{weightPct}%
+                                    <span className="w-10 text-center font-mono text-xs text-gray-400 flex-shrink-0">
+                                      {dateLabel}
                                     </span>
-                                    <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden">
-                                      <div
-                                        className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
-                                        style={{ width: barWidth + '%' }}
-                                      />
-                                    </div>
                                     <span className={`w-16 text-right font-mono text-xs font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
                                       {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                     </span>
                                   </div>
-                                  {/* 모바일 — 가로 배치, overflow 방지 */}
+                                  {/* 모바일 */}
                                   <div className="flex md:hidden items-center gap-1 text-xs" style={{ minWidth: 0 }}>
                                     <span className="w-16 flex-shrink-0 text-gray-700 font-medium truncate" style={{ fontSize: '11px' }}>{f.name}</span>
                                     <span className={`w-14 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`} style={{ fontSize: '11px' }}>
                                       {changeSign}{f.change}%
                                     </span>
-                                    <span className="w-9 text-right font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '10px' }}>
-                                      {weightSign}{weightPct}%
+                                    <span className="w-9 text-center font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '10px' }}>
+                                      {dateLabel}
                                     </span>
-                                    <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: '20px' }}>
-                                      <div
-                                        className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
-                                        style={{ width: barWidth + '%' }}
-                                      />
-                                    </div>
-                                    <span className={`w-12 text-right font-mono font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`} style={{ fontSize: '10px' }}>
+                                    <span className={`w-14 text-right font-mono font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`} style={{ fontSize: '10px' }}>
                                       {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                     </span>
                                   </div>
