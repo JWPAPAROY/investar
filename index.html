@@ -1254,18 +1254,18 @@
                           {/* 데스크탑 테이블 헤더 */}
                           <div className="hidden md:flex items-center gap-2 text-xs text-gray-400 mb-1.5 border-b border-gray-100 pb-1">
                             <span className="w-24 text-left">지수</span>
-                            <span className="w-24 text-right">종가</span>
-                            <span className="w-16 text-right">변동률</span>
-                            <span className="w-10 text-center">날짜</span>
+                            <span className="w-20 text-right">종가</span>
+                            <span className="w-14 text-right">변동률</span>
+                            <span className="w-20 text-center">기준시각</span>
                             <span className="w-10 text-right">가중치</span>
-                            <span style={{ width: '60px' }}></span>
+                            <span style={{ width: '48px' }}></span>
                             <span className="w-14 text-right">기여도</span>
                           </div>
                           {/* 모바일 테이블 헤더 */}
                           <div className="flex md:hidden items-center text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{ fontSize: '10px' }}>
-                            <span className="w-16 flex-shrink-0 text-left">지수</span>
+                            <span className="w-14 flex-shrink-0 text-left">지수</span>
                             <span className="w-12 text-right flex-shrink-0">변동률</span>
-                            <span className="w-8 text-center flex-shrink-0">날짜</span>
+                            <span className="w-16 text-center flex-shrink-0">기준시각</span>
                             <span className="w-8 text-right flex-shrink-0">가중</span>
                             <span className="flex-1"></span>
                             <span className="w-12 text-right flex-shrink-0">기여도</span>
@@ -1283,29 +1283,36 @@
                                   ? f.price.toLocaleString(undefined, { maximumFractionDigits: 0 })
                                   : f.price.toFixed(2))
                                 : '-';
-                              // 날짜: factor별 dataDate → prediction.usMarketDate fallback
-                              const rawDate = f.dataDate || prediction.usMarketDate;
-                              const dateLabel = rawDate
-                                ? (() => { const d = new Date(rawDate); return `${d.getMonth()+1}/${d.getDate()}`; })()
-                                : '';
+                              // 날짜+시각: factor별 dataTimestamp → dataDate → usMarketDate fallback
+                              const dateLabel = (() => {
+                                if (f.dataTimestamp) {
+                                  // "YYYY-MM-DD HH:mm" → "M/D HH:mm"
+                                  const [datePart, timePart] = f.dataTimestamp.split(' ');
+                                  const [, m, d] = datePart.split('-');
+                                  return `${+m}/${+d} ${timePart}`;
+                                }
+                                const rawDate = f.dataDate || prediction.usMarketDate;
+                                if (rawDate) { const d = new Date(rawDate); return `${d.getMonth()+1}/${d.getDate()}`; }
+                                return '';
+                              })();
                               return (
                                 <div key={i}>
                                   {/* 데스크탑 */}
                                   <div className="hidden md:flex items-center gap-2 text-sm">
                                     <span className="w-24 text-left text-gray-700 truncate flex-shrink-0 font-medium">{f.name}</span>
-                                    <span className="w-24 text-right font-mono text-gray-500 flex-shrink-0 text-xs">
+                                    <span className="w-20 text-right font-mono text-gray-500 flex-shrink-0 text-xs">
                                       {priceStr}{unitLabel && <span className="text-gray-400 ml-0.5">{unitLabel}</span>}
                                     </span>
-                                    <span className={`w-16 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                    <span className={`w-14 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`}>
                                       {changeSign}{f.change}%
                                     </span>
-                                    <span className="w-10 text-center font-mono text-xs text-gray-400 flex-shrink-0">
+                                    <span className="w-20 text-center font-mono text-xs text-gray-400 flex-shrink-0">
                                       {dateLabel}
                                     </span>
                                     <span className="w-10 text-right font-mono text-xs text-gray-400 flex-shrink-0">
                                       {weightSign}{weightPct}%
                                     </span>
-                                    <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex-shrink-0" style={{ width: '60px' }}>
+                                    <div className="h-3 bg-gray-100 rounded-full overflow-hidden flex-shrink-0" style={{ width: '48px' }}>
                                       <div
                                         className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
                                         style={{ width: barWidth + '%' }}
@@ -1317,17 +1324,17 @@
                                   </div>
                                   {/* 모바일 */}
                                   <div className="flex md:hidden items-center gap-1 text-xs" style={{ minWidth: 0 }}>
-                                    <span className="w-16 flex-shrink-0 text-gray-700 font-medium truncate" style={{ fontSize: '11px' }}>{f.name}</span>
+                                    <span className="w-14 flex-shrink-0 text-gray-700 font-medium truncate" style={{ fontSize: '11px' }}>{f.name}</span>
                                     <span className={`w-12 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`} style={{ fontSize: '11px' }}>
                                       {changeSign}{f.change}%
                                     </span>
-                                    <span className="w-8 text-center font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '9px' }}>
+                                    <span className="w-16 text-center font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '9px' }}>
                                       {dateLabel}
                                     </span>
                                     <span className="w-8 text-right font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '9px' }}>
                                       {weightSign}{weightPct}%
                                     </span>
-                                    <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: '16px' }}>
+                                    <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: '14px' }}>
                                       <div
                                         className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
                                         style={{ width: barWidth + '%' }}

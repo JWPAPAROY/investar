@@ -25,7 +25,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const DEFAULT_WEIGHTS = {
   'KOSPI200F': { name: '코스피200선물', weight: +0.20, unit: 'pt' }, // 야간선물 최신 데이터, 최대 가중치
   'EWY': { name: '한국 ETF(EWY)', weight: 0, unit: '$' }, // 관측용 (KOSPI200F와 중복)
-  '^SOX': { name: 'SOX 반도체', weight: +0.15, unit: 'pt' }, // r=+0.582
+  '^SOX': { name: 'SOX 반도체', weight: +0.18, unit: 'pt' }, // r=+0.582
   'NQ=F': { name: '나스닥 선물', weight: +0.11, unit: 'pt' }, // r=+0.454
   'CL=F': { name: 'WTI 원유', weight: -0.11, unit: '$/bbl' }, // r=-0.423
   'ES=F': { name: 'S&P500 선물', weight: +0.10, unit: 'pt' }, // r=+0.418
@@ -33,7 +33,7 @@ const DEFAULT_WEIGHTS = {
   'GC=F': { name: '금 선물', weight: +0.08, unit: '$/oz' }, // r=+0.308
   'HG=F': { name: '구리 선물', weight: +0.07, unit: '$/lb' }, // r=+0.297
   'USDKRW=X': { name: '달러/원', weight: -0.03, unit: '원' }, // 환리스크 장기악재 유지
-  '^N225': { name: '닛케이', weight: +0.03, unit: '¥' }, // r=+0.103
+  '^N225': { name: '닛케이', weight: 0, unit: '¥' }, // r=+0.103, 15:00 KST 마감 → 18h 시차, 관측용
   '^TNX': { name: '미국10년물', weight: -0.01, unit: '%' }, // r=+0.036
 };
 // 가중치 절대값 합 = 0.99 (보정 시 자동 정규화)
@@ -98,11 +98,14 @@ function yahooQuote(symbol) {
           const opens = result.indicators?.quote?.[0]?.open || [];
 
           let dataDate = null;
+          let dataTimestamp = null; // KST 기준 마감 시각 (ISO string)
           if (result.timestamp && result.timestamp.length > 0) {
-            // Convert UNIX timestamp to YYYY-MM-DD (US Eastern time approximated by simple UTC - 5h)
-            // Or simpler: just use KST KOSPI format by resolving Date
-            const d = new Date(result.timestamp[result.timestamp.length - 1] * 1000);
+            const unixTs = result.timestamp[result.timestamp.length - 1];
+            const d = new Date(unixTs * 1000);
             dataDate = d.toISOString().slice(0, 10);
+            // KST 변환 (UTC+9)
+            const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+            dataTimestamp = kst.toISOString().replace('T', ' ').slice(0, 16); // "YYYY-MM-DD HH:mm"
           }
 
           // 최신 2일 데이터에서 변동률 계산
@@ -118,7 +121,8 @@ function yahooQuote(symbol) {
                 chartPreviousClose: meta.chartPreviousClose || meta.previousClose || prevClose,
                 open: currOpen || currClose,
                 change: +change.toFixed(4),
-                dataDate
+                dataDate,
+                dataTimestamp,
               });
               return;
             }
@@ -128,7 +132,7 @@ function yahooQuote(symbol) {
           const price = meta.regularMarketPrice || 0;
           const prevClose = meta.chartPreviousClose || meta.previousClose || 0;
           const change = prevClose ? ((price - prevClose) / prevClose) * 100 : 0;
-          resolve({ price, previousClose: prevClose, open: price, change: +change.toFixed(4), dataDate });
+          resolve({ price, previousClose: prevClose, open: price, change: +change.toFixed(4), dataDate, dataTimestamp });
         } catch (e) {
           reject(e);
         }
@@ -162,11 +166,15 @@ async function fetchOvernightData() {
     try {
       const futures = await kisApi.getKospi200FuturesPrice();
       if (futures) {
+        // 야간선물 마감 06:00 KST (평일), dataDate는 오늘 KST 기준
+        const todayKST = getTodayKST();
         return {
           ticker: 'KOSPI200F',
           price: futures.price,
           previousClose: futures.previousClose,
           change: futures.change,
+          dataDate: todayKST,
+          dataTimestamp: `${todayKST} 06:00`,
         };
       }
       console.warn('⚠️ KOSPI200F 데이터 null — 기본값 사용');
@@ -218,6 +226,7 @@ function calculatePrediction(data, weights) {
       previousClose: d.previousClose ? +d.previousClose.toFixed(2) : null,
       unit: config.unit || '',
       dataDate: d.dataDate || null,
+      dataTimestamp: d.dataTimestamp || null,
     });
   }
 
