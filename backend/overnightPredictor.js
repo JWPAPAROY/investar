@@ -985,19 +985,25 @@ function getTodayKST() {
 
 function buildSummaryFromFactors(factors, sig) {
   if (!factors || factors.length === 0) return sig.label;
-  const top3 = factors.slice(0, 3);
+  // 기여도 절대값 상위 3개 — KOSPI에 미친 영향 중심으로 서술
+  const sorted = [...factors].sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+  const top3 = sorted.filter(f => f.contribution !== 0).slice(0, 3);
+  if (top3.length === 0) return `${factors.length}개 지표 종합 → ${sig.label} 예상`;
   const text = top3.map(f => {
+    const impact = f.contribution >= 0 ? '↑' : '↓';
     const sign = f.change >= 0 ? '+' : '';
-    return `${f.name} ${sign}${f.change}%`;
+    return `${f.name}(${sign}${f.change}%)${impact}`;
   }).join(', ');
-  return `${text} 등 ${factors.length}개 지표 종합 → ${sig.label} 예상`;
+  return `${text} 등 → ${sig.label} 예상`;
 }
 
 function detectVixAlertFromFactors(factors) {
   if (!factors) return null;
   const vix = factors.find(f => f.ticker === '^VIX');
-  if (vix && vix.change >= 15) {
-    return `⚠️ VIX 급등 +${vix.change.toFixed(1)}% → 변동성 확대 경고`;
+  if (vix && Math.abs(vix.change) >= 15) {
+    const dir = vix.change >= 0 ? '급등' : '급락';
+    const sign = vix.change >= 0 ? '+' : '';
+    return `⚠️ VIX ${dir} ${sign}${vix.change.toFixed(1)}% → 시장 변동성 ${vix.change >= 0 ? '확대' : '축소'} 경고`;
   }
   return null;
 }
