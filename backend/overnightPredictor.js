@@ -23,18 +23,18 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // KOSPI200F: KIS API 경유 야간선물 — 한국시간 06:00까지 거래, 가장 최신 데이터
 // EWY: iShares MSCI South Korea ETF — 미국 본장(~06:00 KST) 마감 기준, 보조 지표
 const DEFAULT_WEIGHTS = {
-  'KOSPI200F': { name: '코스피200선물', weight: +0.20, unit: 'pt' }, // 야간선물 최신 데이터, 최대 가중치
-  'EWY': { name: '한국 ETF(EWY)', weight: 0, unit: '$' }, // 관측용 (KOSPI200F와 중복)
-  '^SOX': { name: 'SOX 반도체', weight: +0.18, unit: 'pt' }, // r=+0.582
-  'NQ=F': { name: '나스닥 선물', weight: +0.11, unit: 'pt' }, // r=+0.454
-  'CL=F': { name: 'WTI 원유', weight: -0.11, unit: '$/bbl' }, // r=-0.423
-  'ES=F': { name: 'S&P500 선물', weight: +0.10, unit: 'pt' }, // r=+0.418
-  '^VIX': { name: 'VIX 공포', weight: -0.10, unit: '' }, // r=-0.416
-  'GC=F': { name: '금 선물', weight: +0.08, unit: '$/oz' }, // r=+0.308
-  'HG=F': { name: '구리 선물', weight: +0.07, unit: '$/lb' }, // r=+0.297
-  'USDKRW=X': { name: '달러/원', weight: -0.03, unit: '원' }, // 환리스크 장기악재 유지
-  '^N225': { name: '닛케이', weight: 0, unit: '¥' }, // r=+0.103, 15:00 KST 마감 → 18h 시차, 관측용
-  '^TNX': { name: '미국10년물', weight: -0.01, unit: '%' }, // r=+0.036
+  'KOSPI200F': { name: '코스피200선물', weight: +0.20, unit: 'pt', defaultCorr: null }, // 야간선물, KIS API
+  'EWY': { name: '한국 ETF(EWY)', weight: 0, unit: '$', defaultCorr: null }, // 관측용
+  '^SOX': { name: 'SOX 반도체', weight: +0.18, unit: 'pt', defaultCorr: +0.582 },
+  'NQ=F': { name: '나스닥 선물', weight: +0.11, unit: 'pt', defaultCorr: +0.454 },
+  'CL=F': { name: 'WTI 원유', weight: -0.11, unit: '$/bbl', defaultCorr: -0.423 },
+  'ES=F': { name: 'S&P500 선물', weight: +0.10, unit: 'pt', defaultCorr: +0.418 },
+  '^VIX': { name: 'VIX 공포', weight: -0.10, unit: '', defaultCorr: -0.416 },
+  'GC=F': { name: '금 선물', weight: +0.08, unit: '$/oz', defaultCorr: +0.308 },
+  'HG=F': { name: '구리 선물', weight: +0.07, unit: '$/lb', defaultCorr: +0.297 },
+  'USDKRW=X': { name: '달러/원', weight: -0.04, unit: '원', defaultCorr: -0.150 },
+  '^N225': { name: '닛케이', weight: 0, unit: '¥', defaultCorr: +0.103 }, // 18h 시차, 관측용
+  '^TNX': { name: '미국10년물', weight: 0, unit: '%', defaultCorr: +0.036 }, // r≈0, 관측용
 };
 // 가중치 절대값 합 = 0.99 (보정 시 자동 정규화)
 
@@ -203,7 +203,7 @@ async function fetchOvernightData() {
  * 2-3. 예측 스코어 계산
  * score = Σ(변동률 × 가중치)
  */
-function calculatePrediction(data, weights) {
+function calculatePrediction(data, weights, correlations) {
   let score = 0;
   const factors = [];
 
@@ -227,6 +227,7 @@ function calculatePrediction(data, weights) {
       unit: config.unit || '',
       dataDate: d.dataDate || null,
       dataTimestamp: d.dataTimestamp || null,
+      corr: correlations && correlations[ticker] != null ? +correlations[ticker].toFixed(3) : null,
     });
   }
 
@@ -353,10 +354,10 @@ async function getActiveWeights() {
       }
     }
 
-    return { weights: calibrated, source: 'calibrated_60d' };
+    return { weights: calibrated, source: 'calibrated_60d', correlations };
   } catch (err) {
     console.warn('⚠️ 가중치 보정 실패, 기본값 사용:', err.message);
-    return { weights: DEFAULT_WEIGHTS, source: 'default' };
+    return { weights: DEFAULT_WEIGHTS, source: 'default', correlations: {} };
   }
 }
 
@@ -663,10 +664,14 @@ async function fetchAndPredict(bypassCache = false) {
 
       if (lastPred && lastPred.score != null) {
         console.log(`📅 주말(${today}) — 최근 거래일(${lastPred.prediction_date}) 캐시 반환`);
-        // factors에 unit 보강
+        // factors에 unit/corr 보강
         if (lastPred.factors) {
           for (const f of lastPred.factors) {
-            if (!f.unit && DEFAULT_WEIGHTS[f.ticker]) f.unit = DEFAULT_WEIGHTS[f.ticker].unit || '';
+            const def = DEFAULT_WEIGHTS[f.ticker];
+            if (def) {
+              if (!f.unit) f.unit = def.unit || '';
+              if (f.corr == null && def.defaultCorr != null) f.corr = def.defaultCorr;
+            }
           }
         }
         const sig = SIGNAL_TABLE.find(s => lastPred.score >= s.min);
@@ -812,11 +817,13 @@ async function fetchAndPredict(bypassCache = false) {
         } else {
           console.log(`📊 오늘(${today}) 예측 캐시 사용: ${existing.signal} (${existing.score})`);
 
-          // 캐시된 factors에 unit 보강 (기존 DB 데이터에 unit 필드가 없을 수 있음)
+          // 캐시된 factors에 unit/corr 보강 (기존 DB 데이터에 필드가 없을 수 있음)
           if (existing.factors) {
             for (const f of existing.factors) {
-              if (!f.unit && DEFAULT_WEIGHTS[f.ticker]) {
-                f.unit = DEFAULT_WEIGHTS[f.ticker].unit || '';
+              const def = DEFAULT_WEIGHTS[f.ticker];
+              if (def) {
+                if (!f.unit) f.unit = def.unit || '';
+                if (f.corr == null && def.defaultCorr != null) f.corr = def.defaultCorr;
               }
             }
           }
@@ -890,10 +897,10 @@ async function fetchAndPredict(bypassCache = false) {
   }
 
   // 새 예측 계산
-  const { weights, source } = await getActiveWeights();
+  const { weights, source, correlations } = await getActiveWeights();
   const regression = await getRegressionParams();
   const data = await fetchOvernightData();
-  const prediction = calculatePrediction(data, weights);
+  const prediction = calculatePrediction(data, weights, correlations);
 
   // AI 해석 생성
   const sig = SIGNAL_TABLE.find(s => prediction.score >= s.min);
