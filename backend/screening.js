@@ -1447,7 +1447,7 @@ class StockScreener {
    */
   calculateDefenseScore(volumeAnalysis, advancedAnalysis, chartData, currentPrice, investorData, riskAdjusted, crashCheck, marketCap) {
     if (!chartData || chartData.length < 20) {
-      return { totalScore: 0, breakdown: {}, grade: 'D-D' };
+      return { totalScore: 0, breakdown: {}, grade: 'D' };
     }
 
     // === 1. Recovery Score (0-30점): 과매도 반등 신호 ===
@@ -1645,16 +1645,16 @@ class StockScreener {
   }
 
   /**
-   * 방어 전략 등급 산출 (D- 접두사로 모멘텀과 구분)
+   * 방어 전략 등급 산출
    */
   getDefenseRecommendation(defenseScore, overheatingV2 = null) {
-    if (overheatingV2 && overheatingV2.overheated) return 'D-과열';
-    if (defenseScore >= 85) return 'D-S+';
-    if (defenseScore >= 70) return 'D-S';
-    if (defenseScore >= 55) return 'D-A';
-    if (defenseScore >= 40) return 'D-B';
-    if (defenseScore >= 25) return 'D-C';
-    return 'D-D';
+    if (overheatingV2 && overheatingV2.overheated) return '과열';
+    if (defenseScore >= 85) return 'S+';
+    if (defenseScore >= 70) return 'S';
+    if (defenseScore >= 55) return 'A';
+    if (defenseScore >= 40) return 'B';
+    if (defenseScore >= 25) return 'C';
+    return 'D';
   }
 
   /**

@@ -591,7 +591,7 @@ function formatDefenseTop3Section(defenseTop3, mode = 'save', expectations = [])
     const isSave = mode === 'save';
     const price = isSave ? (stock.currentPrice || 0) : (stock.recommended_price || 0);
     const score = isSave ? (stock.defenseScore || 0) : (stock.defense_score || 0);
-    const grade = isSave ? (stock.defenseGrade || 'D-D') : (stock.defense_grade || 'D-D');
+    const grade = isSave ? (stock.defenseGrade || 'D') : (stock.defense_grade || 'D');
     const mc = isSave ? (stock.marketCap || 0) : (stock.market_cap || 0);
     const mcBillion = mc / 100000000;
 
@@ -1934,7 +1934,7 @@ module.exports = async (req, res) => {
 
         // v3.34: 방어 전략
         defense_score: stock.defenseScore || 0,
-        defense_grade: stock.defenseGrade || 'D-D',
+        defense_grade: stock.defenseGrade || 'D',
 
         // v3.36: 스코어링 v2 병렬 비교
         total_score_v2: stock.totalScoreV2 || 0,
