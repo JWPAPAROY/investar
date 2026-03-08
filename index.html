@@ -1457,13 +1457,21 @@
                           </div>
                           {/* 예측 스코어 계산법 — 하단 */}
                           <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 mt-3 text-xs text-blue-800 leading-relaxed">
-                            <p className="font-semibold mb-1">📐 예측 스코어 계산법</p>
-                            <p className="mb-1"><b>기여도</b> = 변동률 × 가중치. 각 지수가 오늘 예측 스코어에 얼마나 기여했는지를 나타냅니다.</p>
-                            <p className="mb-1"><b>스코어</b> = 모든 기여도의 합산 = <b>{prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(3)}</b></p>
-                            <p className="mb-1"><b>예측 밴드</b> = {prediction.expectedChange?.slope || '0.78'} × 스코어 + {prediction.expectedChange?.intercept || '0.77'}% ± σ({prediction.expectedChange?.sigma || '3.44'}%)</p>
-                            <p className="text-blue-600"><b>가중치 +%</b>: 해당 지수 상승 → KOSPI↑ (동행) | <b>가중치 -%</b>: 해당 지수 상승 → KOSPI↓ (역행)</p>
-                            <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>KOSPI200F: 야간선물(~06:00 KST, 최신) | EWY: 미국 상장 한국ETF(참고용, KOSPI200F와 중복 방지를 위해 가중치 0)</p>
-                            <p className="text-blue-500" style={{ fontSize: '10px' }}>가중치·상관계수·회귀 파라미터는 60일 데이터 기반 피어슨 상관계수 + EWMA(λ=0.94) 회귀로 매일 자동 보정됩니다.</p>
+                            <p className="font-semibold mb-1">📐 예측 스코어 → KOSPI 예상 변동 산출 과정</p>
+                            <p className="mb-1"><b>① 기여도</b> = 변동률 × 가중치 (각 지수의 KOSPI 영향력)</p>
+                            <p className="mb-1"><b>② 스코어</b> = 모든 기여도 합산 = <b>{prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(3)}</b></p>
+                            <p className="mb-1"><b>③ KOSPI 예상 변동률</b> = slope × 스코어 + intercept ± σ</p>
+                            {expChange && (
+                              <p className="mb-1 ml-3 text-blue-700 font-mono" style={{ fontSize: '11px' }}>
+                                = {expChange.slope} × ({prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(3)}) + {expChange.intercept}% ± {expChange.sigma}%
+                                = <b>{expChange.center >= 0 ? '+' : ''}{expChange.center}%</b> ± {expChange.sigma}%
+                                = <b>{expChange.min >= 0 ? '+' : ''}{expChange.min}% ~ {expChange.max >= 0 ? '+' : ''}{expChange.max}%</b>
+                              </p>
+                            )}
+                            <p className="mb-1"><b>④ 예상 KOSPI</b> = 전일 종가 × (1 + 예상 변동률)</p>
+                            <p className="text-blue-600 mt-1"><b>가중치 +</b>: 해당 지수 상승 → KOSPI↑ | <b>가중치 -</b>: 해당 지수 상승 → KOSPI↓</p>
+                            <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>KOSPI200F: 야간선물(~06:00 KST, 최신) | EWY: 미국 상장 한국ETF(참고용, 중복 방지 가중치 0)</p>
+                            <p className="text-blue-500" style={{ fontSize: '10px' }}>slope/intercept/σ/가중치는 60일 EWMA(λ=0.94) 회귀로 매일 자동 보정됩니다.</p>
                           </div>
                         </div>
                       )}
