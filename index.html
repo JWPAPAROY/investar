@@ -855,7 +855,10 @@
                 )}
 
                 {/* 시장 전망 경고 배너 — 하락 예측 시 스크리닝 탭에 표시 */}
-                {prediction && prediction.signal && prediction.signal.includes('bearish') && (
+                {prediction && prediction.signal && prediction.signal.includes('bearish') && (() => {
+                  const _sign = prediction.score >= 0 ? '+' : '';
+                  const _scoreValue = `${_sign}${prediction.score.toFixed(2)}`;
+                  return (
                   <div className={`border-2 rounded-xl p-3 mb-4 text-center ${
                     prediction.signal === 'strong_bearish'
                       ? 'bg-red-50 border-red-400'
@@ -864,7 +867,7 @@
                     <div className="flex items-center justify-center gap-2 text-sm font-bold">
                       <span>{prediction.emoji}</span>
                       <span className={prediction.signal === 'strong_bearish' ? 'text-red-700' : 'text-orange-700'}>
-                        시장 전망 스코어 : {prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(2)}
+                        시장 전망 스코어 : {_scoreValue}
                       </span>
                     </div>
                     <p className="text-xs text-gray-600 mt-1">
@@ -873,7 +876,8 @@
                         : '해외 지수 약세 — 포지션 축소 또는 분할 매수 고려'}
                     </p>
                   </div>
-                )}
+                  );
+                })()}
 
                 {/* v3.34: 전략 필터 토글 */}
                 {lastUpdate && recommendations.length > 0 && (
@@ -1093,6 +1097,8 @@
                   const maxAbsContrib = Math.max(...factors.map(f => Math.abs(f.contribution)), 0.01);
                   const displayFactors = [...factors].sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
                   const sign = prediction.score >= 0 ? '+' : '';
+                  const scoreLabel = '시장 전망 스코어';
+                  const scoreValue = `${sign}${prediction.score.toFixed(2)}`;
                   const todayDateStr = (() => {
                     const d = new Date();
                     d.setMinutes(d.getMinutes() + d.getTimezoneOffset() + 540);
@@ -1170,8 +1176,8 @@
                         </div>
 
                         <div className={`text-center mb-2 ${textClass}`}>
-                          <div className="text-sm opacity-60 mb-1">시장 전망 스코어</div>
-                          <div className="text-3xl font-bold">{sign}{prediction.score.toFixed(2)}</div>
+                          <div className="text-sm opacity-60 mb-1">{scoreLabel}</div>
+                          <div className="text-3xl font-bold">{scoreValue}</div>
                         </div>
                         <p className="text-xs text-center text-gray-500 mb-3">
                           해외 12개 지수(활성 9 + 관측 3) z-score × 가중치 합산 (🟢🟢≥+1.4 / 🟢≥+0.2 / ⚪≥-0.8 / 🔴≥-2.0 / 🔴🔴&lt;-2.0)
@@ -1313,7 +1319,7 @@
                             <div className="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-6">
                               <div className="text-sm">
                                 <span className="text-gray-600">예측: </span>
-                                <span className="font-bold">{prediction.emoji} {prediction.label} ({sign}{prediction.score.toFixed(2)})</span>
+                                <span className="font-bold">{prediction.emoji} {prediction.label} ({scoreValue})</span>
                               </div>
                               <span className="hidden md:inline text-gray-300">→</span>
                               <div className="text-sm">
