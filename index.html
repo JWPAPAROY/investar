@@ -864,7 +864,7 @@
                     <div className="flex items-center justify-center gap-2 text-sm font-bold">
                       <span>{prediction.emoji}</span>
                       <span className={prediction.signal === 'strong_bearish' ? 'text-red-700' : 'text-orange-700'}>
-                        시장 전망: {prediction.label} (스코어 {prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(2)})
+                        시장 전망 스코어 : {prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(2)} ({prediction.label})
                       </span>
                     </div>
                     <p className="text-xs text-gray-600 mt-1">
