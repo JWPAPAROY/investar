@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.53
-- **최종 업데이트**: 2026-03-06
+- **버전**: 3.54
+- **최종 업데이트**: 2026-03-08
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -568,20 +568,25 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 **양의 가중치(+)**: 해당 지수 상승 → KOSPI↑ (동행)
 **음의 가중치(-)**: 해당 지수 상승 → KOSPI↓ (역행). 예: VIX -10%는 VIX가 오르면 KOSPI가 내린다는 의미
 
-### 스코어 계산
+### 스코어 계산 (z-score 정규화)
 
 ```
-기여도(contribution) = 해당 지수 변동률 × 가중치
-스코어(score)        = Σ(모든 기여도) = Σ(변동률 × 가중치)
+z-score(ticker)      = (변동률 - 60일평균) / 60일표준편차
+기여도(contribution) = z-score × 가중치
+스코어(score)        = Σ(모든 기여도)
 ```
+- 10일 미만 데이터 시 raw 변동률 × 가중치로 fallback
+- z-score 정규화로 변동성 큰 지표(VIX 등)의 과대 대표 문제 해결
 
 | 스코어 | 신호 | 이모지 |
 |--------|------|--------|
-| ≥ +0.5 | strong_bullish | 🟢🟢 |
-| +0.2 ~ +0.5 | mild_bullish | 🟢 |
-| -0.2 ~ +0.2 | neutral | ⚪ |
-| -0.5 ~ -0.2 | mild_bearish | 🔴 |
-| ≤ -0.5 | strong_bearish | 🔴🔴 |
+| ≥ +1.4 | strong_bullish | 🟢🟢 |
+| +0.2 ~ +1.4 | mild_bullish | 🟢 |
+| -0.8 ~ +0.2 | neutral | ⚪ |
+| -2.0 ~ -0.8 | mild_bearish | 🔴 |
+| < -2.0 | strong_bearish | 🔴🔴 |
+
+임계점은 39건 스코어 분포(평균 -0.32, σ=1.70) 기반 σ 비례 설정 (2026-03-08)
 
 **VIX 스파이크**: VIX 변동 ≥ +15% → 별도 경고
 
@@ -589,21 +594,30 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 EWMA 가중 OLS 회귀로 score→KOSPI 변동률 관계를 모델링:
 ```
-center = slope × score + intercept
-expectedChange = { min: center - sigma, max: center + sigma }
+effectiveScore = |score|>2 ? sign×(2+√(|score|-2)) : score  // 극단값 sqrt 감쇠
+center         = clamp(slope × effectiveScore + intercept, ±5%)
+expectedChange = { min: max(center - σ, -8%), max: min(center + σ, 8%) }
 estimatedKospi = previousKospi × (1 + expectedChange / 100)
 ```
 - `DEFAULT_REGRESSION = { slope: 0.78, intercept: 0.77, sigma: 3.44 }`
 - 20일+ 데이터부터 `getRegressionParams()`로 EWMA(λ=0.94) 가중 OLS 회귀 동적 보정
-- 클램핑: slope [0.1, 5.0], intercept [-5, 5], sigma [1.0, 10.0]
+- 클램핑: slope [0.1, 2.0], intercept [-3, 3], sigma [1.5, 4.0]
+- center ±5% 클램핑, 최종 변동률 ±8% 클램핑 (서킷브레이커 수준 초과 방지)
 
-### 가중치·회귀 자동 보정
+### 가중치·회귀·z-score 자동 보정
 
-- 20일 미만 데이터: `DEFAULT_WEIGHTS`, `DEFAULT_REGRESSION` 사용
-- 20일 이상: **매 호출 시**
-  - **가중치**: 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 → 부호 보존, 절대값 비례 → 합계 1.0 정규화
-  - **회귀**: score→KOSPI 개장 변동률 EWMA 가중 OLS 회귀 → slope/intercept/sigma 산출
+- 10일 미만: raw 변동률 사용, 20일 미만: `DEFAULT_WEIGHTS`/`DEFAULT_REGRESSION` 사용
+- 10일 이상: `getFactorVolatility()` — 팩터별 60일 mean/std → z-score 정규화
+- 20일 이상(가중치): 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 → 부호 보존, 절대값 비례 → 합계 1.0 정규화
+- 20일 이상(회귀): score→KOSPI 종가 변동률 EWMA 가중 OLS 회귀 → slope/intercept/sigma 산출
 - 팩터 수 변경 시 캐시 자동 무효화
+
+### 팩터 신뢰도
+
+- 데이터 수집 실패한 팩터를 `failed` 플래그로 추적
+- `reliability` = 유효 팩터 수 / 활성 팩터 수 × 100%
+- 프론트엔드: 100% 미만 시 경고 표시 (70% 미만 빨간, 이상 노란)
+- 스크리닝 탭: 하락/강한하락 예측 시 상단에 경고 배너 표시
 
 ### 적중률 추적
 
@@ -647,7 +661,7 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 GET /api/screening/recommend?market=ALL&limit=10   # 종합집계 (모멘텀+방어 통합 + prediction)
 GET /api/screening/analyze?codes=005930,000660      # 종목 분석 (최대 15개, 단일 프로세스 순차 처리)
 ```
-`recommend` 응답에 `prediction` 필드 포함 (해외 시장 기반 전망 + 히스토리 차트 데이터 + kospiBeta)
+`recommend` 응답에 `prediction` 필드 포함 (해외 시장 기반 전망 + 히스토리 차트 데이터 + reliability + scoreMethod)
 
 ### 성과 추적
 ```
@@ -834,6 +848,16 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.54 (2026-03-08)
+- **z-score 정규화**: `getFactorVolatility()` 신규 — 팩터별 60일 mean/std 조회 후 z-score = (change - mean) / std 기반 기여도 계산. VIX ±15%(일상적) vs S&P ±2%(이례적)을 동일 척도로 비교. 10일 미만 시 raw 변동률 fallback
+- **신호 임계점 재조정**: 39건 스코어 분포(평균 -0.32, σ=1.70) 분석 기반. ±0.75 → +1.4/+0.2/-0.8/-2.0 (σ 비례). 기존 강한등급 64% 집중 → 13%/28%/26%/15%/18% 균형 분포
+- **극단 스코어 감쇠**: |score|>2 구간에서 sqrt 압축 적용. 선형 외삽 과대 예측 방지 (예: -4.39 → effective -3.55)
+- **밴드 클램핑 강화**: slope [0.1, 2.0], intercept [-3, 3], sigma [1.5, 4.0]. center ±5%, 최종 ±8% 클램핑
+- **팩터 신뢰도**: 실패 팩터 추적 + reliability % 프론트엔드 표시. 70% 미만 빨간 경고
+- **스크리닝 연동**: 하락/강한하락 예측 시 스크리닝 탭 상단에 경고 배너 표시
+- **AI fallback 임계점 동기화**: `generateRuleBriefing()` 하드코딩 임계점 → SIGNAL_TABLE 참조로 변경
+- **시장전망 탭 16가지 개선**: 차트 aria-label, 터치 감지 40px, AI 실패 판별 isAiFailure(), DEFAULT_CLOSE_TIMES 외부화, 관측 지표 흐림 제거, 상관계수 폰트색 단순화, 스코어→변동률 공식 4단계 표시
 
 ### v3.53 (2026-03-06)
 - **회귀 기반 예측 밴드 전환**: 기존 `score × beta ± σ` 비대칭 밴드 → `slope × score + intercept ± σ` OLS 회귀 대칭 밴드로 교체. 스코어 -2.5일 때 기존 밴드(-14.7%~+0.04%)가 비현실적이던 문제 해결 → 새 밴드(-7.2%~+0.8%)로 현실적 범위 제공
