@@ -120,6 +120,13 @@
       ? 'http://localhost:3001/api'
       : 'https://investar-xi.vercel.app/api';  // Vercel 배포 후 변경
 
+    // 팩터별 기본 마감시각 (렌더 루프 외부에 1회 선언)
+    const DEFAULT_CLOSE_TIMES = {
+      'KOSPI200F': '06:00', '^SOX': '06:00', 'NQ=F': '07:00', 'ES=F': '07:00',
+      '^VIX': '06:15', 'CL=F': '07:00', 'GC=F': '07:00', 'HG=F': '07:00',
+      'EWY': '06:00', 'USDKRW=X': '06:00', '^TNX': '06:00', '^N225': '15:00'
+    };
+
     /**
      * 예측 히스토리 꺾은선 차트 (Canvas)
      * - 예측 스코어(파란 선) + KOSPI 실제 변동률(회색 선)
@@ -146,11 +153,13 @@
 
         const scores = history.map(d => d.score);
         const kospiChanges = history.filter(d => d.kospiChange != null).map(d => d.kospiChange);
-        const bandMins = history.filter(d => d.expectedChange).map(d => d.expectedChange.min);
-        const bandMaxs = history.filter(d => d.expectedChange).map(d => d.expectedChange.max);
-        const allVals = [...scores, ...kospiChanges, ...bandMins, ...bandMaxs];
-        const minVal = Math.min(...allVals, -0.5);
-        const maxVal = Math.max(...allVals, 0.5);
+        const coreVals = [...scores, ...kospiChanges];
+        const coreMin = Math.min(...coreVals, -0.5);
+        const coreMax = Math.max(...coreVals, 0.5);
+        // 밴드가 차트를 과도하게 압축하지 않도록, 코어 범위의 1.5배까지만 확장
+        const bandMargin = (coreMax - coreMin) * 0.5;
+        const minVal = Math.max(Math.min(...(history.filter(d => d.expectedChange).map(d => d.expectedChange.min)), coreMin), coreMin - bandMargin);
+        const maxVal = Math.min(Math.max(...(history.filter(d => d.expectedChange).map(d => d.expectedChange.max)), coreMax), coreMax + bandMargin);
         const range = maxVal - minVal || 1;
 
         const pad = { top: 20, right: 12, bottom: 28, left: 36 };
@@ -336,7 +345,7 @@
           if (dist < minDist) { minDist = dist; nearestIdx = i; }
         });
 
-        if (minDist > 25) return null;
+        if (minDist > 40) return null;
 
         const d = history[nearestIdx];
         const pt = points[nearestIdx];
@@ -359,6 +368,8 @@
         <div ref={containerRef} className="mt-3 bg-white rounded-lg p-2 border border-gray-200 relative">
           <canvas
             ref={canvasRef}
+            role="img"
+            aria-label="예측 스코어 추이 차트 — 최근 30거래일 예측 스코어와 KOSPI 실제 지수"
             onMouseMove={handleMouseMove}
             onMouseLeave={() => setTooltip(null)}
             onTouchStart={handleTouchMove}
@@ -464,7 +475,11 @@
         return () => clearInterval(timer);
       }, [predictionLoading]);
 
-      // 수동 로드로 변경됨
+      // 페이지 진입 시 자동 로드
+      useEffect(() => {
+        if (!prediction && !predictionLoading) fetchPrediction();
+      }, []);
+
       const fetchPrediction = async () => {
         setPredictionLoading(true);
         setPredictionElapsed(0);
@@ -1058,7 +1073,6 @@
                   const factors = prediction.factors || [];
                   const hasFactorData = factors.some(f => f.change !== 0);
                   const maxAbsContrib = Math.max(...factors.map(f => Math.abs(f.contribution)), 0.01);
-                  const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
                   const displayFactors = [...factors].sort((a, b) => Math.abs(b.weight) - Math.abs(a.weight));
                   const sign = prediction.score >= 0 ? '+' : '';
                   const todayDateStr = (() => {
@@ -1142,7 +1156,7 @@
                           <span className="text-sm ml-2 opacity-60">스코어</span>
                         </div>
                         <p className="text-xs text-center text-gray-500 mb-3">
-                          해외 12개 지수(활성 9 + 관측 3) 변동률 × 가중치 합산 (🟢🟢≥+0.5 / 🟢≥+0.2 / ⚪±0.2 / 🔴≤-0.2 / 🔴🔴≤-0.5)
+                          해외 12개 지수(활성 9 + 관측 3) 변동률 × 가중치 합산 (🟢🟢≥+0.75 / 🟢≥+0.15 / ⚪≥-0.35 / 🔴≥-0.75 / 🔴🔴&lt;-0.75)
                         </p>
 
                         {/* 예상 KOSPI 범위 */}
@@ -1261,7 +1275,7 @@
                           ? 'bg-green-50 border-green-300'
                           : 'bg-red-50 border-red-300'
                           }`}>
-                          <h3 className="text-sm font-semibold text-gray-700 mb-2">📋 {dateInfo.prefix}의 예측 결과 ({dateInfo.target})</h3>
+                          <h3 className="text-sm font-semibold text-gray-700 mb-2">📋 {prediction.isWeekendCache ? `${prediction.date} 예측 결과` : `${dateInfo.prefix}의 예측 결과 (${dateInfo.target})`}</h3>
                           <div className="flex flex-col items-center gap-2">
                             {/* 예측 vs 실제 */}
                             <div className="flex flex-col md:flex-row items-center justify-center gap-2 md:gap-6">
@@ -1311,11 +1325,15 @@
                       )}
 
                       {/* 예측 히스토리 차트 */}
-                      {prediction.history && prediction.history.length >= 2 && (
+                      {prediction.history && prediction.history.length >= 2 ? (
                         <div className="bg-white border border-gray-200 rounded-xl p-3 md:p-4 mb-4 shadow-sm">
                           <h3 className="text-sm font-semibold text-gray-700 mb-1">📈 예측 스코어 추이 (최근 30거래일)</h3>
                           <p className="text-xs text-gray-400 mb-2">파란선: 예측 스코어 | 파란영역: 예측 밴드(±σ) | 회색선: KOSPI 실제 | 🟢적중 🔴미적중 (터치/마우스 시 상세)</p>
                           <PredictionChart history={prediction.history} />
+                        </div>
+                      ) : (
+                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 mb-4 text-center text-xs text-gray-400">
+                          📈 예측 데이터가 {prediction.history?.length || 0}일 축적되었습니다. 2거래일 이상부터 추이 차트가 표시됩니다.
                         </div>
                       )}
 
@@ -1358,11 +1376,6 @@
                                   : f.price.toFixed(2))
                                 : '-';
                               // 날짜+시각: factor별 dataTimestamp → fallback (usMarketDate + 기본마감시각)
-                              const DEFAULT_CLOSE_TIMES = {
-                                'KOSPI200F': '06:00', '^SOX': '06:00', 'NQ=F': '07:00', 'ES=F': '07:00',
-                                '^VIX': '06:15', 'CL=F': '07:00', 'GC=F': '07:00', 'HG=F': '07:00',
-                                'EWY': '06:00', 'USDKRW=X': '06:00', '^TNX': '06:00', '^N225': '15:00'
-                              };
                               const dateLabel = (() => {
                                 if (f.dataTimestamp) {
                                   const [datePart, timePart] = f.dataTimestamp.split(' ');
@@ -1450,7 +1463,8 @@
                             <p className="mb-1"><b>스코어</b> = 모든 기여도의 합산 = <b>{prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(3)}</b></p>
                             <p className="mb-1"><b>예측 밴드</b> = {prediction.expectedChange?.slope || '0.78'} × 스코어 + {prediction.expectedChange?.intercept || '0.77'}% ± σ({prediction.expectedChange?.sigma || '3.44'}%)</p>
                             <p className="text-blue-600"><b>가중치 +%</b>: 해당 지수 상승 → KOSPI↑ (동행) | <b>가중치 -%</b>: 해당 지수 상승 → KOSPI↓ (역행)</p>
-                            <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>가중치·회귀 파라미터 모두 20일 이상 데이터 축적 시 EWMA 가중 회귀(λ=0.94) 기반으로 매일 자동 보정됩니다.</p>
+                            <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>KOSPI200F: 야간선물(~06:00 KST, 최신) | EWY: 미국 상장 한국ETF(참고용, KOSPI200F와 중복 방지를 위해 가중치 0)</p>
+                            <p className="text-blue-500" style={{ fontSize: '10px' }}>가중치·상관계수·회귀 파라미터는 60일 데이터 기반 피어슨 상관계수 + EWMA(λ=0.94) 회귀로 매일 자동 보정됩니다.</p>
                           </div>
                         </div>
                       )}

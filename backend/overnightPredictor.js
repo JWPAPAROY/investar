@@ -38,6 +38,16 @@ const DEFAULT_WEIGHTS = {
 };
 // 가중치 절대값 합 = 0.99 (보정 시 자동 정규화)
 
+// ─── AI 해석 실패 판별 ───
+const AI_FAIL_MARKER = '[RULE_BASED]';
+function isAiFailure(text) {
+  if (!text) return true;
+  if (text.startsWith(AI_FAIL_MARKER)) return true;
+  // 레거시 DB 값 호환: "AI 해석을 생성할 수 없습니다" 등 구 오류 메시지
+  if (text.length < 60 && (/실패|오류|생성할 수 없/.test(text))) return true;
+  return false;
+}
+
 // ─── 회귀 기반 밴드 기본값 ───
 // 34일 OLS 회귀: 실제 KOSPI% = 0.78 × score + 0.77, 잔차σ = 3.44%
 const DEFAULT_REGRESSION = { slope: 0.78, intercept: 0.77, sigma: 3.44 };
@@ -237,31 +247,13 @@ function calculatePrediction(data, weights, correlations) {
   // 신호 판정
   const sig = SIGNAL_TABLE.find(s => score >= s.min);
 
-  // VIX 스파이크 감지
-  const vixData = data['^VIX'];
-  let vixAlert = null;
-  if (vixData && vixData.change >= 15) {
-    vixAlert = `⚠️ VIX 급등 +${vixData.change.toFixed(1)}% → 변동성 확대 경고`;
-  }
-
-  // summary: 기여도 상위 3개 팩터를 참고 정보로 표시
-  const top3 = factors.slice(0, 3);
-  const topList = top3.map(f => {
-    const sign = f.change >= 0 ? '+' : '';
-    return `${f.name} ${sign}${f.change}%`;
-  }).join(', ');
-
-  const summaryText = vixAlert
-    ? `${topList} 등 ${factors.length}개 지표 종합 | ${vixAlert}`
-    : `${topList} 등 ${factors.length}개 지표 종합 → ${sig.label} 예상`;
-
   return {
     score: +score.toFixed(3),
     signal: sig.signal,
     emoji: sig.emoji,
     label: sig.label,
-    summary: summaryText,
-    vixAlert,
+    summary: buildSummaryFromFactors(factors, sig),
+    vixAlert: detectVixAlertFromFactors(factors),
     factors,
     guidance: sig.guidance,
     expectedChange: calcExpectedChange(score), // 기본값, fetchAndPredict에서 동적 보정으로 덮어씀
@@ -575,10 +567,18 @@ async function updateActualResult(date) {
 }
 
 /**
- * 누적 적중률 조회
+ * 누적 적중률 조회 (10분 캐시)
  */
+let _accuracyCache = null;
+let _accuracyCacheTime = 0;
+
 async function getAccuracy() {
   if (!supabase) return null;
+
+  // 10분 캐시
+  if (_accuracyCache && Date.now() - _accuracyCacheTime < 10 * 60 * 1000) {
+    return _accuracyCache;
+  }
 
   try {
     const { data, error } = await supabase
@@ -602,7 +602,7 @@ async function getAccuracy() {
       }
     }
 
-    return {
+    _accuracyCache = {
       total,
       hits,
       rate: +(hits / total * 100).toFixed(1),
@@ -610,6 +610,8 @@ async function getAccuracy() {
       bandHits,
       bandRate: bandTotal > 0 ? +(bandHits / bandTotal * 100).toFixed(1) : null,
     };
+    _accuracyCacheTime = Date.now();
+    return _accuracyCache;
   } catch (err) {
     return null;
   }
@@ -669,6 +671,20 @@ async function getRecentHistory(previousKospi, regression) {
 }
 
 /**
+ * 캐시된 factors에 unit/corr 필드 보강 (DB에 없을 수 있는 필드)
+ */
+function enrichFactors(factors) {
+  if (!factors) return;
+  for (const f of factors) {
+    const def = DEFAULT_WEIGHTS[f.ticker];
+    if (def) {
+      if (!f.unit) f.unit = def.unit || '';
+      if (f.corr == null && def.defaultCorr != null) f.corr = def.defaultCorr;
+    }
+  }
+}
+
+/**
  * 2-9. 메인 함수: 데이터 수집 + 예측 + 저장
  * 같은 날짜 캐시: Supabase에 이미 저장되어 있으면 읽기
  */
@@ -694,18 +710,9 @@ async function fetchAndPredict(bypassCache = false) {
 
       if (lastPred && lastPred.score != null) {
         console.log(`📅 주말(${today}) — 최근 거래일(${lastPred.prediction_date}) 캐시 반환`);
-        // factors에 unit/corr 보강
-        if (lastPred.factors) {
-          for (const f of lastPred.factors) {
-            const def = DEFAULT_WEIGHTS[f.ticker];
-            if (def) {
-              if (!f.unit) f.unit = def.unit || '';
-              if (f.corr == null && def.defaultCorr != null) f.corr = def.defaultCorr;
-            }
-          }
-        }
+        enrichFactors(lastPred.factors);
         const sig = SIGNAL_TABLE.find(s => lastPred.score >= s.min);
-        const regression = await getRegressionParams();
+        const regression = lastPred.expected_change || await getRegressionParams();
         const expChg = calcExpectedChange(+lastPred.score, regression);
         const [accuracy, history] = await Promise.all([
           getAccuracy(),
@@ -718,7 +725,7 @@ async function fetchAndPredict(bypassCache = false) {
           label: sig.label,
           summary: buildSummaryFromFactors(lastPred.factors, sig),
           vixAlert: detectVixAlertFromFactors(lastPred.factors),
-          aiInterpretation: (lastPred.ai_interpretation && !lastPred.ai_interpretation.includes('실패'))
+          aiInterpretation: !isAiFailure(lastPred.ai_interpretation)
             ? lastPred.ai_interpretation
             : generateRuleBriefing(lastPred.factors || [], sig, +lastPred.score),
           factors: lastPred.factors || [],
@@ -849,32 +856,23 @@ async function fetchAndPredict(bypassCache = false) {
         } else {
           console.log(`📊 오늘(${today}) 예측 캐시 사용: ${existing.signal} (${existing.score})`);
 
-          // 캐시된 factors에 unit/corr 보강 (기존 DB 데이터에 필드가 없을 수 있음)
-          if (existing.factors) {
-            for (const f of existing.factors) {
-              const def = DEFAULT_WEIGHTS[f.ticker];
-              if (def) {
-                if (!f.unit) f.unit = def.unit || '';
-                if (f.corr == null && def.defaultCorr != null) f.corr = def.defaultCorr;
-              }
-            }
-          }
+          enrichFactors(existing.factors);
 
           // 신호 판정 재계산
           const sig = SIGNAL_TABLE.find(s => existing.score >= s.min);
-          const cachedRegression = await getRegressionParams();
+          const cachedRegression = existing.expected_change || await getRegressionParams();
           const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi, cachedRegression)]);
           const expChg = calcExpectedChange(+existing.score, cachedRegression);
 
           let aiInterpretation = existing.ai_interpretation;
-          if ((!aiInterpretation || aiInterpretation.includes('실패')) && existing.factors) {
+          if ((isAiFailure(aiInterpretation)) && existing.factors) {
             aiInterpretation = await generateAiInterpretation(existing.factors, sig, existing.score);
             // AI도 실패하면 규칙 기반 fallback
-            if (aiInterpretation && aiInterpretation.includes('실패')) {
+            if (isAiFailure(aiInterpretation)) {
               aiInterpretation = generateRuleBriefing(existing.factors, sig, existing.score);
             }
             // 성공한 해석만 DB에 저장
-            if (aiInterpretation && !aiInterpretation.includes('실패') && !aiInterpretation.includes('오류')) {
+            if (!isAiFailure(aiInterpretation)) {
               await supabase
                 .from('overnight_predictions')
                 .update({ ai_interpretation: aiInterpretation })
