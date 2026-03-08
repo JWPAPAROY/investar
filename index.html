@@ -475,10 +475,7 @@
         return () => clearInterval(timer);
       }, [predictionLoading]);
 
-      // 페이지 진입 시 자동 로드
-      useEffect(() => {
-        if (!prediction && !predictionLoading) fetchPrediction();
-      }, []);
+      // 버튼 클릭으로 분석 시작 (자동 로드 제거)
 
       const fetchPrediction = async () => {
         setPredictionLoading(true);

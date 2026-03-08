@@ -74,15 +74,21 @@ const SIGNAL_TABLE = [
  */
 function calcExpectedChange(score, regression) {
   const reg = regression || DEFAULT_REGRESSION;
-  const center = +(reg.slope * score + reg.intercept).toFixed(2);
+  // 극단 스코어 감쇠: |score|>2 구간에서 sqrt 압축 (선형 외삽 과대 방지)
+  let effectiveScore = score;
+  if (Math.abs(score) > 2) {
+    const sign = score > 0 ? 1 : -1;
+    effectiveScore = sign * (2 + Math.sqrt(Math.abs(score) - 2));
+  }
+  const rawCenter = reg.slope * effectiveScore + reg.intercept;
+  // center 클램핑: ±5% (일일 변동 현실 범위)
+  const center = +Math.min(Math.max(rawCenter, -5.0), 5.0).toFixed(2);
   const band = reg.sigma;
 
-  // 최종 변동률 클램핑: ±8% (서킷브레이커 -8% 수준 이상은 비현실적)
-  const rawMin = center - band;
-  const rawMax = center + band;
+  // 최종 변동률 클램핑: ±8% (서킷브레이커 수준)
   return {
-    min: +Math.max(rawMin, -8.0).toFixed(2),
-    max: +Math.min(rawMax, 8.0).toFixed(2),
+    min: +Math.max(center - band, -8.0).toFixed(2),
+    max: +Math.min(center + band, 8.0).toFixed(2),
     center,
     slope: +reg.slope.toFixed(3),
     intercept: +reg.intercept.toFixed(2),
@@ -421,12 +427,12 @@ async function getRegressionParams() {
     }
     const sigma = Math.sqrt(ssResid / sumW);
 
-    // 클램핑: slope [0.1, 2.0], intercept [-3, 3], sigma [1.0, 5.0]
-    // slope 2.0 이상은 과적합, sigma 5.0% 이상은 서킷브레이커 수준으로 비현실적
+    // 클램핑: slope [0.1, 2.0], intercept [-3, 3], sigma [1.5, 4.0]
+    // sigma 4.0%: 실제 KOSPI 일일 σ=3.67% 기반 상한
     const result = {
       slope: +Math.min(Math.max(slope, 0.1), 2.0).toFixed(3),
       intercept: +Math.min(Math.max(intercept, -3), 3).toFixed(2),
-      sigma: +Math.min(Math.max(sigma, 1.0), 5.0).toFixed(2),
+      sigma: +Math.min(Math.max(sigma, 1.5), 4.0).toFixed(2),
       source: 'ewma_regression',
       n,
     };
