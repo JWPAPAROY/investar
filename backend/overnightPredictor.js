@@ -163,6 +163,44 @@ function yahooQuote(symbol) {
 }
 
 /**
+ * 팩터별 60일 변동성 조회 (z-score 정규화용)
+ * @returns {Object} { ticker: { mean, std } }
+ */
+async function getFactorVolatility() {
+  if (!supabase) return {};
+  try {
+    const { data, error } = await supabase
+      .from('overnight_predictions')
+      .select('factors')
+      .not('factors', 'is', null)
+      .order('prediction_date', { ascending: false })
+      .limit(60);
+
+    if (error || !data || data.length < 10) return {};
+
+    const stats = {};
+    const tickers = Object.keys(DEFAULT_WEIGHTS);
+    for (const ticker of tickers) {
+      const changes = [];
+      for (const row of data) {
+        const f = (row.factors || []).find(f => f.ticker === ticker);
+        if (f && f.change != null && f.change !== 0) changes.push(f.change);
+      }
+      if (changes.length >= 10) {
+        const mean = changes.reduce((s, v) => s + v, 0) / changes.length;
+        const std = Math.sqrt(changes.reduce((s, v) => s + (v - mean) ** 2, 0) / changes.length);
+        stats[ticker] = { mean, std: std || 1 }; // std=0 방지
+      }
+    }
+    console.log(`📊 팩터 변동성: ${Object.keys(stats).length}개 팩터 z-score 준비 (${data.length}일)`);
+    return stats;
+  } catch (err) {
+    console.warn('⚠️ 팩터 변동성 조회 실패:', err.message);
+    return {};
+  }
+}
+
+/**
  * 해외 지수 데이터 수집 (병렬 호출)
  * @returns {Object} { ticker: { ticker, change, price, previousClose } }
  */
@@ -178,7 +216,7 @@ async function fetchOvernightData() {
       return { ticker, ...quote };
     } catch (err) {
       console.warn(`⚠️ ${ticker} 데이터 수집 실패: ${err.message}`);
-      return { ticker, change: 0, price: 0, previousClose: 0 };
+      return { ticker, change: 0, price: 0, previousClose: 0, failed: true };
     }
   });
 
@@ -199,10 +237,10 @@ async function fetchOvernightData() {
         };
       }
       console.warn('⚠️ KOSPI200F 데이터 null — 기본값 사용');
-      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0 };
+      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true };
     } catch (err) {
       console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message}`);
-      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0 };
+      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true };
     }
   })();
 
@@ -222,11 +260,17 @@ async function fetchOvernightData() {
 
 /**
  * 2-3. 예측 스코어 계산
- * score = Σ(변동률 × 가중치)
+ * z-score 정규화: 각 팩터 변동률을 자체 60일 변동성 대비 표준화
+ * → VIX ±15%(일상) vs S&P ±2%(이례) 공정 비교
+ *
+ * @param {Object} factorVol - { ticker: { mean, std } } 팩터별 변동성 (없으면 raw 사용)
  */
-function calculatePrediction(data, weights, correlations) {
+function calculatePrediction(data, weights, correlations, factorVol = {}) {
   let score = 0;
   const factors = [];
+  let validCount = 0;
+  let failedCount = 0;
+  const totalActive = Object.values(weights).filter(c => c.weight !== 0).length;
 
   for (const [ticker, config] of Object.entries(weights)) {
     const d = data[ticker];
@@ -234,8 +278,22 @@ function calculatePrediction(data, weights, correlations) {
 
     const change = d.change;
     const w = config.weight;
-    const contribution = change * w;
+    const isFailed = d.failed || (change === 0 && d.price === 0);
+
+    // z-score 정규화: 변동성 데이터가 있으면 적용
+    let effectiveChange = change;
+    let zScore = null;
+    if (factorVol[ticker] && factorVol[ticker].std > 0 && !isFailed) {
+      const vol = factorVol[ticker];
+      zScore = (change - vol.mean) / vol.std;
+      effectiveChange = zScore; // z-score 기반 기여도
+    }
+
+    const contribution = effectiveChange * w;
     score += contribution;
+
+    if (w !== 0 && !isFailed) validCount++;
+    if (isFailed) failedCount++;
 
     factors.push({
       name: config.name,
@@ -243,6 +301,7 @@ function calculatePrediction(data, weights, correlations) {
       change: +change.toFixed(2),
       weight: w,
       contribution: +contribution.toFixed(4),
+      zScore: zScore != null ? +zScore.toFixed(2) : null,
       price: d.price ? +d.price.toFixed(2) : null,
       previousClose: d.previousClose ? +d.previousClose.toFixed(2) : null,
       unit: config.unit || '',
@@ -258,6 +317,10 @@ function calculatePrediction(data, weights, correlations) {
   // 신호 판정
   const sig = SIGNAL_TABLE.find(s => score >= s.min);
 
+  // 팩터 신뢰도: 유효 팩터 비율
+  const reliability = totalActive > 0 ? +(validCount / totalActive * 100).toFixed(0) : 0;
+  const hasZScore = Object.keys(factorVol).length > 0;
+
   return {
     score: +score.toFixed(3),
     signal: sig.signal,
@@ -268,6 +331,10 @@ function calculatePrediction(data, weights, correlations) {
     factors,
     guidance: sig.guidance,
     expectedChange: calcExpectedChange(score), // 기본값, fetchAndPredict에서 동적 보정으로 덮어씀
+    reliability, // 팩터 신뢰도 (0-100%)
+    validFactors: validCount,
+    failedFactors: failedCount,
+    scoreMethod: hasZScore ? 'z-score' : 'raw',
   };
 }
 
@@ -941,10 +1008,13 @@ async function fetchAndPredict(bypassCache = false) {
   }
 
   // 새 예측 계산
-  const { weights, source, correlations } = await getActiveWeights();
-  const regression = await getRegressionParams();
-  const data = await fetchOvernightData();
-  const prediction = calculatePrediction(data, weights, correlations);
+  const [{ weights, source, correlations }, regression, data, factorVol] = await Promise.all([
+    getActiveWeights(),
+    getRegressionParams(),
+    fetchOvernightData(),
+    getFactorVolatility(),
+  ]);
+  const prediction = calculatePrediction(data, weights, correlations, factorVol);
 
   // AI 해석 생성
   const sig = SIGNAL_TABLE.find(s => prediction.score >= s.min);
@@ -1092,14 +1162,15 @@ function generateRuleBriefing(factors, sig, score) {
 
   let brief = '';
 
-  // 방향 요약
-  if (score >= 0.5) {
+  // 방향 요약 — SIGNAL_TABLE 임계점과 동기화 (1.4 / 0.2 / -0.8 / -2.0)
+  const ruleSig = SIGNAL_TABLE.find(s => score >= s.min);
+  if (ruleSig.signal === 'strong_bullish') {
     brief += `해외 시장 전반이 강세를 보이며 오늘 코스피는 상승 출발이 예상됩니다. `;
-  } else if (score >= 0.15) {
+  } else if (ruleSig.signal === 'mild_bullish') {
     brief += `해외 시장이 소폭 강세를 보여 코스피는 약보합~소폭 상승이 예상됩니다. `;
-  } else if (score >= -0.35) {
+  } else if (ruleSig.signal === 'neutral') {
     brief += `해외 시장 혼조세로 코스피 방향성이 불확실합니다. `;
-  } else if (score >= -0.75) {
+  } else if (ruleSig.signal === 'mild_bearish') {
     brief += `해외 시장 약세 영향으로 코스피는 하락 출발이 예상됩니다. `;
   } else {
     brief += `해외 시장이 전반적으로 급락하며 코스피도 상당한 하방 압력을 받을 것으로 보입니다. `;
