@@ -1174,7 +1174,7 @@
                           <span className="text-sm ml-2 opacity-60">스코어</span>
                         </div>
                         <p className="text-xs text-center text-gray-500 mb-3">
-                          해외 12개 지수(활성 9 + 관측 3) 변동률 × 가중치 합산 (🟢🟢≥+1.4 / 🟢≥+0.2 / ⚪≥-0.8 / 🔴≥-2.0 / 🔴🔴&lt;-2.0)
+                          해외 12개 지수(활성 9 + 관측 3) z-score × 가중치 합산 (🟢🟢≥+1.4 / 🟢≥+0.2 / ⚪≥-0.8 / 🔴≥-2.0 / 🔴🔴&lt;-2.0)
                         </p>
 
                         {/* 예상 KOSPI 범위 */}
@@ -1490,7 +1490,9 @@
                           {/* 예측 스코어 계산법 — 하단 */}
                           <div className="bg-blue-50 border border-blue-100 rounded-lg p-2.5 mt-3 text-xs text-blue-800 leading-relaxed">
                             <p className="font-semibold mb-1">📐 예측 스코어 → KOSPI 예상 변동 산출 과정</p>
-                            <p className="mb-1"><b>① 기여도</b> = 변동률 × 가중치 (각 지수의 KOSPI 영향력)</p>
+                            <p className="mb-1"><b>① 기여도</b> = {prediction.scoreMethod === 'z-score'
+                              ? 'z-score × 가중치 (z-score = 변동률을 60일 자체 변동성으로 정규화)'
+                              : '변동률 × 가중치 (각 지수의 KOSPI 영향력)'}</p>
                             <p className="mb-1"><b>② 스코어</b> = 모든 기여도 합산 = <b>{prediction.score >= 0 ? '+' : ''}{prediction.score.toFixed(3)}</b></p>
                             <p className="mb-1"><b>③ KOSPI 예상 변동률</b> = slope × 스코어 + intercept ± σ</p>
                             {expChange && (
@@ -1503,7 +1505,7 @@
                             <p className="mb-1"><b>④ 예상 KOSPI</b> = 전일 종가 × (1 + 예상 변동률)</p>
                             <p className="text-blue-600 mt-1"><b>가중치 +</b>: 해당 지수 상승 → KOSPI↑ | <b>가중치 -</b>: 해당 지수 상승 → KOSPI↓</p>
                             <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>KOSPI200F: 야간선물(~06:00 KST, 최신) | EWY: 미국 상장 한국ETF(참고용, 중복 방지 가중치 0)</p>
-                            <p className="text-blue-500" style={{ fontSize: '10px' }}>slope/intercept/σ/가중치는 60일 EWMA(λ=0.94) 회귀로 매일 자동 보정됩니다.</p>
+                            <p className="text-blue-500" style={{ fontSize: '10px' }}>가중치·회귀 파라미터는 60일 EWMA(λ=0.94) 회귀로, 기여도는 z-score 정규화로 매일 자동 보정됩니다.</p>
                           </div>
                         </div>
                       )}
@@ -1535,7 +1537,7 @@
                         시장 전망 데이터 불러오기
                       </h3>
                       <p className="text-sm md:text-base text-gray-600 mb-6 max-w-lg mx-auto leading-relaxed">
-                        전일 주요 지수 변동률과 KOSPI 베타를 결합하여 오늘 코스피의 변동 범위를 수학적으로 계산합니다.
+                        전일 해외 12개 지수를 z-score 정규화 후 OLS 회귀로 KOSPI 예상 변동 범위를 산출합니다.
                       </p>
                       <button
                         onClick={fetchPrediction}
