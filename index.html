@@ -1170,8 +1170,8 @@
                         </div>
 
                         <div className={`text-center mb-2 ${textClass}`}>
+                          <span className="text-sm mr-2 opacity-60">시장 전망 스코어 :</span>
                           <span className="text-3xl font-bold">{sign}{prediction.score.toFixed(2)}</span>
-                          <span className="text-sm ml-2 opacity-60">스코어</span>
                         </div>
                         <p className="text-xs text-center text-gray-500 mb-3">
                           해외 12개 지수(활성 9 + 관측 3) z-score × 가중치 합산 (🟢🟢≥+1.4 / 🟢≥+0.2 / ⚪≥-0.8 / 🔴≥-2.0 / 🔴🔴&lt;-2.0)
