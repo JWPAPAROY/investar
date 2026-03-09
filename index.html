@@ -1382,6 +1382,7 @@
                           {/* 데스크탑 테이블 헤더 */}
                           <div className="hidden md:flex items-center gap-1.5 text-xs text-gray-400 mb-1.5 border-b border-gray-100 pb-1">
                             <span className="w-24 text-left">지수</span>
+                            <span className="w-14 text-center">출처</span>
                             <span className="w-20 text-right">종가</span>
                             <span className="w-16 text-right">변동률</span>
                             <span style={{ width: '85px' }} className="text-center">기준시각</span>
@@ -1439,6 +1440,12 @@
                                   {/* 데스크탑 */}
                                   <div className="hidden md:flex items-center gap-1.5 text-sm">
                                     <span className="w-24 text-left text-gray-700 truncate flex-shrink-0 font-medium">{f.name}</span>
+                                    <span className="w-14 text-center flex-shrink-0">
+                                      {f.sourceUrl
+                                        ? <a href={f.sourceUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-indigo-500 hover:text-indigo-700 underline">{f.source || '?'}</a>
+                                        : <span className="text-xs text-gray-400">{f.source || '-'}</span>
+                                      }
+                                    </span>
                                     <span className="w-20 text-right font-mono text-gray-500 flex-shrink-0 text-xs">
                                       {priceStr}{unitLabel && <span className="text-gray-400 ml-0.5">{unitLabel}</span>}
                                     </span>

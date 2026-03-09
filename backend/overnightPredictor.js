@@ -23,19 +23,19 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // KOSPI200F: KIS API 경유 야간선물 — 한국시간 06:00까지 거래, 가장 최신 데이터
 // EWY: iShares MSCI South Korea ETF — 미국 본장(~06:00 KST) 마감 기준, 보조 지표
 const DEFAULT_WEIGHTS = {
-  'KOSPI200F': { name: '코스피200선물', weight: +0.20, unit: 'pt', defaultCorr: null }, // 야간선물, KIS API
-  'KOSDAQ150F': { name: '코스닥150선물', weight: 0, unit: 'pt', defaultCorr: null }, // 야간선물, KIS API, 관측용
-  'EWY': { name: '한국 ETF(EWY)', weight: 0, unit: '$', defaultCorr: null }, // 관측용
-  '^SOX': { name: 'SOX 반도체', weight: +0.18, unit: 'pt', defaultCorr: +0.582 },
-  'NQ=F': { name: '나스닥 선물', weight: +0.11, unit: 'pt', defaultCorr: +0.454 },
-  'CL=F': { name: 'WTI 원유', weight: -0.11, unit: '$/bbl', defaultCorr: -0.423 },
-  'ES=F': { name: 'S&P500 선물', weight: +0.10, unit: 'pt', defaultCorr: +0.418 },
-  '^VIX': { name: 'VIX 공포', weight: -0.10, unit: '', defaultCorr: -0.416 },
-  'GC=F': { name: '금 선물', weight: +0.08, unit: '$/oz', defaultCorr: +0.308 },
-  'HG=F': { name: '구리 선물', weight: +0.07, unit: '$/lb', defaultCorr: +0.297 },
-  'USDKRW=X': { name: '달러/원', weight: -0.04, unit: '원', defaultCorr: -0.150 },
-  '^N225': { name: '닛케이', weight: 0, unit: '¥', defaultCorr: +0.103 }, // 18h 시차, 관측용
-  '^TNX': { name: '미국10년물', weight: 0, unit: '%', defaultCorr: +0.036 }, // r≈0, 관측용
+  'KOSPI200F': { name: '코스피200선물', weight: +0.20, unit: 'pt', defaultCorr: null, source: 'KRX', sourceUrl: 'https://finance.naver.com/sise/sise_index.naver?code=KPI200' },
+  'KOSDAQ150F': { name: '코스닥150선물', weight: 0, unit: 'pt', defaultCorr: null, source: 'KRX', sourceUrl: 'https://finance.naver.com/sise/sise_index.naver?code=KRX150' },
+  'EWY': { name: '한국 ETF(EWY)', weight: 0, unit: '$', defaultCorr: null, source: 'NYSE', sourceUrl: 'https://finance.yahoo.com/quote/EWY' },
+  '^SOX': { name: 'SOX 반도체', weight: +0.18, unit: 'pt', defaultCorr: +0.582, source: 'NASDAQ', sourceUrl: 'https://finance.yahoo.com/quote/%5ESOX' },
+  'NQ=F': { name: '나스닥 선물', weight: +0.11, unit: 'pt', defaultCorr: +0.454, source: 'CME', sourceUrl: 'https://finance.yahoo.com/quote/NQ=F' },
+  'CL=F': { name: 'WTI 원유', weight: -0.11, unit: '$/bbl', defaultCorr: -0.423, source: 'NYMEX', sourceUrl: 'https://finance.yahoo.com/quote/CL=F' },
+  'ES=F': { name: 'S&P500 선물', weight: +0.10, unit: 'pt', defaultCorr: +0.418, source: 'CME', sourceUrl: 'https://finance.yahoo.com/quote/ES=F' },
+  '^VIX': { name: 'VIX 공포', weight: -0.10, unit: '', defaultCorr: -0.416, source: 'CBOE', sourceUrl: 'https://finance.yahoo.com/quote/%5EVIX' },
+  'GC=F': { name: '금 선물', weight: +0.08, unit: '$/oz', defaultCorr: +0.308, source: 'COMEX', sourceUrl: 'https://finance.yahoo.com/quote/GC=F' },
+  'HG=F': { name: '구리 선물', weight: +0.07, unit: '$/lb', defaultCorr: +0.297, source: 'COMEX', sourceUrl: 'https://finance.yahoo.com/quote/HG=F' },
+  'USDKRW=X': { name: '달러/원', weight: -0.04, unit: '원', defaultCorr: -0.150, source: 'FX', sourceUrl: 'https://finance.yahoo.com/quote/USDKRW=X' },
+  '^N225': { name: '닛케이', weight: 0, unit: '¥', defaultCorr: +0.103, source: 'JPX', sourceUrl: 'https://finance.yahoo.com/quote/%5EN225' },
+  '^TNX': { name: '미국10년물', weight: 0, unit: '%', defaultCorr: +0.036, source: 'CBOE', sourceUrl: 'https://finance.yahoo.com/quote/%5ETNX' },
 };
 // 가중치 절대값 합 = 0.99 (보정 시 자동 정규화)
 
@@ -337,7 +337,11 @@ function calculatePrediction(data, weights, correlations, factorVol = {}) {
       unit: config.unit || '',
       dataDate: d.dataDate || null,
       dataTimestamp: d.dataTimestamp || null,
-      corr: correlations && correlations[ticker] != null ? +correlations[ticker].toFixed(3) : null,
+      corr: correlations && correlations[ticker] != null
+        ? +correlations[ticker].toFixed(3)
+        : (config.defaultCorr != null ? config.defaultCorr : null),
+      source: config.source || null,
+      sourceUrl: config.sourceUrl || null,
     });
   }
 
@@ -374,7 +378,7 @@ function calculatePrediction(data, weights, correlations, factorVol = {}) {
  * 60일 이상이면 상관계수 기반 가중치 재계산
  */
 async function getActiveWeights() {
-  if (!supabase) return { weights: DEFAULT_WEIGHTS, source: 'default' };
+  if (!supabase) return { weights: DEFAULT_WEIGHTS, source: 'default', correlations: {} };
 
   try {
     const { data, error } = await supabase
@@ -385,7 +389,7 @@ async function getActiveWeights() {
       .limit(60);
 
     if (error || !data || data.length < 60) {
-      return { weights: DEFAULT_WEIGHTS, source: 'default' };
+      return { weights: DEFAULT_WEIGHTS, source: 'default', correlations: {} };
     }
 
     // 각 팩터별 상관계수 계산
@@ -549,6 +553,14 @@ async function savePrediction(prediction, weights, weightsSource, previousKospi,
   if (!supabase) return;
 
   const today = getTodayKST();
+
+  // 주말/공휴일 날짜로 저장 방지
+  const [sy, sm, sd] = today.split('-').map(Number);
+  const saveDay = new Date(Date.UTC(sy, sm - 1, sd)).getUTCDay();
+  if (saveDay === 0 || saveDay === 6) {
+    console.log(`📅 주말(${today}) — 예측 저장 건너뜀`);
+    return;
+  }
 
   try {
     const { error } = await supabase
@@ -789,6 +801,8 @@ function enrichFactors(factors) {
     if (def) {
       if (!f.unit) f.unit = def.unit || '';
       if (f.corr == null && def.defaultCorr != null) f.corr = def.defaultCorr;
+      if (!f.source) f.source = def.source || null;
+      if (!f.sourceUrl) f.sourceUrl = def.sourceUrl || null;
     }
   }
 }
@@ -869,8 +883,12 @@ async function fetchAndPredict(bypassCache = false) {
         };
       }
     } catch (e) {
-      console.warn('⚠️ 주말 캐시 조회 실패, 새 예측 진행:', e.message);
+      console.warn('⚠️ 주말 캐시 조회 실패:', e.message);
     }
+
+    // 주말에는 캐시 실패해도 새 예측 생성하지 않음 (토/일 날짜로 저장 방지)
+    console.log(`📅 주말(${today}) — 캐시 없음, 예측 생성 건너뜀`);
+    return null;
   }
 
   // KOSPI 전일 종가 (예상 지수 산출용)
