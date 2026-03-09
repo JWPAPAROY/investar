@@ -388,7 +388,7 @@ async function getActiveWeights() {
       .order('prediction_date', { ascending: false })
       .limit(60);
 
-    if (error || !data || data.length < 60) {
+    if (error || !data || data.length < 30) {
       return { weights: DEFAULT_WEIGHTS, source: 'default', correlations: {} };
     }
 
@@ -458,7 +458,7 @@ async function getActiveWeights() {
       }
     }
 
-    return { weights: calibrated, source: 'calibrated_60d', correlations };
+    return { weights: calibrated, source: 'calibrated', correlations };
   } catch (err) {
     console.warn('⚠️ 가중치 보정 실패, 기본값 사용:', err.message);
     return { weights: DEFAULT_WEIGHTS, source: 'default', correlations: {} };
@@ -853,7 +853,7 @@ async function fetchAndPredict(bypassCache = false) {
             : generateRuleBriefing(lastPred.factors || [], sig, +lastPred.score),
           factors: lastPred.factors || [],
           guidance: sig.guidance,
-          weightsSource: lastPred.weights_source || (lastPred.weights ? 'calibrated_60d' : 'default'),
+          weightsSource: lastPred.weights_source || (lastPred.weights ? 'calibrated' : 'default'),
           previousKospi: lastPred.previous_kospi,
           regression,
           expectedChange: expChg,
@@ -1026,7 +1026,7 @@ async function fetchAndPredict(bypassCache = false) {
             aiInterpretation,
             factors: existing.factors || [],
             guidance: sig.guidance,
-            weightsSource: existing.weights_source || (existing.weights ? 'calibrated_60d' : 'default'),
+            weightsSource: existing.weights_source || (existing.weights ? 'calibrated' : 'default'),
             previousKospi,
             regression: cachedRegression,
             expectedChange: expChg,

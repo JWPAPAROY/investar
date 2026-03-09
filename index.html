@@ -1320,7 +1320,7 @@
                             </>
                           )}
                           <span>|</span>
-                          <span>가중치: {prediction.weightsSource === 'calibrated_60d' ? '자동보정' : prediction.weightsSource === 'default' ? '기본값' : prediction.weightsSource || '기본값'}</span>
+                          <span>가중치: {prediction.weightsSource?.startsWith('calibrated') ? '자동보정' : prediction.weightsSource === 'default' ? '기본값' : prediction.weightsSource || '기본값'}</span>
                           {prediction.scoreMethod && (
                             <>
                               <span>|</span>
