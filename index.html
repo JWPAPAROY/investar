@@ -1477,7 +1477,17 @@
                             <span className="flex-1"></span>
                             <span className="w-14 text-right">기여도</span>
                           </div>
-                          {/* 모바일: 헤더 없음 — 각 행이 자체 레이블 포함 */}
+                          {/* 모바일 테이블 헤더 */}
+                          <div className="md:hidden flex items-end gap-0.5 text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{ fontSize: '9px' }}>
+                            <span style={{ width: '58px' }} className="flex-shrink-0">지수</span>
+                            <span style={{ width: '38px' }} className="flex-shrink-0 text-right">변동률</span>
+                            <span style={{ width: '46px' }} className="flex-shrink-0 text-center">기준시각</span>
+                            <span style={{ width: '38px' }} className="flex-shrink-0 text-center">갱신</span>
+                            <span style={{ width: '24px' }} className="flex-shrink-0 text-right">r</span>
+                            <span style={{ width: '22px' }} className="flex-shrink-0 text-right">가중</span>
+                            <span className="flex-1"></span>
+                            <span style={{ width: '36px' }} className="flex-shrink-0 text-right">기여도</span>
+                          </div>
                           <div className="space-y-1">
                             {displayFactors.map((f, i) => {
                               const barWidth = Math.min(Math.abs(f.contribution) / maxAbsContrib * 100, 100);
@@ -1560,54 +1570,52 @@
                                       {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                     </span>
                                   </div>
-                                  {/* 모바일: 카드형 2줄 */}
-                                  <div className="md:hidden py-1 border-b border-gray-50">
-                                    {/* 1줄: 지수명 + 변동률 ... 기여도바 + 기여도 */}
-                                    <div className="flex items-center">
-                                      <span className="text-gray-700 font-medium truncate" style={{ fontSize: '12px', minWidth: '70px', maxWidth: '90px' }}>
+                                  {/* 모바일: 정렬된 테이블 행 */}
+                                  <div className="md:hidden flex items-center gap-0.5 py-0.5" style={{ fontSize: '10px' }}>
+                                    <div style={{ width: '58px' }} className="flex-shrink-0">
+                                      <div className="text-gray-700 font-medium truncate" style={{ fontSize: '11px' }}>
                                         {f.sourceUrl
                                           ? <a href={f.sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:text-indigo-600 hover:underline">{f.name}</a>
                                           : f.name
                                         }
-                                      </span>
-                                      <span className={`font-mono font-bold ml-1 ${f.change >= 0 ? 'text-red-600' : 'text-blue-600'}`} style={{ fontSize: '12px', width: '52px', textAlign: 'right', flexShrink: 0 }}>
-                                        {changeSign}{f.change}%
-                                      </span>
-                                      <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden mx-2" style={{ minWidth: '30px' }}>
-                                        <div
-                                          className={`h-full rounded-full ${isPositive ? 'bg-red-400' : 'bg-blue-400'}`}
-                                          style={{ width: barWidth + '%' }}
-                                        />
                                       </div>
-                                      <span className={`font-mono font-bold flex-shrink-0 ${isPositive ? 'text-red-600' : 'text-blue-600'}`} style={{ fontSize: '11px', width: '46px', textAlign: 'right' }}>
-                                        {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
-                                      </span>
+                                      <div className="font-mono text-gray-400 truncate" style={{ fontSize: '8px' }}>
+                                        {priceStr}
+                                      </div>
                                     </div>
-                                    {/* 2줄: 종가 · 기준시각 · 다음갱신 · r · 가중치 */}
-                                    <div className="flex items-center gap-1.5 mt-0.5 text-gray-400 font-mono" style={{ fontSize: '9px', paddingLeft: '2px' }}>
-                                      <span className="text-gray-500">{priceStr}</span>
-                                      <span>·</span>
-                                      <span>{dateLabel}</span>
-                                      {(() => {
-                                        const nextLabel = getNextUpdateLabel(f);
-                                        const isLive = nextLabel === '거래중';
-                                        return nextLabel ? (
-                                          <React.Fragment>
-                                            <span>·</span>
-                                            <span className={isLive ? 'text-green-600 font-bold' : ''}>
-                                              {isLive ? '\u25CF거래중' : nextLabel}
-                                            </span>
-                                          </React.Fragment>
-                                        ) : null;
-                                      })()}
-                                      <span>·</span>
-                                      <span className={
-                                        f.corr == null ? '' :
-                                        f.corr > 0 ? 'text-blue-500' : 'text-orange-500'
-                                      }>r:{f.corr != null ? (f.corr > 0 ? '+' : '') + f.corr.toFixed(2) : '-'}</span>
-                                      <span>·</span>
-                                      <span>w:{weightSign}{weightPct}%</span>
+                                    <span className={`flex-shrink-0 text-right font-mono font-bold ${f.change >= 0 ? 'text-red-600' : 'text-blue-600'}`} style={{ width: '38px', fontSize: '10px' }}>
+                                      {changeSign}{f.change}%
+                                    </span>
+                                    <span className="flex-shrink-0 text-center font-mono text-gray-400" style={{ width: '46px', fontSize: '8px' }}>
+                                      {dateLabel}
+                                    </span>
+                                    {(() => {
+                                      const nextLabel = getNextUpdateLabel(f);
+                                      const isLive = nextLabel === '거래중';
+                                      return (
+                                        <span className={`flex-shrink-0 text-center font-mono ${isLive ? 'text-green-600 font-bold' : 'text-gray-400'}`} style={{ width: '38px', fontSize: '8px' }}>
+                                          {isLive ? '\u25CF거래중' : nextLabel}
+                                        </span>
+                                      );
+                                    })()}
+                                    <span className={`flex-shrink-0 text-right font-mono ${
+                                      f.corr == null ? 'text-gray-400' :
+                                      f.corr > 0 ? 'text-blue-600' : 'text-orange-600'
+                                    }`} style={{ width: '24px', fontSize: '8px' }}>
+                                      {f.corr != null ? (f.corr > 0 ? '+' : '') + f.corr.toFixed(1) : '-'}
+                                    </span>
+                                    <span className="flex-shrink-0 text-right font-mono text-gray-400" style={{ width: '22px', fontSize: '8px' }}>
+                                      {weightPct}%
+                                    </span>
+                                    <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden mx-0.5" style={{ minWidth: '10px' }}>
+                                      <div
+                                        className={`h-full rounded-full ${isPositive ? 'bg-red-400' : 'bg-blue-400'}`}
+                                        style={{ width: barWidth + '%' }}
+                                      />
                                     </div>
+                                    <span className={`flex-shrink-0 text-right font-mono font-bold ${isPositive ? 'text-red-600' : 'text-blue-600'}`} style={{ width: '36px', fontSize: '9px' }}>
+                                      {isPositive ? '+' : ''}{f.contribution.toFixed(2)}
+                                    </span>
                                   </div>
                                 </div>
                               );
