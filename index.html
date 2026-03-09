@@ -1480,9 +1480,9 @@
                           {/* 모바일 테이블 헤더 */}
                           <div className="md:hidden flex items-end gap-0.5 text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{ fontSize: '9px' }}>
                             <span style={{ width: '58px' }} className="flex-shrink-0">지수</span>
-                            <span style={{ width: '38px' }} className="flex-shrink-0 text-right">변동률</span>
-                            <span style={{ width: '46px' }} className="flex-shrink-0 text-center">기준시각</span>
-                            <span style={{ width: '38px' }} className="flex-shrink-0 text-center">갱신</span>
+                            <span style={{ width: '46px' }} className="flex-shrink-0 text-right">변동률</span>
+                            <span style={{ width: '34px' }} className="flex-shrink-0 text-center leading-tight">기준<br/>시각</span>
+                            <span style={{ width: '34px' }} className="flex-shrink-0 text-center leading-tight">다음<br/>갱신</span>
                             <span style={{ width: '24px' }} className="flex-shrink-0 text-right">r</span>
                             <span style={{ width: '22px' }} className="flex-shrink-0 text-right">가중</span>
                             <span className="flex-1"></span>
@@ -1583,19 +1583,33 @@
                                         {priceStr}
                                       </div>
                                     </div>
-                                    <span className={`flex-shrink-0 text-right font-mono font-bold ${f.change >= 0 ? 'text-red-600' : 'text-blue-600'}`} style={{ width: '38px', fontSize: '10px' }}>
+                                    <span className={`flex-shrink-0 text-right font-mono font-bold whitespace-nowrap ${f.change >= 0 ? 'text-red-600' : 'text-blue-600'}`} style={{ width: '46px', fontSize: '10px' }}>
                                       {changeSign}{f.change}%
                                     </span>
-                                    <span className="flex-shrink-0 text-center font-mono text-gray-400" style={{ width: '46px', fontSize: '8px' }}>
-                                      {dateLabel}
-                                    </span>
+                                    {(() => {
+                                      const parts = dateLabel.split(' ');
+                                      return (
+                                        <div className="flex-shrink-0 text-center font-mono text-gray-400 leading-tight" style={{ width: '34px', fontSize: '8px' }}>
+                                          <div>{parts[0] || ''}</div>
+                                          <div>{parts[1] || ''}</div>
+                                        </div>
+                                      );
+                                    })()}
                                     {(() => {
                                       const nextLabel = getNextUpdateLabel(f);
                                       const isLive = nextLabel === '거래중';
+                                      const nextParts = nextLabel ? nextLabel.split(' ') : ['', ''];
                                       return (
-                                        <span className={`flex-shrink-0 text-center font-mono ${isLive ? 'text-green-600 font-bold' : 'text-gray-400'}`} style={{ width: '38px', fontSize: '8px' }}>
-                                          {isLive ? '\u25CF거래중' : nextLabel}
-                                        </span>
+                                        <div className={`flex-shrink-0 text-center font-mono leading-tight ${isLive ? 'text-green-600 font-bold' : 'text-gray-400'}`} style={{ width: '34px', fontSize: '8px' }}>
+                                          {isLive ? (
+                                            <div>{'\u25CF'}거래중</div>
+                                          ) : (
+                                            <React.Fragment>
+                                              <div>{nextParts[0] || ''}</div>
+                                              <div>{nextParts[1] || ''}</div>
+                                            </React.Fragment>
+                                          )}
+                                        </div>
                                       );
                                     })()}
                                     <span className={`flex-shrink-0 text-right font-mono ${
