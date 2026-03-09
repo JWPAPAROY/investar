@@ -57,11 +57,11 @@ const DEFAULT_REGRESSION = { slope: 0.78, intercept: 0.77, sigma: 3.44 };
 // 스코어 분포: 평균 -0.32, σ=1.70, 범위 -4.39~+2.89
 // 기존 ±0.75 → 강한등급에 64% 집중. σ 기반으로 균형 분포 재설정
 const SIGNAL_TABLE = [
-  { min: 1.4, signal: 'strong_bullish', emoji: '🟢🟢', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
-  { min: 0.2, signal: 'mild_bullish', emoji: '🟢', label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
+  { min: 1.4, signal: 'strong_bullish', emoji: '🔴🔴', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
+  { min: 0.2, signal: 'mild_bullish', emoji: '🔴', label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
   { min: -0.8, signal: 'neutral', emoji: '⚪', label: '중립', guidance: '방향 불명확, 관망 또는 소량 포지션' },
-  { min: -2.0, signal: 'mild_bearish', emoji: '🔴', label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
-  { min: -Infinity, signal: 'strong_bearish', emoji: '🔴🔴', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비' },
+  { min: -2.0, signal: 'mild_bearish', emoji: '🔵', label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
+  { min: -Infinity, signal: 'strong_bearish', emoji: '🔵🔵', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비' },
 ];
 
 /**
