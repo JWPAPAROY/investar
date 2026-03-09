@@ -517,7 +517,7 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 ### 방어 TOP 3 선별 — `selectDefenseSaveTop3()`, `selectDefenseAlertTop3()`
 
-**자격**: 기관≥3일 OR 외국인≥3일, 비폭락, 비과열, 시총≥5000억
+**자격**: 기관≥2일 OR 외국인≥2일, 비폭락, 비과열, 시총≥5000억
 
 | 우선순위 | 조건 |
 |---------|------|

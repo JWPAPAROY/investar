@@ -452,7 +452,7 @@ function selectDefenseSaveTop3(stocks) {
       instDays = flow.institution?.consecutiveBuyDays || flow.institutionDays || 0;
       foreignDays = flow.foreign?.consecutiveBuyDays || flow.foreignDays || 0;
     }
-    const hasSmartMoney = instDays >= 3 || foreignDays >= 3;
+    const hasSmartMoney = instDays >= 2 || foreignDays >= 2;  // v3.55: 3일→2일 완화
     const isNotCrashing = !s.crashCheck?.isCrashing;
     const isNotOverheated = s.recommendation?.grade !== '과열';
     const mcBillion = s.marketCap ? s.marketCap / 100000000 : 0;
@@ -501,7 +501,7 @@ function selectDefenseAlertTop3(stocks) {
   const isEligible = (s) => {
     const instDays = s.institution_buy_days || 0;
     const foreignDays = s.foreign_buy_days || 0;
-    const hasSmartMoney = instDays >= 3 || foreignDays >= 3;
+    const hasSmartMoney = instDays >= 2 || foreignDays >= 2;  // v3.55: 3일→2일 완화
     const isNotOverheated = s.recommendation_grade !== '과열';
     const mcBillion = s.market_cap ? s.market_cap / 100000000 : 0;
     const hasMinMarketCap = mcBillion >= 5000;
@@ -640,6 +640,11 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
     msg += `⚠️ <i>장중 데이터 (종가 미확정, DB 미저장)</i>\n`;
   }
   msg += `\n`;
+
+  // v3.55: 해외 시장 기반 전망 (ALERT과 동일)
+  if (prediction) {
+    msg += formatPredictionLine(prediction);
+  }
 
   // v3.32: 시장 심리 지수
   if (options.sentiment) {
@@ -1793,7 +1798,13 @@ module.exports = async (req, res) => {
       let expectations = [];
       try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
 
-      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, defenseAlertTop3, expectations);
+      // v3.55: 해외 전망 조회 (결산 메시지에 표시)
+      let prediction = null;
+      try {
+        prediction = await overnightPredictor.fetchAndPredict();
+      } catch (e) { console.warn('⚠️ [cached] 해외 전망 조회 실패:', e.message); }
+
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, defenseAlertTop3, expectations, prediction);
       const sent = await sendTelegramMessage(message);
 
       // 해외 예측 실제 결과 업데이트
