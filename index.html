@@ -1477,15 +1477,7 @@
                             <span className="flex-1"></span>
                             <span className="w-14 text-right">기여도</span>
                           </div>
-                          {/* 모바일 테이블 헤더 */}
-                          <div className="flex md:hidden items-center gap-1 text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{ fontSize: '10px' }}>
-                            <span style={{ width: '72px' }} className="flex-shrink-0 text-left">지수</span>
-                            <span style={{ width: '42px' }} className="flex-shrink-0 text-right">변동률</span>
-                            <span style={{ width: '32px' }} className="flex-shrink-0 text-right">r</span>
-                            <span style={{ width: '28px' }} className="flex-shrink-0 text-right">가중</span>
-                            <span className="flex-1"></span>
-                            <span style={{ width: '40px' }} className="flex-shrink-0 text-right">기여도</span>
-                          </div>
+                          {/* 모바일: 헤더 없음 — 각 행이 자체 레이블 포함 */}
                           <div className="space-y-1">
                             {displayFactors.map((f, i) => {
                               const barWidth = Math.min(Math.abs(f.contribution) / maxAbsContrib * 100, 100);
@@ -1568,52 +1560,53 @@
                                       {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                     </span>
                                   </div>
-                                  {/* 모바일: 2줄 구성 */}
-                                  <div className="md:hidden" style={{ minWidth: 0 }}>
-                                    {/* 1줄: 지수 | 변동률 | r | 가중 | 바 | 기여도 */}
-                                    <div className="flex items-center gap-1 text-xs">
-                                      <span className="flex-shrink-0 text-gray-700 font-medium truncate" style={{ width: '72px', fontSize: '11px' }}>
+                                  {/* 모바일: 카드형 2줄 */}
+                                  <div className="md:hidden py-1 border-b border-gray-50">
+                                    {/* 1줄: 지수명 + 변동률 ... 기여도바 + 기여도 */}
+                                    <div className="flex items-center">
+                                      <span className="text-gray-700 font-medium truncate" style={{ fontSize: '12px', minWidth: '70px', maxWidth: '90px' }}>
                                         {f.sourceUrl
                                           ? <a href={f.sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:text-indigo-600 hover:underline">{f.name}</a>
                                           : f.name
                                         }
                                       </span>
-                                      <span className={`flex-shrink-0 text-right font-mono ${f.change >= 0 ? 'text-red-600' : 'text-blue-600'}`} style={{ width: '42px', fontSize: '11px' }}>
+                                      <span className={`font-mono font-bold ml-1 ${f.change >= 0 ? 'text-red-600' : 'text-blue-600'}`} style={{ fontSize: '12px', width: '52px', textAlign: 'right', flexShrink: 0 }}>
                                         {changeSign}{f.change}%
                                       </span>
-                                      <span className={`flex-shrink-0 text-right font-mono ${
-                                        f.corr == null ? 'text-gray-400' :
-                                        f.corr > 0 ? 'text-blue-600' : 'text-orange-600'
-                                      }`} style={{ width: '32px', fontSize: '9px' }}>
-                                        {f.corr != null ? (f.corr > 0 ? '+' : '') + f.corr.toFixed(2) : '-'}
-                                      </span>
-                                      <span className="flex-shrink-0 text-right font-mono text-gray-400" style={{ width: '28px', fontSize: '9px' }}>
-                                        {weightSign}{weightPct}%
-                                      </span>
-                                      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: '12px' }}>
+                                      <div className="flex-1 h-2.5 bg-gray-100 rounded-full overflow-hidden mx-2" style={{ minWidth: '30px' }}>
                                         <div
                                           className={`h-full rounded-full ${isPositive ? 'bg-red-400' : 'bg-blue-400'}`}
                                           style={{ width: barWidth + '%' }}
                                         />
                                       </div>
-                                      <span className={`flex-shrink-0 text-right font-mono font-bold ${isPositive ? 'text-red-600' : 'text-blue-600'}`} style={{ width: '40px', fontSize: '10px' }}>
+                                      <span className={`font-mono font-bold flex-shrink-0 ${isPositive ? 'text-red-600' : 'text-blue-600'}`} style={{ fontSize: '11px', width: '46px', textAlign: 'right' }}>
                                         {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                       </span>
                                     </div>
-                                    {/* 2줄: 종가 | 기준시각 | 다음 갱신 */}
-                                    <div className="flex items-center gap-2 ml-1 mb-0.5" style={{ fontSize: '9px' }}>
-                                      <span className="font-mono text-gray-500">{priceStr}{unitLabel && <span className="text-gray-400 ml-0.5">{unitLabel}</span>}</span>
-                                      <span className="text-gray-300">|</span>
-                                      <span className="font-mono text-gray-400">{dateLabel}</span>
+                                    {/* 2줄: 종가 · 기준시각 · 다음갱신 · r · 가중치 */}
+                                    <div className="flex items-center gap-1.5 mt-0.5 text-gray-400 font-mono" style={{ fontSize: '9px', paddingLeft: '2px' }}>
+                                      <span className="text-gray-500">{priceStr}</span>
+                                      <span>·</span>
+                                      <span>{dateLabel}</span>
                                       {(() => {
                                         const nextLabel = getNextUpdateLabel(f);
                                         const isLive = nextLabel === '거래중';
                                         return nextLabel ? (
-                                          <span className={`font-mono ${isLive ? 'text-green-600 font-bold' : 'text-gray-400'}`}>
-                                            {isLive ? '\u25CF 거래중' : `→ ${nextLabel}`}
-                                          </span>
+                                          <React.Fragment>
+                                            <span>·</span>
+                                            <span className={isLive ? 'text-green-600 font-bold' : ''}>
+                                              {isLive ? '\u25CF거래중' : nextLabel}
+                                            </span>
+                                          </React.Fragment>
                                         ) : null;
                                       })()}
+                                      <span>·</span>
+                                      <span className={
+                                        f.corr == null ? '' :
+                                        f.corr > 0 ? 'text-blue-500' : 'text-orange-500'
+                                      }>r:{f.corr != null ? (f.corr > 0 ? '+' : '') + f.corr.toFixed(2) : '-'}</span>
+                                      <span>·</span>
+                                      <span>w:{weightSign}{weightPct}%</span>
                                     </div>
                                   </div>
                                 </div>
