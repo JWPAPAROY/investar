@@ -1478,12 +1478,13 @@
                             <span className="w-14 text-right">기여도</span>
                           </div>
                           {/* 모바일 테이블 헤더 */}
-                          <div className="flex md:hidden items-center text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{ fontSize: '10px' }}>
-                            <span className="flex-1 text-left">지수 / 종가</span>
-                            <span className="w-12 text-right flex-shrink-0">변동률</span>
-                            <span className="w-10 text-right flex-shrink-0">r</span>
-                            <span className="w-8 text-right flex-shrink-0">가중</span>
-                            <span className="w-12 text-right flex-shrink-0">기여도</span>
+                          <div className="flex md:hidden items-center gap-1 text-xs text-gray-400 mb-1 border-b border-gray-100 pb-1" style={{ fontSize: '10px' }}>
+                            <span style={{ width: '72px' }} className="flex-shrink-0 text-left">지수</span>
+                            <span style={{ width: '42px' }} className="flex-shrink-0 text-right">변동률</span>
+                            <span style={{ width: '32px' }} className="flex-shrink-0 text-right">r</span>
+                            <span style={{ width: '28px' }} className="flex-shrink-0 text-right">가중</span>
+                            <span className="flex-1"></span>
+                            <span style={{ width: '40px' }} className="flex-shrink-0 text-right">기여도</span>
                           </div>
                           <div className="space-y-1">
                             {displayFactors.map((f, i) => {
@@ -1533,7 +1534,7 @@
                                     <span className="w-20 text-right font-mono text-gray-500 flex-shrink-0 text-xs">
                                       {priceStr}{unitLabel && <span className="text-gray-400 ml-0.5">{unitLabel}</span>}
                                     </span>
-                                    <span className={`w-16 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                                    <span className={`w-16 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
                                       {changeSign}{f.change}%
                                     </span>
                                     <span className="text-center font-mono text-xs text-gray-400 flex-shrink-0" style={{ width: '85px' }}>
@@ -1559,43 +1560,50 @@
                                     </span>
                                     <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: '20px' }}>
                                       <div
-                                        className={`h-full rounded-full ${isPositive ? 'bg-green-400' : 'bg-red-400'}`}
+                                        className={`h-full rounded-full ${isPositive ? 'bg-red-400' : 'bg-blue-400'}`}
                                         style={{ width: barWidth + '%' }}
                                       />
                                     </div>
-                                    <span className={`w-14 text-right font-mono text-xs font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`}>
+                                    <span className={`w-14 text-right font-mono text-xs font-bold flex-shrink-0 ${isPositive ? 'text-red-600' : 'text-blue-600'}`}>
                                       {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                     </span>
                                   </div>
                                   {/* 모바일: 2줄 구성 */}
                                   <div className="md:hidden" style={{ minWidth: 0 }}>
-                                    {/* 1줄: 지수(링크)+종가 | 변동률 | 상관 | 가중 | 기여도 */}
+                                    {/* 1줄: 지수 | 변동률 | r | 가중 | 바 | 기여도 */}
                                     <div className="flex items-center gap-1 text-xs">
-                                      <span className="flex-1 text-gray-700 font-medium truncate" style={{ fontSize: '11px' }}>
+                                      <span className="flex-shrink-0 text-gray-700 font-medium truncate" style={{ width: '72px', fontSize: '11px' }}>
                                         {f.sourceUrl
                                           ? <a href={f.sourceUrl} target="_blank" rel="noopener noreferrer" className="hover:text-indigo-600 hover:underline">{f.name}</a>
                                           : f.name
                                         }
-                                        <span className="text-gray-400 font-normal ml-1" style={{ fontSize: '9px' }}>{priceStr}</span>
                                       </span>
-                                      <span className={`w-12 text-right font-mono flex-shrink-0 ${f.change >= 0 ? 'text-green-700' : 'text-red-700'}`} style={{ fontSize: '11px' }}>
+                                      <span className={`flex-shrink-0 text-right font-mono ${f.change >= 0 ? 'text-red-600' : 'text-blue-600'}`} style={{ width: '42px', fontSize: '11px' }}>
                                         {changeSign}{f.change}%
                                       </span>
-                                      <span className={`w-10 text-right font-mono flex-shrink-0 ${
+                                      <span className={`flex-shrink-0 text-right font-mono ${
                                         f.corr == null ? 'text-gray-400' :
                                         f.corr > 0 ? 'text-blue-600' : 'text-orange-600'
-                                      }`} style={{ fontSize: '9px' }}>
+                                      }`} style={{ width: '32px', fontSize: '9px' }}>
                                         {f.corr != null ? (f.corr > 0 ? '+' : '') + f.corr.toFixed(2) : '-'}
                                       </span>
-                                      <span className="w-8 text-right font-mono text-gray-400 flex-shrink-0" style={{ fontSize: '9px' }}>
+                                      <span className="flex-shrink-0 text-right font-mono text-gray-400" style={{ width: '28px', fontSize: '9px' }}>
                                         {weightSign}{weightPct}%
                                       </span>
-                                      <span className={`w-12 text-right font-mono font-bold flex-shrink-0 ${isPositive ? 'text-green-600' : 'text-red-600'}`} style={{ fontSize: '10px' }}>
+                                      <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: '12px' }}>
+                                        <div
+                                          className={`h-full rounded-full ${isPositive ? 'bg-red-400' : 'bg-blue-400'}`}
+                                          style={{ width: barWidth + '%' }}
+                                        />
+                                      </div>
+                                      <span className={`flex-shrink-0 text-right font-mono font-bold ${isPositive ? 'text-red-600' : 'text-blue-600'}`} style={{ width: '40px', fontSize: '10px' }}>
                                         {isPositive ? '+' : ''}{f.contribution.toFixed(3)}
                                       </span>
                                     </div>
-                                    {/* 2줄: 기준시각 | 다음 갱신 */}
+                                    {/* 2줄: 종가 | 기준시각 | 다음 갱신 */}
                                     <div className="flex items-center gap-2 ml-1 mb-0.5" style={{ fontSize: '9px' }}>
+                                      <span className="font-mono text-gray-500">{priceStr}{unitLabel && <span className="text-gray-400 ml-0.5">{unitLabel}</span>}</span>
+                                      <span className="text-gray-300">|</span>
                                       <span className="font-mono text-gray-400">{dateLabel}</span>
                                       {(() => {
                                         const nextLabel = getNextUpdateLabel(f);
