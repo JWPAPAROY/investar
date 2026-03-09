@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.54
-- **최종 업데이트**: 2026-03-08
+- **버전**: 3.55
+- **최종 업데이트**: 2026-03-09
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -608,7 +608,7 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 
 - 10일 미만: raw 변동률 사용, 20일 미만: `DEFAULT_WEIGHTS`/`DEFAULT_REGRESSION` 사용
 - 10일 이상: `getFactorVolatility()` — 팩터별 60일 mean/std → z-score 정규화
-- 20일 이상(가중치): 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 → 부호 보존, 절대값 비례 → 합계 1.0 정규화
+- 30일 이상(가중치): 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 → 부호 보존, 절대값 비례 → 합계 1.0 정규화 (v3.55: 60일→30일 완화)
 - 20일 이상(회귀): score→KOSPI 종가 변동률 EWMA 가중 OLS 회귀 → slope/intercept/sigma 산출
 - 팩터 수 변경 시 캐시 자동 무효화
 
@@ -848,6 +848,13 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.55 (2026-03-09)
+- **방어 Recovery 역전 버그 수정**: 극단 과매도 구간에서 점수가 역전되는 논리 오류 수정. RSI<20: 2→8점, RSI 20-24: 6→10점, MFI<15: 0→5점, MFI 15-19: 5→7점, 이격도<85: 1→6점, 이격도 85-89: 6→7점
+- **방어 TOP3 자격 완화**: 기관/외국인 연속매수 3일→2일. 하락장에서 방어 추천 발생 확률 향상
+- **결산(SAVE) 메시지에 해외 전망 추가**: ALERT 메시지와 동일하게 `formatPredictionLine()` 표시. cached 경로에서도 prediction 조회
+- **가중치 자동보정 최소 데이터 60일→30일**: 피어슨 상관계수 유의성 검정에 30개 샘플 충분. source 이름 `calibrated_60d` → `calibrated`
+- **시장전망 UI 5가지 개선**: (1) 모바일 팩터 테이블 2줄 구성(지수명+종가+변동률+상관+가중+기여도 / 기준시각+다음갱신), (2) 지수명에 출처 하이퍼링크 통합(출처 열 제거), (3) 지표 설명 줄바꿈(합산/임계점 분리), (4) 날짜 통일(상단 헤더→해외장 마감일 기준), (5) 하락 신호 색상 red→amber(모멘텀 전략과 구분)
 
 ### v3.54 (2026-03-08)
 - **z-score 정규화**: `getFactorVolatility()` 신규 — 팩터별 60일 mean/std 조회 후 z-score = (change - mean) / std 기반 기여도 계산. VIX ±15%(일상적) vs S&P ±2%(이례적)을 동일 척도로 비교. 10일 미만 시 raw 변동률 fallback
