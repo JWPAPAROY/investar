@@ -24,6 +24,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // EWY: iShares MSCI South Korea ETF — 미국 본장(~06:00 KST) 마감 기준, 보조 지표
 const DEFAULT_WEIGHTS = {
   'KOSPI200F': { name: '코스피200선물', weight: +0.20, unit: 'pt', defaultCorr: null }, // 야간선물, KIS API
+  'KOSDAQ150F': { name: '코스닥150선물', weight: 0, unit: 'pt', defaultCorr: null }, // 야간선물, KIS API, 관측용
   'EWY': { name: '한국 ETF(EWY)', weight: 0, unit: '$', defaultCorr: null }, // 관측용
   '^SOX': { name: 'SOX 반도체', weight: +0.18, unit: 'pt', defaultCorr: +0.582 },
   'NQ=F': { name: '나스닥 선물', weight: +0.11, unit: 'pt', defaultCorr: +0.454 },
@@ -208,8 +209,9 @@ async function fetchOvernightData() {
   const tickers = Object.keys(DEFAULT_WEIGHTS);
   const results = {};
 
-  // Yahoo Finance 지표 (KOSPI200F 제외)
-  const yahooTickers = tickers.filter(t => t !== 'KOSPI200F');
+  // Yahoo Finance 지표 (KIS API 조회 대상 제외)
+  const kisTickers = ['KOSPI200F', 'KOSDAQ150F'];
+  const yahooTickers = tickers.filter(t => !kisTickers.includes(t));
   const promises = yahooTickers.map(async (ticker) => {
     try {
       const quote = await yahooQuote(ticker);
@@ -220,40 +222,68 @@ async function fetchOvernightData() {
     }
   });
 
-  // KOSPI200F: KIS API로 별도 조회
-  const kisPromise = (async () => {
+  // KIS API 선물 조회 (KOSPI200F, KOSDAQ150F)
+  const kisFuturesPromise = (async () => {
+    const todayKST = getTodayKST();
+    const futuresResults = [];
+
+    // KOSPI200F
     try {
       const futures = await kisApi.getKospi200FuturesPrice();
       if (futures) {
-        // 야간선물 마감 06:00 KST (평일), dataDate는 오늘 KST 기준
-        const todayKST = getTodayKST();
-        return {
+        futuresResults.push({
           ticker: 'KOSPI200F',
           price: futures.price,
           previousClose: futures.previousClose,
           change: futures.change,
           dataDate: todayKST,
           dataTimestamp: `${todayKST} 06:00`,
-        };
+        });
+      } else {
+        console.warn('⚠️ KOSPI200F 데이터 null — 기본값 사용');
+        futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
       }
-      console.warn('⚠️ KOSPI200F 데이터 null — 기본값 사용');
-      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true };
     } catch (err) {
       console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message}`);
-      return { ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true };
+      futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
     }
+
+    // KOSDAQ150F
+    try {
+      const futures = await kisApi.getKosdaq150FuturesPrice();
+      if (futures) {
+        futuresResults.push({
+          ticker: 'KOSDAQ150F',
+          price: futures.price,
+          previousClose: futures.previousClose,
+          change: futures.change,
+          dataDate: todayKST,
+          dataTimestamp: `${todayKST} 06:00`,
+        });
+      } else {
+        console.warn('⚠️ KOSDAQ150F 데이터 null — 기본값 사용');
+        futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
+      }
+    } catch (err) {
+      console.warn(`⚠️ KOSDAQ150F 데이터 수집 실패: ${err.message}`);
+      futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
+    }
+
+    return futuresResults;
   })();
 
   // 병렬 실행
-  const [yahooResults, kospiResult] = await Promise.all([
+  const [yahooResults, kisResults] = await Promise.all([
     Promise.all(promises),
-    kisPromise
+    kisFuturesPromise
   ]);
 
   for (const item of yahooResults) {
     results[item.ticker] = item;
   }
-  results[kospiResult.ticker] = kospiResult;
+  for (const item of kisResults) {
+    results[item.ticker] = item;
+  }
 
   return results;
 }
@@ -926,12 +956,18 @@ async function fetchAndPredict(bypassCache = false) {
         const allZero = cachedFactors.length > 0 && cachedFactors.every(f => f.change === 0);
         const expectedCount = Object.keys(DEFAULT_WEIGHTS).length;
         const factorCountMismatch = cachedFactors.length !== expectedCount;
+        // KOSPI200F stale 감지: price=previousClose (장 개시 전 기준가 반환 문제)
+        const kospi200f = cachedFactors.find(f => f.ticker === 'KOSPI200F');
+        const kospi200fStale = kospi200f && kospi200f.change === 0 && kospi200f.price > 0 && kospi200f.price === kospi200f.previousClose;
         if (allZero) {
           console.log(`⚠️ 오늘(${today}) 캐시 factors 전부 0 — 재조회 시도`);
           // 캐시 무시하고 아래 새 예측 로직으로 진행
         } else if (factorCountMismatch) {
           console.log(`⚠️ 오늘(${today}) 캐시 factors ${cachedFactors.length}개 ≠ 현재 ${expectedCount}개 — 재조회 시도`);
           // 팩터 구성 변경 시 캐시 무시
+        } else if (kospi200fStale) {
+          console.log(`⚠️ 오늘(${today}) 캐시 KOSPI200F stale (price=previousClose=${kospi200f.price}) — 재조회 시도`);
+          // KOSPI200F가 stale이면 캐시 무시하고 재조회 (fallback 로직에서 지수 일봉 사용)
         } else {
           console.log(`📊 오늘(${today}) 예측 캐시 사용: ${existing.signal} (${existing.score})`);
 

@@ -122,7 +122,7 @@
 
     // 팩터별 기본 마감시각 (렌더 루프 외부에 1회 선언)
     const DEFAULT_CLOSE_TIMES = {
-      'KOSPI200F': '06:00', '^SOX': '06:00', 'NQ=F': '07:00', 'ES=F': '07:00',
+      'KOSPI200F': '06:00', 'KOSDAQ150F': '06:00', '^SOX': '06:00', 'NQ=F': '07:00', 'ES=F': '07:00',
       '^VIX': '06:15', 'CL=F': '07:00', 'GC=F': '07:00', 'HG=F': '07:00',
       'EWY': '06:00', 'USDKRW=X': '06:00', '^TNX': '06:00', '^N225': '15:00'
     };
@@ -1510,7 +1510,7 @@
                             )}
                             <p className="mb-1"><b>④ 예상 KOSPI</b> = 전일 종가 × (1 + 예상 변동률)</p>
                             <p className="text-blue-600 mt-1"><b>가중치 +</b>: 해당 지수 상승 → KOSPI↑ | <b>가중치 -</b>: 해당 지수 상승 → KOSPI↓</p>
-                            <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>KOSPI200F: 야간선물(~06:00 KST, 최신) | EWY: 미국 상장 한국ETF(참고용, 중복 방지 가중치 0)</p>
+                            <p className="text-blue-500 mt-1" style={{ fontSize: '10px' }}>KOSPI200F/KOSDAQ150F: 야간선물(~06:00 KST, 최신) | EWY: 미국 상장 한국ETF(참고용, 중복 방지 가중치 0)</p>
                             <p className="text-blue-500" style={{ fontSize: '10px' }}>가중치·회귀 파라미터는 60일 EWMA(λ=0.94) 회귀로, 기여도는 z-score 정규화로 매일 자동 보정됩니다.</p>
                           </div>
                         </div>

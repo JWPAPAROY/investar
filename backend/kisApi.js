@@ -339,10 +339,10 @@ class KISApi {
         const output = response.data.output || response.data.output2 || [];
         const chartData = output.slice(0, days).map(item => ({
           date: item.stck_bsop_date || item.bsop_date,
-          open: parseInt(item.stck_oprc || item.bstp_nmix_oprc || 0),
-          high: parseInt(item.stck_hgpr || item.bstp_nmix_hgpr || 0),
-          low: parseInt(item.stck_lwpr || item.bstp_nmix_lwpr || 0),
-          close: parseInt(item.stck_clpr || item.bstp_nmix_prpr || 0),
+          open: parseFloat(item.stck_oprc || item.bstp_nmix_oprc || 0),
+          high: parseFloat(item.stck_hgpr || item.bstp_nmix_hgpr || 0),
+          low: parseFloat(item.stck_lwpr || item.bstp_nmix_lwpr || 0),
+          close: parseFloat(item.stck_clpr || item.bstp_nmix_prpr || 0),
           volume: parseInt(item.acml_vol || 0)
         }));
         return chartData;
@@ -1168,14 +1168,52 @@ class KISApi {
       }
 
       // 현재가/전일종가/변동률 파싱 (output1 에는 futs_ 접두어가 붙어있음)
-      const price = parseFloat(output.futs_prpr || output.stck_prpr || 0);
-      const previousClose = parseFloat(output.futs_sdpr || output.stck_sdpr || 0);
+      let price = parseFloat(output.futs_prpr || output.stck_prpr || 0);
+      let previousClose = parseFloat(output.futs_sdpr || output.stck_sdpr || 0);
       const changeRate = parseFloat(output.futs_prdy_ctrt || output.prdy_ctrt || 0);
 
       // 변동률이 없으면 직접 계산
       let change = changeRate;
       if (change === 0 && price > 0 && previousClose > 0) {
         change = +((price - previousClose) / previousClose * 100).toFixed(4);
+      }
+
+      // 장 개시 전 stale 데이터 감지 (price=previousClose, change=0)
+      // 월요일 아침·공휴일 등 야간선물 미거래 시 KIS가 기준가=전일종가를 반환하는 문제 대응
+      // KOSPI200 지수 일봉 차트에서 최근 2거래일 종가를 가져와 변동률 추정
+      if (change === 0 && price === previousClose && price > 0) {
+        console.log('⚠️ 코스피200 선물 stale 데이터 감지 (price=previousClose) — KOSPI200 지수 일봉 fallback 시도');
+        try {
+          const chartData = await this.getIndexChart('2001', 10);
+          if (chartData && chartData.length >= 2) {
+            // 오늘 날짜(KST) 데이터 제외 — 장중 부분 데이터 혼입 방지
+            const now = new Date();
+            const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+            const todayStr = kst.toISOString().slice(0, 10).replace(/-/g, '');
+            const completed = chartData.filter(d => d.date !== todayStr);
+
+            if (completed.length >= 2) {
+              // completed[0] = 가장 최근 완료된 거래일, completed[1] = 그 전일
+              const latestClose = completed[0].close;
+              const prevClose = completed[1].close;
+              if (latestClose > 0 && prevClose > 0) {
+                // KOSPI200 지수 기준 변동률을 선물에 적용
+                price = latestClose;
+                previousClose = prevClose;
+                change = +((latestClose - prevClose) / prevClose * 100).toFixed(4);
+                console.log(`📊 KOSPI200 지수 fallback: ${latestClose} (전일 ${prevClose}, ${change >= 0 ? '+' : ''}${change}%)`);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ KOSPI200 지수 fallback 실패:', e.message);
+        }
+
+        // fallback까지 실패하면 stale 데이터 대신 null 반환 → failed 처리
+        if (change === 0 && price === previousClose) {
+          console.warn('⚠️ KOSPI200 선물 stale + fallback 실패 — null 반환 (failed 처리)');
+          return null;
+        }
       }
 
       console.log(`📊 코스피200 선물 (${output.hts_kor_isnm}): ${price} (전일 ${previousClose}, ${change >= 0 ? '+' : ''}${change}%)`);
@@ -1189,6 +1227,102 @@ class KISApi {
       };
     } catch (error) {
       console.warn('⚠️ 코스피200 선물 시세 조회 실패:', error.message);
+      return null;
+    }
+  }
+
+  /**
+   * 코스닥150 선물 현재가 시세 조회
+   * 106000: 코스닥150선물 최근월물
+   * KOSPI200F와 동일한 API, 종목코드만 다름
+   */
+  async getKosdaq150FuturesPrice() {
+    await this.rateLimiter.acquire();
+
+    try {
+      const token = await this.getAccessToken();
+      const futuresCode = '106000';
+
+      const response = await axios.get(
+        `${this.baseUrl}/uapi/domestic-futureoption/v1/quotations/inquire-price`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'authorization': `Bearer ${token}`,
+            'appkey': this.appKey,
+            'appsecret': this.appSecret,
+            'tr_id': 'FHMIF10000000'
+          },
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'F',
+            FID_INPUT_ISCD: futuresCode
+          }
+        }
+      );
+
+      if (response.data.rt_cd !== '0') {
+        console.warn('⚠️ 코스닥150 선물 시세 API 오류:', response.data.msg1);
+        return null;
+      }
+
+      const output = response.data.output1 || response.data.output;
+      if (!output) {
+        console.warn('⚠️ 코스닥150 선물 시세 응답 데이터 없음');
+        return null;
+      }
+
+      let price = parseFloat(output.futs_prpr || output.stck_prpr || 0);
+      let previousClose = parseFloat(output.futs_sdpr || output.stck_sdpr || 0);
+      const changeRate = parseFloat(output.futs_prdy_ctrt || output.prdy_ctrt || 0);
+
+      let change = changeRate;
+      if (change === 0 && price > 0 && previousClose > 0) {
+        change = +((price - previousClose) / previousClose * 100).toFixed(4);
+      }
+
+      // stale 데이터 감지 (KOSPI200F와 동일 로직, KOSDAQ150 지수 '3003' fallback)
+      if (change === 0 && price === previousClose && price > 0) {
+        console.log('⚠️ 코스닥150 선물 stale 데이터 감지 — KOSDAQ150 지수 일봉 fallback 시도');
+        try {
+          const chartData = await this.getIndexChart('3003', 10);
+          if (chartData && chartData.length >= 2) {
+            const now = new Date();
+            const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+            const todayStr = kst.toISOString().slice(0, 10).replace(/-/g, '');
+            const completed = chartData.filter(d => d.date !== todayStr);
+
+            if (completed.length >= 2) {
+              const latestClose = completed[0].close;
+              const prevClose = completed[1].close;
+              if (latestClose > 0 && prevClose > 0) {
+                price = latestClose;
+                previousClose = prevClose;
+                change = +((latestClose - prevClose) / prevClose * 100).toFixed(4);
+                console.log(`📊 KOSDAQ150 지수 fallback: ${latestClose} (전일 ${prevClose}, ${change >= 0 ? '+' : ''}${change}%)`);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn('⚠️ KOSDAQ150 지수 fallback 실패:', e.message);
+        }
+
+        if (change === 0 && price === previousClose) {
+          console.warn('⚠️ 코스닥150 선물 stale + fallback 실패 — null 반환');
+          return null;
+        }
+      }
+
+      console.log(`📊 코스닥150 선물 (${output.hts_kor_isnm}): ${price} (전일 ${previousClose}, ${change >= 0 ? '+' : ''}${change}%)`);
+
+      return {
+        price,
+        previousClose,
+        change: +change.toFixed(4),
+        futuresCode,
+        ticker: 'KOSDAQ150F'
+      };
+    } catch (error) {
+      console.warn('⚠️ 코스닥150 선물 시세 조회 실패:', error.message);
       return null;
     }
   }
