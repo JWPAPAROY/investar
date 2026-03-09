@@ -1455,28 +1455,29 @@ class StockScreener {
     const mfi = volumeAnalysis?.indicators?.mfi || 50;
     const disparity = this.calculateDisparity(chartData, currentPrice, 20);
 
-    // RSI 과매도 (0-12점)
+    // RSI 과매도 (0-12점) — 과매도 깊을수록 단조 증가
     let rsiScore = 0;
     if (rsi >= 25 && rsi < 35) rsiScore = 12;
+    else if (rsi >= 20 && rsi < 25) rsiScore = 10;  // fix: was 6
+    else if (rsi < 20) rsiScore = 8;                 // fix: was 2
     else if (rsi >= 35 && rsi < 45) rsiScore = 9;
-    else if (rsi >= 20 && rsi < 25) rsiScore = 6;
     else if (rsi >= 45 && rsi < 50) rsiScore = 4;
-    else if (rsi < 20) rsiScore = 2;
 
-    // MFI 회복 (0-10점)
+    // MFI 회복 (0-10점) — 과매도 깊을수록 단조 증가
     let mfiScore = 0;
     if (mfi >= 20 && mfi < 30) mfiScore = 10;
+    else if (mfi >= 15 && mfi < 20) mfiScore = 7;   // fix: was 5
+    else if (mfi < 15) mfiScore = 5;                 // fix: was 0
     else if (mfi >= 30 && mfi < 40) mfiScore = 7;
-    else if (mfi >= 15 && mfi < 20) mfiScore = 5;
     else if (mfi >= 40 && mfi < 50) mfiScore = 3;
 
-    // 이격도 할인 (0-8점)
+    // 이격도 할인 (0-8점) — 할인 깊을수록 단조 증가
     let disparityScore = 0;
     if (disparity >= 90 && disparity < 95) disparityScore = 8;
-    else if (disparity >= 85 && disparity < 90) disparityScore = 6;
+    else if (disparity >= 85 && disparity < 90) disparityScore = 7;  // fix: was 6
+    else if (disparity < 85) disparityScore = 6;                     // fix: was 1
     else if (disparity >= 95 && disparity < 98) disparityScore = 5;
     else if (disparity >= 98 && disparity < 100) disparityScore = 2;
-    else if (disparity < 85) disparityScore = 1;
 
     const recoveryScore = Math.min(rsiScore + mfiScore + disparityScore, 30);
 
