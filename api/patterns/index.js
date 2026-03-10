@@ -143,7 +143,7 @@ async function collectSuccessPatterns(req, res) {
         total_score: rec.total_score,
         volume_ratio: rec.volume_ratio,
         volume_acceleration_score: rec.volume_acceleration_score,
-        volume_acceleration_trend: (rec.volume_acceleration_trend || '').slice(0, 20),
+        volume_acceleration_trend: (rec.volume_acceleration_trend || '').slice(0, 30),
         asymmetric_ratio: rec.asymmetric_ratio,
         asymmetric_signal: rec.asymmetric_signal,
         obv_trend: rec.obv_trend,
