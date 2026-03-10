@@ -4551,7 +4551,7 @@
     }
 
     // DNA 추출 컴포넌트
-    // 종목 분석 컴포넌트 (복수 종목 지원)
+    // 종목 분석 컴포넌트 (복수 종목 지원 + 종목명 자동완성)
     function StockAnalysis({ apiBaseUrl }) {
       const [inputText, setInputText] = useState('');
       const [results, setResults] = useState([]);
@@ -4559,16 +4559,69 @@
       const [error, setError] = useState(null);
       const [selectedStock, setSelectedStock] = useState(null);
       const [strategyFilter, setStrategyFilter] = useState('momentum');
+      const [suggestions, setSuggestions] = useState([]);
+      const [showSuggestions, setShowSuggestions] = useState(false);
+      const [highlightIdx, setHighlightIdx] = useState(-1);
+      const searchTimer = React.useRef(null);
+      const inputRef = React.useRef(null);
+      const [selectedChips, setSelectedChips] = useState([]); // [{code, name, market}]
+
+      // 종목명 검색 (디바운스 300ms)
+      const searchStocks = (query) => {
+        if (searchTimer.current) clearTimeout(searchTimer.current);
+        if (!query || query.length < 1) { setSuggestions([]); setShowSuggestions(false); return; }
+        // 이미 6자리 코드면 검색 안함
+        if (/^\d{6}$/.test(query.trim())) { setSuggestions([]); setShowSuggestions(false); return; }
+        searchTimer.current = setTimeout(async () => {
+          try {
+            const res = await fetch(`${apiBaseUrl}/stocks/search?q=${encodeURIComponent(query)}&limit=8`);
+            const data = await res.json();
+            if (data.success && data.results.length > 0) {
+              // 이미 선택된 종목 제외
+              const filtered = data.results.filter(r => !selectedChips.some(c => c.code === r.code));
+              setSuggestions(filtered);
+              setShowSuggestions(filtered.length > 0);
+              setHighlightIdx(-1);
+            } else {
+              setSuggestions([]);
+              setShowSuggestions(false);
+            }
+          } catch (e) { setSuggestions([]); setShowSuggestions(false); }
+        }, 300);
+      };
+
+      const handleInputChange = (e) => {
+        const val = e.target.value;
+        setInputText(val);
+        // 마지막 쉼표 이후의 텍스트만 검색
+        const lastPart = val.split(',').pop().trim();
+        searchStocks(lastPart);
+      };
+
+      const selectSuggestion = (item) => {
+        setSelectedChips(prev => [...prev, item]);
+        setInputText('');
+        setSuggestions([]);
+        setShowSuggestions(false);
+        setHighlightIdx(-1);
+        inputRef.current?.focus();
+      };
+
+      const removeChip = (code) => {
+        setSelectedChips(prev => prev.filter(c => c.code !== code));
+      };
 
       const analyzeStocks = async () => {
-        // 쉼표/공백/줄바꿈으로 분리 → 6자리 숫자만 추출
-        const codes = inputText.match(/\d{6}/g);
-        if (!codes || codes.length === 0) {
-          setError('6자리 종목코드를 입력해주세요 (예: 005930, 128940)');
+        // 칩 + 입력창의 코드 합산
+        const chipCodes = selectedChips.map(c => c.code);
+        const inputCodes = inputText.match(/\d{6}/g) || [];
+        const allCodes = [...new Set([...chipCodes, ...inputCodes])];
+
+        if (allCodes.length === 0) {
+          setError('종목명 또는 6자리 종목코드를 입력해주세요');
           return;
         }
-        const uniqueCodes = [...new Set(codes)];
-        if (uniqueCodes.length > 15) {
+        if (allCodes.length > 15) {
           setError('최대 15개까지 분석 가능합니다.');
           return;
         }
@@ -4577,9 +4630,9 @@
           setLoading(true);
           setError(null);
           setResults([]);
+          setShowSuggestions(false);
 
-          // 한 번의 API 호출로 모든 종목 분석 (Rate Limiter 공유)
-          const response = await fetch(`${apiBaseUrl}/screening/analyze?codes=${uniqueCodes.join(',')}`);
+          const response = await fetch(`${apiBaseUrl}/screening/analyze?codes=${allCodes.join(',')}`);
           const data = await response.json();
 
           if (data.success) {
@@ -4598,13 +4651,23 @@
       };
 
       const handleKeyDown = (e) => {
+        if (showSuggestions && suggestions.length > 0) {
+          if (e.key === 'ArrowDown') { e.preventDefault(); setHighlightIdx(prev => Math.min(prev + 1, suggestions.length - 1)); return; }
+          if (e.key === 'ArrowUp') { e.preventDefault(); setHighlightIdx(prev => Math.max(prev - 1, 0)); return; }
+          if (e.key === 'Enter' && highlightIdx >= 0) { e.preventDefault(); selectSuggestion(suggestions[highlightIdx]); return; }
+          if (e.key === 'Escape') { setShowSuggestions(false); return; }
+        }
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
-          analyzeStocks();
+          if (!loading) analyzeStocks();
+        }
+        // Backspace로 마지막 칩 삭제
+        if (e.key === 'Backspace' && inputText === '' && selectedChips.length > 0) {
+          setSelectedChips(prev => prev.slice(0, -1));
         }
       };
 
-      const hasValidCode = inputText.match(/\d{6}/);
+      const hasValidCode = selectedChips.length > 0 || inputText.match(/\d{6}/);
 
       return (
         <div className="space-y-6">
@@ -4612,25 +4675,56 @@
           <div className="bg-gradient-to-r from-orange-500 to-red-500 rounded-xl shadow-lg p-4 md:p-6 text-white">
             <h2 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2">🔎 종목 분석</h2>
             <p className="text-orange-100 text-sm md:text-base">
-              종목코드를 입력하면 스크리닝 엔진으로 분석합니다. 쉼표로 여러 종목 분석 가능.
+              종목명 또는 종목코드를 입력하면 스크리닝 엔진으로 분석합니다.
             </p>
           </div>
 
           {/* 입력 영역 */}
           <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
             <div className="flex gap-2 md:gap-3">
-              <input
-                type="text"
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="005930, 128940"
-                className="flex-1 min-w-0 px-3 py-2 md:px-4 md:py-3 border-2 border-gray-300 rounded-lg focus:border-indigo-500 focus:outline-none text-base md:text-lg font-mono"
-              />
+              <div className="flex-1 min-w-0 relative">
+                <div className="flex flex-wrap gap-1 items-center px-3 py-2 md:px-4 md:py-2 border-2 border-gray-300 rounded-lg focus-within:border-indigo-500 bg-white"
+                  onClick={() => inputRef.current?.focus()}>
+                  {selectedChips.map(chip => (
+                    <span key={chip.code} className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-full text-xs md:text-sm whitespace-nowrap">
+                      {chip.name}
+                      <button onClick={(e) => { e.stopPropagation(); removeChip(chip.code); }}
+                        className="text-indigo-400 hover:text-indigo-700 font-bold ml-0.5">&times;</button>
+                    </span>
+                  ))}
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={inputText}
+                    onChange={handleInputChange}
+                    onKeyDown={handleKeyDown}
+                    onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+                    onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+                    placeholder={selectedChips.length > 0 ? '' : '삼성전자, 005930'}
+                    className="flex-1 min-w-[80px] outline-none text-base md:text-lg bg-transparent py-0.5"
+                  />
+                </div>
+                {/* 자동완성 드롭다운 */}
+                {showSuggestions && suggestions.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                    {suggestions.map((item, idx) => (
+                      <div key={item.code}
+                        className={`px-3 py-2 cursor-pointer flex items-center gap-2 text-sm ${idx === highlightIdx ? 'bg-indigo-50' : 'hover:bg-gray-50'}`}
+                        onMouseDown={(e) => { e.preventDefault(); selectSuggestion(item); }}>
+                        <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${item.market === 'KOSDAQ' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                          {item.market}
+                        </span>
+                        <span className="font-medium">{item.name}</span>
+                        <span className="text-gray-400 text-xs font-mono">{item.code}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 onClick={analyzeStocks}
                 disabled={loading || !hasValidCode}
-                className={`px-4 py-2 md:px-8 md:py-3 rounded-lg font-bold text-white transition-all whitespace-nowrap text-sm md:text-base ${loading || !hasValidCode
+                className={`px-4 py-2 md:px-8 md:py-3 rounded-lg font-bold text-white transition-all whitespace-nowrap text-sm md:text-base self-start ${loading || !hasValidCode
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-indigo-600 hover:bg-indigo-700 shadow-md hover:shadow-lg'
                   }`}

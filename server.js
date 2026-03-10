@@ -27,7 +27,9 @@ const apiRoutes = {
   '/api/screening/accumulation': (req, res) => { req.params = { category: 'accumulation' }; return categoryHandler(req, res); },
   '/api/recommendations/save': require('./api/recommendations/save'),
   '/api/recommendations/performance': require('./api/recommendations/performance'),
-  '/api/recommendations/update-prices': require('./api/recommendations/update-prices')
+  '/api/recommendations/update-prices': require('./api/recommendations/update-prices'),
+  '/api/stocks/search': require('./api/stocks/search'),
+  '/api/stocks/update-master': require('./api/stocks/update-master')
 };
 
 // 라우트 등록
