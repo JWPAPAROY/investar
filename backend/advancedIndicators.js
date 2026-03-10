@@ -627,15 +627,19 @@ function analyzeAdvanced(chartData, marketCap = 0) {
   // v3.24: 효과적인 신호만 수집 (고래, 탈출 속도, 비대칭 거래량)
   const signals = [];
 
-  // 고래 감지: 여러 건이 있어도 하나로 통합
+  // 고래 감지: 여러 건이 있어도 하나로 통합 + 날짜 표시
   if (whale.length > 0) {
     const buyWhales = whale.filter(w => w.type.includes('매수'));
     const sellWhales = whale.filter(w => w.type.includes('매도'));
     if (buyWhales.length > 0) {
-      signals.push(buyWhales.length === 1 ? '🐋 매수고래' : `🐋 매수고래 (${buyWhales.length}건)`);
+      const latestDate = buyWhales[0].date ? buyWhales[0].date.slice(2).replace(/(\d{2})(\d{2})(\d{2})/, '$2/$3') : '';
+      const dateStr = latestDate ? ` ${latestDate}` : '';
+      signals.push(buyWhales.length === 1 ? `🐋 매수고래${dateStr}` : `🐋 매수고래 ${buyWhales.length}건${dateStr}`);
     }
     if (sellWhales.length > 0) {
-      signals.push(sellWhales.length === 1 ? '🐳 매도고래' : `🐳 매도고래 (${sellWhales.length}건)`);
+      const latestDate = sellWhales[0].date ? sellWhales[0].date.slice(2).replace(/(\d{2})(\d{2})(\d{2})/, '$2/$3') : '';
+      const dateStr = latestDate ? ` ${latestDate}` : '';
+      signals.push(sellWhales.length === 1 ? `🐳 매도고래${dateStr}` : `🐳 매도고래 ${sellWhales.length}건${dateStr}`);
     }
   }
 
