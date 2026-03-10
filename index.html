@@ -184,12 +184,15 @@
         return '월요일 ' + market.open;
       }
 
-      // 한국 야간선물: 평일 18:00~06:00
+      // 한국 야간선물: 평일 18:00~05:00 (익일)
       if (market.type === 'kr') {
-        if (isToday) return '거래중';
         if (kstDay === 0) return '월요일 ' + market.open;
         if (kstDay === 6) return '월요일 ' + market.open;
+        // 05:00 이전 = 전날 야간선물 세션 중
+        if (kstTime < 5 * 60) return '거래중';
+        // 05:00~18:00 = 마감, 다음 개장 대기
         if (kstTime < openTime) return '오늘 ' + market.open;
+        // 18:00 이후 = 야간선물 거래중
         return '거래중';
       }
 
