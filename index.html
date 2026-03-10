@@ -4574,7 +4574,7 @@
         if (/^\d{6}$/.test(query.trim())) { setSuggestions([]); setShowSuggestions(false); return; }
         searchTimer.current = setTimeout(async () => {
           try {
-            const res = await fetch(`${apiBaseUrl}/stocks/search?q=${encodeURIComponent(query)}&limit=8`);
+            const res = await fetch(`${apiBaseUrl}/stocks?mode=search&q=${encodeURIComponent(query)}&limit=8`);
             const data = await res.json();
             if (data.success && data.results.length > 0) {
               // 이미 선택된 종목 제외

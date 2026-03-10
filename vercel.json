@@ -58,7 +58,7 @@
       "schedule": "0 6 * * 1-5"
     },
     {
-      "path": "/api/stocks/update-master",
+      "path": "/api/stocks?mode=update",
       "schedule": "0 15 * * 0"
     }
   ]
