@@ -34,7 +34,7 @@
       "schedule": "0 23 * * 0-4"
     },
     {
-      "path": "/api/patterns",
+      "path": "/api/patterns?collect=true",
       "schedule": "20 7 * * 1-5"
     },
     {

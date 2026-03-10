@@ -55,14 +55,13 @@ async function collectSuccessPatterns(req, res) {
   console.log(`\n📊 성공 패턴 수집 시작 (기준: +${SUCCESS_THRESHOLD}%)`);
 
   // 1. 활성 추천 종목 조회 (최근 90일, 페이지네이션)
-  const startDateStr = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const startDateStr = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   let recommendations = [];
   let recPage = 0;
   while (true) {
     const { data: pageData, error: recError } = await supabase
       .from('screening_recommendations')
       .select('*')
-      .eq('is_active', true)
       .gte('recommendation_date', startDateStr)
       .order('recommendation_date', { ascending: false })
       .range(recPage * 1000, (recPage + 1) * 1000 - 1);
@@ -144,7 +143,7 @@ async function collectSuccessPatterns(req, res) {
         total_score: rec.total_score,
         volume_ratio: rec.volume_ratio,
         volume_acceleration_score: rec.volume_acceleration_score,
-        volume_acceleration_trend: rec.volume_acceleration_trend,
+        volume_acceleration_trend: (rec.volume_acceleration_trend || '').slice(0, 20),
         asymmetric_ratio: rec.asymmetric_ratio,
         asymmetric_signal: rec.asymmetric_signal,
         obv_trend: rec.obv_trend,
