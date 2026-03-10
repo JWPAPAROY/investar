@@ -1179,41 +1179,11 @@ class KISApi {
       }
 
       // 장 개시 전 stale 데이터 감지 (price=previousClose, change=0)
-      // 월요일 아침·공휴일 등 야간선물 미거래 시 KIS가 기준가=전일종가를 반환하는 문제 대응
-      // KOSPI200 지수 일봉 차트에서 최근 2거래일 종가를 가져와 변동률 추정
+      // 야간선물 마감(05:00) 후 ~ 정규장 개시(09:00) 사이에 KIS가 기준가를 반환하는 경우
+      // 지수 fallback은 부정확(정규장 지수 ≠ 야간선물)하므로 null 반환 → failed 처리하여 재조회 유도
       if (change === 0 && price === previousClose && price > 0) {
-        console.log('⚠️ 코스피200 선물 stale 데이터 감지 (price=previousClose) — KOSPI200 지수 일봉 fallback 시도');
-        try {
-          const chartData = await this.getIndexChart('2001', 10);
-          if (chartData && chartData.length >= 2) {
-            // 오늘 날짜(KST) 데이터 제외 — 장중 부분 데이터 혼입 방지
-            const now = new Date();
-            const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-            const todayStr = kst.toISOString().slice(0, 10).replace(/-/g, '');
-            const completed = chartData.filter(d => d.date !== todayStr);
-
-            if (completed.length >= 2) {
-              // completed[0] = 가장 최근 완료된 거래일, completed[1] = 그 전일
-              const latestClose = completed[0].close;
-              const prevClose = completed[1].close;
-              if (latestClose > 0 && prevClose > 0) {
-                // KOSPI200 지수 기준 변동률을 선물에 적용
-                price = latestClose;
-                previousClose = prevClose;
-                change = +((latestClose - prevClose) / prevClose * 100).toFixed(4);
-                console.log(`📊 KOSPI200 지수 fallback: ${latestClose} (전일 ${prevClose}, ${change >= 0 ? '+' : ''}${change}%)`);
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('⚠️ KOSPI200 지수 fallback 실패:', e.message);
-        }
-
-        // fallback까지 실패하면 stale 데이터 대신 null 반환 → failed 처리
-        if (change === 0 && price === previousClose) {
-          console.warn('⚠️ KOSPI200 선물 stale + fallback 실패 — null 반환 (failed 처리)');
-          return null;
-        }
+        console.warn('⚠️ 코스피200 선물 stale 데이터 감지 (price=previousClose) — null 반환 (다음 조회 시 재시도)');
+        return null;
       }
 
       console.log(`📊 코스피200 선물 (${output.hts_kor_isnm}): ${price} (전일 ${previousClose}, ${change >= 0 ? '+' : ''}${change}%)`);
@@ -1280,36 +1250,10 @@ class KISApi {
         change = +((price - previousClose) / previousClose * 100).toFixed(4);
       }
 
-      // stale 데이터 감지 (KOSPI200F와 동일 로직, KOSDAQ150 지수 '3003' fallback)
+      // stale 데이터 감지 (KOSPI200F와 동일)
       if (change === 0 && price === previousClose && price > 0) {
-        console.log('⚠️ 코스닥150 선물 stale 데이터 감지 — KOSDAQ150 지수 일봉 fallback 시도');
-        try {
-          const chartData = await this.getIndexChart('3003', 10);
-          if (chartData && chartData.length >= 2) {
-            const now = new Date();
-            const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-            const todayStr = kst.toISOString().slice(0, 10).replace(/-/g, '');
-            const completed = chartData.filter(d => d.date !== todayStr);
-
-            if (completed.length >= 2) {
-              const latestClose = completed[0].close;
-              const prevClose = completed[1].close;
-              if (latestClose > 0 && prevClose > 0) {
-                price = latestClose;
-                previousClose = prevClose;
-                change = +((latestClose - prevClose) / prevClose * 100).toFixed(4);
-                console.log(`📊 KOSDAQ150 지수 fallback: ${latestClose} (전일 ${prevClose}, ${change >= 0 ? '+' : ''}${change}%)`);
-              }
-            }
-          }
-        } catch (e) {
-          console.warn('⚠️ KOSDAQ150 지수 fallback 실패:', e.message);
-        }
-
-        if (change === 0 && price === previousClose) {
-          console.warn('⚠️ 코스닥150 선물 stale + fallback 실패 — null 반환');
-          return null;
-        }
+        console.warn('⚠️ 코스닥150 선물 stale 데이터 감지 (price=previousClose) — null 반환');
+        return null;
       }
 
       console.log(`📊 코스닥150 선물 (${output.hts_kor_isnm}): ${price} (전일 ${previousClose}, ${change >= 0 ? '+' : ''}${change}%)`);
