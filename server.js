@@ -18,13 +18,9 @@ app.use(express.json());
 app.use(express.static('.'));
 
 // API 라우트 매핑 (Vercel Serverless Functions → Express Routes)
-const categoryHandler = require('./api/screening/[category]');
-
 const apiRoutes = {
   '/api/health': require('./api/health'),
   '/api/screening/recommend': require('./api/screening/recommend'),
-  '/api/screening/whale': (req, res) => { req.params = { category: 'whale' }; return categoryHandler(req, res); },
-  '/api/screening/accumulation': (req, res) => { req.params = { category: 'accumulation' }; return categoryHandler(req, res); },
   '/api/recommendations/save': require('./api/recommendations/save'),
   '/api/recommendations/performance': require('./api/recommendations/performance'),
   '/api/recommendations/update-prices': require('./api/recommendations/update-prices'),
