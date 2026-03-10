@@ -165,14 +165,15 @@
       const [openH, openM] = market.open.split(':').map(Number);
       const openTime = openH * 60 + openM;
 
-      // 미국 현물: 평일 밤에만 거래 (KST 23:30~06:00)
+      // 미국 현물: 평일 밤에만 거래 (KST 23:30~06:00 익일)
       if (market.type === 'us_stock') {
-        if (isToday) return '거래중';
-        // 주말이면 월요일 밤
         if (kstDay === 0) return '내일 ' + market.open;
         if (kstDay === 6) return '월요일 ' + market.open;
-        // 평일: 아직 안 열림
+        // 06:00 이전 = 전날 밤 세션 진행 중
+        if (kstTime < 6 * 60) return '거래중';
+        // 06:00~23:30 = 마감, 다음 개장 대기
         if (kstTime < openTime) return '오늘 ' + market.open;
+        // 23:30 이후 = 거래중
         return '거래중';
       }
 
