@@ -451,6 +451,26 @@ async function getActiveWeights() {
       }
     }
 
+    // 핵심 팩터 최소 가중치 보장
+    // KOSPI200F는 가장 직접적 선행지표이나, stale 데이터로 상관계수 계산 불가 시
+    // DEFAULT 가중치 이하로 떨어지는 문제 방지
+    const MIN_WEIGHT_RATIO = {
+      'KOSPI200F': 0.20,  // 야간선물 — 최소 20% (DEFAULT와 동일)
+      '^SOX': 0.12,       // 반도체 — 최소 12%
+    };
+    // 정규화 전에 floor 적용 (totalAbsCorr 기준)
+    for (const [ticker, minRatio] of Object.entries(MIN_WEIGHT_RATIO)) {
+      if (calibrated[ticker] && calibrated[ticker].weight !== 0) {
+        const sign = Math.sign(calibrated[ticker].weight);
+        const currentRatio = Math.abs(calibrated[ticker].weight) / totalAbsCorr;
+        if (currentRatio < minRatio) {
+          calibrated[ticker].weight = sign * minRatio * totalAbsCorr;
+        }
+      }
+    }
+    // totalAbsCorr 재계산 (floor 적용 후)
+    totalAbsCorr = tickers.reduce((s, t) => s + Math.abs(calibrated[t].weight), 0);
+
     // 합계 1.0으로 정규화
     if (totalAbsCorr > 0) {
       for (const ticker of tickers) {
