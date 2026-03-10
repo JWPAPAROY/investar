@@ -1436,6 +1436,14 @@ module.exports = async (req, res) => {
       const kstTimeStr = `${String(kstNow.getHours()).padStart(2, '0')}:${String(kstNow.getMinutes()).padStart(2, '0')}`;
       console.log(`📊 주가 추적 모드 시작 (${kstTimeStr} KST)...`);
 
+      // 토큰 미리 확보 (cold start 시 토큰 발급 지연 방지)
+      try {
+        await kisApi.getAccessToken();
+        console.log('🔑 KIS 토큰 준비 완료');
+      } catch (tokenErr) {
+        console.warn('⚠️ KIS 토큰 사전 발급 실패:', tokenErr.message);
+      }
+
       const today = getTodayDateKST();
 
       // v3.32: 시장 정보 맵 로딩 로직을 전역 함수(getGlobalMarketMap)로 대체
@@ -1459,8 +1467,8 @@ module.exports = async (req, res) => {
       const alertDates = [today, ...saveDates.slice(0, -1)];
 
       // Step 2: 각 날짜별 TOP 3 선별 + 현재가 조회
-      const MAX_RETRIES = 3;
-      const RETRY_DELAY = 1000;
+      const MAX_RETRIES = 4;
+      const BASE_RETRY_DELAY = 2000; // 지수 백오프 기본 2초
       const priceCache = {}; // 중복 종목 API 호출 방지
       const dayResults = []; // [{ alertDate, stocks: [...] }, ...]
 
@@ -1508,7 +1516,7 @@ module.exports = async (req, res) => {
               } catch (err) {
                 console.warn(`⚠️ ${stockName} 조회 실패 (${attempt}/${MAX_RETRIES}): ${err.message}`);
               }
-              if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, RETRY_DELAY));
+              if (attempt < MAX_RETRIES) await new Promise(r => setTimeout(r, BASE_RETRY_DELAY * attempt));
             }
           }
 
