@@ -202,6 +202,44 @@ async function getFactorVolatility() {
 }
 
 /**
+ * DB에서 직전 유효 KOSPI200F/KOSDAQ150F 데이터를 가져오는 fallback
+ * 야간선물 마감(05:00)~정규장 개시(09:00) 사이 KIS API가 stale 반환할 때 사용
+ */
+async function _getLastValidFuturesFactor(ticker) {
+  if (!supabase) return null;
+  try {
+    const today = getTodayKST();
+    const { data } = await supabase
+      .from('overnight_predictions')
+      .select('prediction_date, factors')
+      .lt('prediction_date', today)
+      .order('prediction_date', { ascending: false })
+      .limit(5);
+
+    for (const row of (data || [])) {
+      const factors = Array.isArray(row.factors) ? row.factors : [];
+      const f = factors.find(x => x.ticker === ticker);
+      if (f && f.change !== 0 && !f.failed && f.price > 0) {
+        console.log(`📊 ${ticker} DB fallback 성공: ${row.prediction_date} change=${f.change}%`);
+        return {
+          ticker,
+          price: f.price,
+          previousClose: f.previousClose,
+          change: f.change,
+          dataDate: row.prediction_date,
+          dataTimestamp: `${row.prediction_date} (DB fallback)`,
+        };
+      }
+    }
+    console.warn(`⚠️ ${ticker} DB fallback: 유효 데이터 없음`);
+    return null;
+  } catch (err) {
+    console.warn(`⚠️ ${ticker} DB fallback 실패:`, err.message);
+    return null;
+  }
+}
+
+/**
  * 해외 지수 데이터 수집 (병렬 호출)
  * @returns {Object} { ticker: { ticker, change, price, previousClose } }
  */
@@ -227,7 +265,7 @@ async function fetchOvernightData() {
     const todayKST = getTodayKST();
     const futuresResults = [];
 
-    // KOSPI200F
+    // KOSPI200F — 정규선물 → CME야간선물 → DB직전유효 3단계 fallback
     try {
       const futures = await kisApi.getKospi200FuturesPrice();
       if (futures) {
@@ -240,8 +278,14 @@ async function fetchOvernightData() {
           dataTimestamp: `${todayKST} 06:00`,
         });
       } else {
-        console.warn('⚠️ KOSPI200F 데이터 null — 기본값 사용');
-        futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
+        // KIS API 실패 → DB에서 직전 유효 데이터 fallback
+        console.warn('⚠️ KOSPI200F KIS API null — DB 직전 유효 데이터 fallback 시도');
+        const dbFallback = await _getLastValidFuturesFactor('KOSPI200F');
+        if (dbFallback) {
+          futuresResults.push(dbFallback);
+        } else {
+          futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
+        }
       }
     } catch (err) {
       console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message}`);
@@ -994,9 +1038,9 @@ async function fetchAndPredict(bypassCache = false) {
         const allZero = cachedFactors.length > 0 && cachedFactors.every(f => f.change === 0);
         const expectedCount = Object.keys(DEFAULT_WEIGHTS).length;
         const factorCountMismatch = cachedFactors.length !== expectedCount;
-        // KOSPI200F stale 감지: price=previousClose (장 개시 전 기준가 반환 문제)
+        // KOSPI200F 실패 감지: failed 플래그 또는 stale(price=previousClose)
         const kospi200f = cachedFactors.find(f => f.ticker === 'KOSPI200F');
-        const kospi200fStale = kospi200f && kospi200f.change === 0 && kospi200f.price > 0 && kospi200f.price === kospi200f.previousClose;
+        const kospi200fStale = kospi200f && (kospi200f.failed || (kospi200f.change === 0 && kospi200f.price > 0 && kospi200f.price === kospi200f.previousClose));
         if (allZero) {
           console.log(`⚠️ 오늘(${today}) 캐시 factors 전부 0 — 재조회 시도`);
           // 캐시 무시하고 아래 새 예측 로직으로 진행

@@ -1136,69 +1136,109 @@ class KISApi {
     try {
       const token = await this.getAccessToken();
 
-      // 근월물 종목코드 KIS API 지정 (101000: 코스피200선물 최근월물)
-      const futuresCode = '101000';
+      // 1차: 정규 선물(101000)로 현재가 조회
+      const result = await this._queryFuturesPrice(token, '101000');
+      if (result && !(result.change === 0 && result.price === result.previousClose && result.price > 0)) {
+        console.log(`📊 코스피200 선물 (정규): ${result.price} (전일 ${result.previousClose}, ${result.change >= 0 ? '+' : ''}${result.change}%)`);
+        return { ...result, ticker: 'KOSPI200F' };
+      }
 
-      const response = await axios.get(
-        `${this.baseUrl}/uapi/domestic-futureoption/v1/quotations/inquire-price`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'authorization': `Bearer ${token}`,
-            'appkey': this.appKey,
-            'appsecret': this.appSecret,
-            'tr_id': 'FHMIF10000000'
-          },
-          params: {
-            FID_COND_MRKT_DIV_CODE: 'F',   // F: 지수선물
-            FID_INPUT_ISCD: futuresCode     // 101000
-          }
+      // 2차: stale 감지 → CME 야간선물 코드로 재시도
+      // 야간선물(18:00~05:00)은 별도 종목코드(A01603 등)를 사용
+      // 근월물 코드 자동 계산: A016 + YY + MM (YY=연도 하위2자리, MM=월)
+      console.warn('⚠️ 코스피200 정규선물 stale — CME 야간선물 조회 시도');
+      const cmeCode = this._getCMEFuturesCode();
+      if (cmeCode) {
+        await this.rateLimiter.acquire();
+        const cmeResult = await this._queryFuturesPrice(token, cmeCode);
+        if (cmeResult && !(cmeResult.change === 0 && cmeResult.price === cmeResult.previousClose && cmeResult.price > 0)) {
+          console.log(`📊 코스피200 선물 (CME야간 ${cmeCode}): ${cmeResult.price} (전일 ${cmeResult.previousClose}, ${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
+          return { ...cmeResult, ticker: 'KOSPI200F' };
         }
-      );
-
-      if (response.data.rt_cd !== '0') {
-        console.warn('⚠️ 코스피200 선물 시세 API 오류:', response.data.msg1);
-        return null;
       }
 
-      const output = response.data.output1 || response.data.output;
-      if (!output) {
-        console.warn('⚠️ 코스피200 선물 시세 응답 데이터 없음');
-        return null;
-      }
-
-      // 현재가/전일종가/변동률 파싱 (output1 에는 futs_ 접두어가 붙어있음)
-      let price = parseFloat(output.futs_prpr || output.stck_prpr || 0);
-      let previousClose = parseFloat(output.futs_sdpr || output.stck_sdpr || 0);
-      const changeRate = parseFloat(output.futs_prdy_ctrt || output.prdy_ctrt || 0);
-
-      // 변동률이 없으면 직접 계산
-      let change = changeRate;
-      if (change === 0 && price > 0 && previousClose > 0) {
-        change = +((price - previousClose) / previousClose * 100).toFixed(4);
-      }
-
-      // 장 개시 전 stale 데이터 감지 (price=previousClose, change=0)
-      // 야간선물 마감(05:00) 후 ~ 정규장 개시(09:00) 사이에 KIS가 기준가를 반환하는 경우
-      // 지수 fallback은 부정확(정규장 지수 ≠ 야간선물)하므로 null 반환 → failed 처리하여 재조회 유도
-      if (change === 0 && price === previousClose && price > 0) {
-        console.warn('⚠️ 코스피200 선물 stale 데이터 감지 (price=previousClose) — null 반환 (다음 조회 시 재시도)');
-        return null;
-      }
-
-      console.log(`📊 코스피200 선물 (${output.hts_kor_isnm}): ${price} (전일 ${previousClose}, ${change >= 0 ? '+' : ''}${change}%)`);
-
-      return {
-        price,
-        previousClose,
-        change: +change.toFixed(4),
-        futuresCode,
-        ticker: 'KOSPI200F'
-      };
+      // 3차: 둘 다 stale → null 반환 (overnightPredictor에서 DB fallback 처리)
+      console.warn('⚠️ 코스피200 선물 정규+CME 모두 stale — null 반환');
+      return null;
     } catch (error) {
       console.warn('⚠️ 코스피200 선물 시세 조회 실패:', error.message);
       return null;
     }
+  }
+
+  /**
+   * CME 야간선물 근월물 코드 계산
+   * 형식: A016 + YY + MM (예: A01603 = 2026년 3월물)
+   * 만기: 매월 둘째 목요일 → 만기 지나면 다음 분기월(3,6,9,12)로 롤오버
+   */
+  _getCMEFuturesCode() {
+    const now = new Date(Date.now() + 9 * 60 * 60 * 1000); // KST
+    let year = now.getFullYear();
+    let month = now.getMonth() + 1; // 1-12
+    // 분기월(3,6,9,12)로 올림
+    const quarterMonths = [3, 6, 9, 12];
+    let nearMonth = quarterMonths.find(m => m >= month);
+    if (!nearMonth) { nearMonth = 3; year++; }
+    // 만기일(둘째 목요일) 계산 — 만기 지나면 다음 분기월
+    const expiryDate = this._getSecondThursday(year, nearMonth);
+    if (now > expiryDate) {
+      const idx = quarterMonths.indexOf(nearMonth);
+      if (idx < quarterMonths.length - 1) {
+        nearMonth = quarterMonths[idx + 1];
+      } else {
+        nearMonth = 3;
+        year++;
+      }
+    }
+    // 마스터 파일 형식: A01 + Y + MM (Y=연도 마지막 1자리, MM=월)
+    // 예: A01603 = 2026년 3월물(6=2026), A01706 = 2027년 6월물(7=2027)
+    const y = String(year).slice(-1);
+    const mm = String(nearMonth).padStart(2, '0');
+    return `A01${y}${mm}`;
+  }
+
+  _getSecondThursday(year, month) {
+    const first = new Date(year, month - 1, 1);
+    const dayOfWeek = first.getDay(); // 0=Sun
+    // 첫 번째 목요일: (4 - dayOfWeek + 7) % 7 + 1
+    const firstThursday = ((4 - dayOfWeek + 7) % 7) + 1;
+    const secondThursday = firstThursday + 7;
+    return new Date(year, month - 1, secondThursday, 23, 59, 59);
+  }
+
+  /**
+   * 선물 현재가 시세 조회 (공통 헬퍼)
+   */
+  async _queryFuturesPrice(token, futuresCode) {
+    const response = await axios.get(
+      `${this.baseUrl}/uapi/domestic-futureoption/v1/quotations/inquire-price`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'authorization': `Bearer ${token}`,
+          'appkey': this.appKey,
+          'appsecret': this.appSecret,
+          'tr_id': 'FHMIF10000000'
+        },
+        params: {
+          FID_COND_MRKT_DIV_CODE: 'F',
+          FID_INPUT_ISCD: futuresCode
+        }
+      }
+    );
+
+    if (response.data.rt_cd !== '0') return null;
+    const output = response.data.output1 || response.data.output;
+    if (!output) return null;
+
+    const price = parseFloat(output.futs_prpr || output.stck_prpr || 0);
+    const previousClose = parseFloat(output.futs_sdpr || output.stck_sdpr || 0);
+    let change = parseFloat(output.futs_prdy_ctrt || output.prdy_ctrt || 0);
+    if (change === 0 && price > 0 && previousClose > 0) {
+      change = +((price - previousClose) / previousClose * 100).toFixed(4);
+    }
+
+    return { price, previousClose, change: +change.toFixed(4), futuresCode };
   }
 
   /**
@@ -1250,9 +1290,9 @@ class KISApi {
         change = +((price - previousClose) / previousClose * 100).toFixed(4);
       }
 
-      // stale 데이터 감지 (KOSPI200F와 동일)
+      // stale 데이터 감지 → null 반환 (KOSPI200F와 달리 CME 야간선물 코드 없음)
       if (change === 0 && price === previousClose && price > 0) {
-        console.warn('⚠️ 코스닥150 선물 stale 데이터 감지 (price=previousClose) — null 반환');
+        console.warn('⚠️ 코스닥150 선물 stale 감지 — null 반환');
         return null;
       }
 
