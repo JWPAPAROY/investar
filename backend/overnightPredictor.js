@@ -23,8 +23,8 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 // KOSPI200F: KIS API 경유 야간선물 — 한국시간 06:00까지 거래, 가장 최신 데이터
 // EWY: iShares MSCI South Korea ETF — 미국 본장(~06:00 KST) 마감 기준, 보조 지표
 const DEFAULT_WEIGHTS = {
-  'KOSPI200F': { name: '코스피200선물', weight: +0.20, unit: 'pt', defaultCorr: null, source: 'KRX', sourceUrl: 'https://www.investing.com/indices/korea-200-futures' },
-  'KOSDAQ150F': { name: '코스닥150선물', weight: 0, unit: 'pt', defaultCorr: null, source: 'KRX', sourceUrl: 'https://www.investing.com/indices/kosdaq-150' },
+  'KOSPI200F': { name: '코스피200선물', weight: +0.20, unit: 'pt', defaultCorr: null, source: 'KRX', sourceUrl: null },
+  'KOSDAQ150F': { name: '코스닥150선물', weight: 0, unit: 'pt', defaultCorr: null, source: 'KRX', sourceUrl: null },
   'EWY': { name: '한국 ETF(EWY)', weight: 0, unit: '$', defaultCorr: null, source: 'NYSE', sourceUrl: 'https://finance.yahoo.com/quote/EWY' },
   '^SOX': { name: 'SOX 반도체', weight: +0.18, unit: 'pt', defaultCorr: +0.582, source: 'NASDAQ', sourceUrl: 'https://finance.yahoo.com/quote/%5ESOX' },
   'NQ=F': { name: '나스닥 선물', weight: +0.11, unit: 'pt', defaultCorr: +0.454, source: 'CME', sourceUrl: 'https://finance.yahoo.com/quote/NQ=F' },

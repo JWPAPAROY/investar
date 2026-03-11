@@ -121,10 +121,30 @@
       : 'https://investar-xi.vercel.app/api';  // Vercel 배포 후 변경
 
     // 팩터별 기본 마감시각 (렌더 루프 외부에 1회 선언)
+    // 서머타임 판별 (미국: 3월 둘째 일요일 ~ 11월 첫째 일요일)
+    const _isDST = (() => {
+      const now = new Date();
+      const year = now.getFullYear();
+      // 3월 둘째 일요일
+      const mar1 = new Date(year, 2, 1);
+      const dstStart = new Date(year, 2, 8 + (7 - mar1.getDay()) % 7);
+      // 11월 첫째 일요일
+      const nov1 = new Date(year, 10, 1);
+      const dstEnd = new Date(year, 10, 1 + (7 - nov1.getDay()) % 7);
+      return now >= dstStart && now < dstEnd;
+    })();
+    // 팩터별 기본 마감시각 (KST) — 서머타임 반영
     const DEFAULT_CLOSE_TIMES = {
-      'KOSPI200F': '06:00', 'KOSDAQ150F': '06:00', '^SOX': '06:00', 'NQ=F': '07:00', 'ES=F': '07:00',
-      '^VIX': '06:15', 'CL=F': '07:00', 'GC=F': '07:00', 'HG=F': '07:00',
-      'EWY': '06:00', 'USDKRW=X': '06:00', '^TNX': '06:00', '^N225': '15:00'
+      'KOSPI200F': '05:00', 'KOSDAQ150F': '05:00',
+      '^SOX': _isDST ? '06:00' : '05:00',
+      'NQ=F': _isDST ? '06:00' : '05:00', 'ES=F': _isDST ? '06:00' : '05:00',
+      '^VIX': _isDST ? '05:15' : '04:15',
+      'CL=F': _isDST ? '06:00' : '05:00',
+      'GC=F': _isDST ? '06:30' : '05:30', 'HG=F': _isDST ? '06:30' : '05:30',
+      'EWY': _isDST ? '06:00' : '05:00',
+      'USDKRW=X': _isDST ? '06:00' : '05:00',
+      '^TNX': _isDST ? '06:00' : '05:00',
+      '^N225': '15:00'
     };
 
     // 팩터별 시장 개장 시각 (KST) — "다음 갱신" 표시용
@@ -132,16 +152,16 @@
     const MARKET_OPEN_TIMES = {
       'KOSPI200F': { open: '18:00', type: 'kr' },     // 야간선물 18:00 개장
       'KOSDAQ150F': { open: '18:00', type: 'kr' },
-      '^SOX': { open: '23:30', type: 'us_stock' },
-      '^VIX': { open: '23:30', type: 'us_stock' },
-      'EWY': { open: '23:30', type: 'us_stock' },
-      '^TNX': { open: '22:00', type: 'us_stock' },
-      'NQ=F': { open: '08:00', type: 'us_futures' },  // CME 월 08:00 KST 개장
-      'ES=F': { open: '08:00', type: 'us_futures' },
-      'CL=F': { open: '08:00', type: 'us_futures' },
-      'GC=F': { open: '08:00', type: 'us_futures' },
-      'HG=F': { open: '08:00', type: 'us_futures' },
-      'USDKRW=X': { open: '08:00', type: 'fx' },
+      '^SOX': { open: _isDST ? '22:30' : '23:30', type: 'us_stock' },
+      '^VIX': { open: _isDST ? '22:30' : '23:30', type: 'us_stock' },
+      'EWY': { open: _isDST ? '22:30' : '23:30', type: 'us_stock' },
+      '^TNX': { open: _isDST ? '21:00' : '22:00', type: 'us_stock' },
+      'NQ=F': { open: _isDST ? '07:00' : '08:00', type: 'us_futures' },
+      'ES=F': { open: _isDST ? '07:00' : '08:00', type: 'us_futures' },
+      'CL=F': { open: _isDST ? '07:00' : '08:00', type: 'us_futures' },
+      'GC=F': { open: _isDST ? '07:00' : '08:00', type: 'us_futures' },
+      'HG=F': { open: _isDST ? '07:00' : '08:00', type: 'us_futures' },
+      'USDKRW=X': { open: _isDST ? '07:00' : '08:00', type: 'fx' },
       '^N225': { open: '09:00', type: 'jp' },
     };
 
