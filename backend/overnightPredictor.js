@@ -184,7 +184,8 @@ async function getFactorVolatility() {
     for (const ticker of tickers) {
       const changes = [];
       for (const row of data) {
-        const f = (row.factors || []).find(f => f.ticker === ticker);
+        const factors = Array.isArray(row.factors) ? row.factors : (typeof row.factors === 'string' ? JSON.parse(row.factors) : []);
+        const f = factors.find(f => f.ticker === ticker);
         if (f && f.change != null && f.change !== 0) changes.push(f.change);
       }
       if (changes.length >= 10) {
@@ -444,7 +445,8 @@ async function getActiveWeights() {
       const pairs = [];
       for (const row of data) {
         if (!row.factors) continue;
-        const factor = (row.factors || []).find(f => f.ticker === ticker);
+        const factors = Array.isArray(row.factors) ? row.factors : (typeof row.factors === 'string' ? JSON.parse(row.factors) : []);
+        const factor = factors.find(f => f.ticker === ticker);
         if (factor && row.kospi_open_change != null) {
           pairs.push({ x: factor.change, y: row.kospi_open_change });
         }
