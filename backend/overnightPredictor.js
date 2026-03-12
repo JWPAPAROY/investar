@@ -84,7 +84,9 @@ function calcExpectedChange(score, regression) {
   const rawCenter = reg.slope * effectiveScore + reg.intercept;
   // center 클램핑: ±5% (일일 변동 현실 범위)
   const center = +Math.min(Math.max(rawCenter, -5.0), 5.0).toFixed(2);
-  const band = reg.sigma;
+  // 밴드: ±0.67σ (약 50% 확률 범위 / IQR 수준)
+  // 기존 1.0σ는 일일 변동성 대비 너무 넓어 사용자에게 모호함을 줌.
+  const band = reg.sigma * 0.67;
 
   // 최종 변동률 클램핑: ±8% (서킷브레이커 수준)
   return {
@@ -360,13 +362,19 @@ function calculatePrediction(data, weights, correlations, factorVol = {}) {
     const w = config.weight;
     const isFailed = d.failed || (change === 0 && d.price === 0);
 
-    // z-score 정규화: 변동성 데이터가 있으면 적용
+    // z-score 정규화 및 아웃라이어 댐핑 (v1.2)
     let effectiveChange = change;
     let zScore = null;
     if (factorVol[ticker] && factorVol[ticker].std > 0 && !isFailed) {
       const vol = factorVol[ticker];
       zScore = (change - vol.mean) / vol.std;
-      effectiveChange = zScore; // z-score 기반 기여도
+      
+      // z-score 클램핑: ±3.0σ (극단적 변동이 반영을 독점하는 것 방지)
+      const clampedZ = Math.min(Math.max(zScore, -3.0), 3.0);
+      effectiveChange = clampedZ;
+    } else if (!isFailed) {
+      // 변동성 데이터 없을 때 단순 클램핑 (±10% 수준)
+      effectiveChange = Math.min(Math.max(change, -10.0), 10.0);
     }
 
     const contribution = effectiveChange * w;
