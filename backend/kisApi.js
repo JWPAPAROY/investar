@@ -1134,17 +1134,15 @@ class KISApi {
       // 1차: 근월물(3,6,9,12) 순차 조회 (stale 시 다음 월물)
       for (const code of codes) {
         const result = await this._queryFuturesPrice(token, code);
-        // stale 데이터 감지: change가 0이고 가격이 전일종가와 동일할 때 (장개시 전 제외)
-        const isStale = result && result.change === 0 && result.price === result.previousClose && result.price > 0;
+        // stale 데이터 감지 완화: 가격이 0이거나 아예 없으면 실패로 간주
+        const isInvalid = !result || result.price === 0;
 
-        if (result && !isStale) {
+        if (!isInvalid) {
           console.log(`📊 코스피200 선물 (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
           return { ...result, ticker: 'KOSPI200F' };
         }
-        if (isStale) {
-          console.warn(`⚠️ 코스피200 선물 ${code} stale 감지 — 다음 코드 시도`);
-          await this.rateLimiter.acquire();
-        }
+        console.warn(`⚠️ 코스피200 선물 ${code} 데이터 무효 — 다음 코드 시도`);
+        await this.rateLimiter.acquire();
       }
 
       // 2차: 모두 stale하면 CME 야간선물 코드로 재시도
@@ -1153,7 +1151,7 @@ class KISApi {
       if (cmeCode) {
         await this.rateLimiter.acquire();
         const cmeResult = await this._queryFuturesPrice(token, cmeCode);
-        if (cmeResult && !(cmeResult.change === 0 && cmeResult.price === cmeResult.previousClose && cmeResult.price > 0)) {
+        if (cmeResult && cmeResult.price > 0) {
           console.log(`📊 코스피200 선물 (CME야간 ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
           return { ...cmeResult, ticker: 'KOSPI200F' };
         }
@@ -1181,9 +1179,11 @@ class KISApi {
     const quarterMonths = [3, 6, 9, 12];
     let nearMonth = quarterMonths.find(m => m >= month);
     if (!nearMonth) { nearMonth = 3; year++; }
-    // 만기일(둘째 목요일) 계산 — 만기 지나면 다음 분기월
+    // 만기일(둘째 목요일) 계산 — 만기 당일 00:00 KST부터 다음 분기월로 롤오버
     const expiryDate = this._getSecondThursday(year, nearMonth);
-    if (now > expiryDate) {
+    expiryDate.setHours(0, 0, 0, 0); // 만기 당일 새벽부터 전배 (overnight 예측용)
+    
+    if (now >= expiryDate) {
       const idx = quarterMonths.indexOf(nearMonth);
       if (idx < quarterMonths.length - 1) {
         nearMonth = quarterMonths[idx + 1];
@@ -1211,7 +1211,16 @@ class KISApi {
 
     const quarterMonths = [3, 6, 9, 12];
     let nearMonthIdx = quarterMonths.findIndex(m => m >= month);
-    if (nearMonthIdx === -1) nearMonthIdx = 0;
+    if (nearMonthIdx === -1) {
+      nearMonthIdx = 0;
+    } else {
+      // 만기일(둘째 목요일) 당일 00시부터는 다음 월물(차근월물)을 1순위 후보로 올림
+      const expiryDate = this._getSecondThursday(year, quarterMonths[nearMonthIdx]);
+      expiryDate.setHours(0, 0, 0, 0);
+      if (now >= expiryDate) {
+        nearMonthIdx = (nearMonthIdx + 1) % 4;
+      }
+    }
 
     const codes = [];
     for (let i = 0; i < 2; i++) {

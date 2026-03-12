@@ -322,7 +322,7 @@ async function fetchOvernightData() {
     return futuresResults;
   })();
 
-  // 병렬 실행
+  // 3. 병렬 실행
   const [yahooResults, kisResults] = await Promise.all([
     Promise.all(promises),
     kisFuturesPromise
