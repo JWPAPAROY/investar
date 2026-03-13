@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.55
-- **최종 업데이트**: 2026-03-09
+- **버전**: 3.60
+- **최종 업데이트**: 2026-03-12
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -538,7 +538,7 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 ## 🌏 해외 지수 기반 시장 방향 예측 (Overnight Predictor)
 
-**v3.47에서 추가, v3.49에서 다중공선성 제거·베타 적용.** 전날 미국장 마감 데이터 + 선물 데이터를 기반으로 가중 스코어를 계산하여 한국 시장 당일 방향을 예측한다.
+**v3.47에서 추가, v3.60에서 선물 로직 및 밴드 최적화.** 전날 미국장 마감 데이터 + 선물 데이터를 기반으로 가중 스코어를 계산하여 한국 시장 당일 방향을 예측한다.
 
 ### 모듈: `backend/overnightPredictor.js`
 
@@ -550,7 +550,8 @@ DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20
 
 | 구분 | 티커 | 이름 | 가중치 | 비고 |
 |------|------|------|--------|------|
-| 선물 | KOSPI200F | 코스피200선물 | +0.20 | KIS API 야간선물, 최대 가중치 |
+| 선물 | KOSPI200F | 코스피200선물 | +0.20 | KIS API (정규/야간), 만기일 자동 롤오버 |
+| 선물 | KOSDAQ150F| 코스닥150선물 | +0 | KIS API (정규/야간), 관측용 |
 | 선물 | ES=F | S&P500 선물 | +0.10 | 장후 최신 |
 | 선물 | NQ=F | 나스닥 선물 | +0.11 | 기술주 선행 |
 | 선물 | HG=F | 구리 선물 | +0.07 | 경기 선행지표 |
@@ -576,7 +577,10 @@ z-score(ticker)      = (변동률 - 60일평균) / 60일표준편차
 스코어(score)        = Σ(모든 기여도)
 ```
 - 10일 미만 데이터 시 raw 변동률 × 가중치로 fallback
-- z-score 정규화로 변동성 큰 지표(VIX 등)의 과대 대표 문제 해결
+- **z-score 정규화 및 아웃라이어 댐핑 (v3.60)**:
+    - z-score 정규화로 변동성 큰 지표(VIX 등)의 과대 대표 문제 해결.
+    - **아웃라이어 클램핑**: 개별 팩터의 z-score를 ±3.0σ 범위로 제한하여 특정 지표(예: 유가 폭등)가 전체 예측을 독점적으로 왜곡하는 현상 방지.
+    - 변동성 데이터 미충분 시 raw 변동률 ±10% 클램핑.
 
 | 스코어 | 신호 | 이모지 |
 |--------|------|--------|
@@ -596,7 +600,8 @@ EWMA 가중 OLS 회귀로 score→KOSPI 변동률 관계를 모델링:
 ```
 effectiveScore = |score|>2 ? sign×(2+√(|score|-2)) : score  // 극단값 sqrt 감쇠
 center         = clamp(slope × effectiveScore + intercept, ±5%)
-expectedChange = { min: max(center - σ, -8%), max: min(center + σ, 8%) }
+// 밴드 폭 최적화 (v3.60): ±0.67σ (약 50% 확률 범위 / IQR 수준)
+expectedChange = { min: max(center - 0.67×σ, -8%), max: min(center + 0.67×σ, 8%) }
 estimatedKospi = previousKospi × (1 + expectedChange / 100)
 ```
 - `DEFAULT_REGRESSION = { slope: 0.78, intercept: 0.77, sigma: 3.44 }`
@@ -610,6 +615,10 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 - 10일 이상: `getFactorVolatility()` — 팩터별 60일 mean/std → z-score 정규화
 - 30일 이상(가중치): 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 → 부호 보존, 절대값 비례 → 합계 1.0 정규화 (v3.55: 60일→30일 완화)
 - 20일 이상(회귀): score→KOSPI 종가 변동률 EWMA 가중 OLS 회귀 → slope/intercept/sigma 산출
+- **선물 롤오버 및 야간선물 강화 (v3.60)**: 
+    - 만기일 당일 00:00 KST부터 차근월물(6월/9월/12월/3월) 자동 조회.
+    - 정규 선물 시세가 0이거나 stale할 경우 CME/Eurex 야간 선물 코드(A01/A06) 자동 추적.
+    - ETF Proxy 대용치 로직 완전 제거 (실제 선물 데이터만 사용).
 - 팩터 수 변경 시 캐시 자동 무효화
 
 ### 팩터 신뢰도
@@ -848,6 +857,13 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.60 (2026-03-12)
+- **선물 롤오버 로직 개선**: 선물 만기일 당일 00:00 KST부터 차근월물 데이터를 즉시 사용하도록 개선. 롤오버 공백기 시세 오류 해결.
+- **CME/Eurex 야간 선물 지원**: KOSPI 200 및 KOSDAQ 150 모두에 대해 야간 선물(prefixes A01, A06) 추적 로직 적용. 정규장 마감 후에도 실시간 선물 가격 반영.
+- **ETF 프록시 로직 제거**: 예측 정확도 향상을 위해 선물 대용치(KODEX 200 등) 사용을 중단하고 100% 실제 선물 데이터만 사용.
+- **아웃라이어 댐핑 (Factor Damping)**: 개별 지표의 비정상적 급등락(±3σ 이상)이 전체 스코어를 왜곡하지 않도록 z-score 클램핑 도입.
+- **예측 범위(Expected Range) 슬림화**: 기존 1.0σ(표준편차) 밴드를 0.67σ로 축소하여 더 실무적이고 집중된 예측 범위 제공 (신뢰도 약 50% 구간).
 
 ### v3.55 (2026-03-09)
 - **방어 Recovery 역전 버그 수정**: 극단 과매도 구간에서 점수가 역전되는 논리 오류 수정. RSI<20: 2→8점, RSI 20-24: 6→10점, MFI<15: 0→5점, MFI 15-19: 5→7점, 이격도<85: 1→6점, 이격도 85-89: 6→7점

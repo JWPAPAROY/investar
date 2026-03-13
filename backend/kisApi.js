@@ -159,7 +159,8 @@ class KISApi {
           'authorization': `Bearer ${token}`,
           'appkey': this.appKey,
           'appsecret': this.appSecret,
-          'tr_id': 'FHKST01010100'
+          'tr_id': 'FHKST01010100',
+          'custtype': 'P'
         },
         params: {
           FID_COND_MRKT_DIV_CODE: 'J',  // 시장구분 (J: 주식)
@@ -270,7 +271,8 @@ class KISApi {
           'authorization': `Bearer ${token}`,
           'appkey': this.appKey,
           'appsecret': this.appSecret,
-          'tr_id': 'FHKST01010400'
+          'tr_id': 'FHKST01010400',
+          'custtype': 'P'
         },
         params: {
           FID_COND_MRKT_DIV_CODE: 'J',
@@ -324,7 +326,8 @@ class KISApi {
           'authorization': `Bearer ${token}`,
           'appkey': this.appKey,
           'appsecret': this.appSecret,
-          'tr_id': 'FHKUP03500100'
+          'tr_id': 'FHKUP03500100',
+          'custtype': 'P'
         },
         params: {
           FID_COND_MRKT_DIV_CODE: 'U',  // U: 업종
@@ -370,7 +373,8 @@ class KISApi {
           'authorization': `Bearer ${token}`,
           'appkey': this.appKey,
           'appsecret': this.appSecret,
-          'tr_id': 'FHKST01010600'
+          'tr_id': 'FHKST01010600',
+          'custtype': 'P'
         },
         params: {
           FID_COND_MRKT_DIV_CODE: 'J',
@@ -414,7 +418,8 @@ class KISApi {
           'authorization': `Bearer ${token}`,
           'appkey': this.appKey,
           'appsecret': this.appSecret,
-          'tr_id': 'FHPST01710000'  // 거래량 순위 (동일 TR_ID, 파라미터로 구분)
+          'tr_id': 'FHPST01710000',
+          'custtype': 'P'
         },
         params: {
           FID_COND_MRKT_DIV_CODE: 'J',
@@ -1054,7 +1059,8 @@ class KISApi {
             'authorization': `Bearer ${token}`,
             'appkey': this.appKey,
             'appsecret': this.appSecret,
-            'tr_id': 'FHKST01010900'
+            'tr_id': 'FHKST01010900',
+            'custtype': 'P'
           },
           params: {
             FID_COND_MRKT_DIV_CODE: 'J',  // J: KRX
@@ -1129,12 +1135,16 @@ class KISApi {
 
     try {
       const token = await this.getAccessToken();
-      const codes = this._getFrontMonthCodes('101'); // 코스피200 선물 접두어
+      // 2026년부터 표준코드 첫 자리가 1->A로 변경됨 (KOSPI200: A01, KOSDAQ150: A06)
+      const prefixes = ['A01', '101']; 
+      let allCodes = [];
+      for (const p of prefixes) {
+        allCodes = allCodes.concat(this._getFrontMonthCodes(p));
+      }
 
-      // 1차: 근월물(3,6,9,12) 순차 조회 (stale 시 다음 월물)
-      for (const code of codes) {
+      // 1차: 근월물/차근월물 순차 조회
+      for (const code of allCodes) {
         const result = await this._queryFuturesPrice(token, code);
-        // stale 데이터 감지 완화: 가격이 0이거나 아예 없으면 실패로 간주
         const isInvalid = !result || result.price === 0;
 
         if (!isInvalid) {
@@ -1271,7 +1281,8 @@ class KISApi {
           'authorization': `Bearer ${token}`,
           'appkey': this.appKey,
           'appsecret': this.appSecret,
-          'tr_id': 'FHMIF10000000'
+          'tr_id': 'FHMIF10000000',
+          'custtype': 'P'
         },
         params: {
           FID_COND_MRKT_DIV_CODE: 'F',
@@ -1280,13 +1291,24 @@ class KISApi {
       }
     );
 
-    if (response.data.rt_cd !== '0') return null;
+    if (response.data.rt_cd !== '0') {
+      console.warn(`⚠️ KIS API Error [Futures ${futuresCode}]:`, response.data.msg1);
+      return null;
+    }
     const output = response.data.output1 || response.data.output;
-    if (!output) return null;
+    if (!output || Object.keys(output).length === 0) {
+      console.warn(`⚠️ KIS API Empty Output [Futures ${futuresCode}]`);
+      return null;
+    }
 
     const price = parseFloat(output.futs_prpr || output.stck_prpr || 0);
     const previousClose = parseFloat(output.futs_sdpr || output.stck_sdpr || 0);
     let change = parseFloat(output.futs_prdy_ctrt || output.prdy_ctrt || 0);
+    
+    if (price === 0) {
+      console.warn(`⚠️ KIS API Zero Price [Futures ${futuresCode}]:`, output);
+    }
+
     if (change === 0 && price > 0 && previousClose > 0) {
       change = +((price - previousClose) / previousClose * 100).toFixed(4);
     }
@@ -1301,15 +1323,21 @@ class KISApi {
   async getKosdaq150FuturesPrice() {
     try {
       const token = await this.getAccessToken();
-      const codes = this._getFrontMonthCodes('106'); // 코스닥150 선물 접두어
+      const prefixes = ['A06', '106'];
+      let allCodes = [];
+      for (const p of prefixes) {
+        allCodes = allCodes.concat(this._getFrontMonthCodes(p));
+      }
 
       // 1차: 정규 선물 조회
-      for (const code of codes) {
+      for (const code of allCodes) {
         const result = await this._queryFuturesPrice(token, code);
         if (result && result.price > 0) {
           console.log(`📊 코스닥150 선물 (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
           return { ...result, ticker: 'KOSDAQ150F' };
         }
+        console.warn(`⚠️ 코스닥150 선물 ${code} 데이터 무효 — 다음 코드 시도`);
+        await this.rateLimiter.acquire();
       }
 
       // 2차: CME 야간/차근월물 코드 시도

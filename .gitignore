@@ -25,6 +25,16 @@ logs/
 data/*.json
 !data/.gitkeep
 
+# Debug & Test Scripts
+debug-*.js
+test-*.js
+discover-*.js
+check-*.js
+find-*.js
+refresh-*.js
+
 # Vercel
 .vercel
 .env.backup
+
+.vercel

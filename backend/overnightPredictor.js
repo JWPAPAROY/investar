@@ -281,14 +281,8 @@ async function fetchOvernightData() {
           dataTimestamp: `${todayKST} 06:00`,
         });
       } else {
-        // KIS API 실패 → DB에서 직전 유효 데이터 fallback
-        console.warn('⚠️ KOSPI200F KIS API null — DB 직전 유효 데이터 fallback 시도');
-        const dbFallback = await _getLastValidFuturesFactor('KOSPI200F');
-        if (dbFallback) {
-          futuresResults.push(dbFallback);
-        } else {
-          futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
-        }
+        console.warn('⚠️ KOSPI200F KIS API null — 실패 처리');
+        futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
       }
     } catch (err) {
       console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message}`);
@@ -308,13 +302,8 @@ async function fetchOvernightData() {
           dataTimestamp: `${todayKST} 06:00`,
         });
       } else {
-        console.warn('⚠️ KOSDAQ150F KIS API null — DB 직전 유효 데이터 fallback 시도');
-        const dbFallback = await _getLastValidFuturesFactor('KOSDAQ150F');
-        if (dbFallback) {
-          futuresResults.push(dbFallback);
-        } else {
-          futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
-        }
+        console.warn('⚠️ KOSDAQ150F KIS API null — 실패 처리');
+        futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
       }
     } catch (err) {
       console.warn(`⚠️ KOSDAQ150F 데이터 수집 실패: ${err.message}`);
