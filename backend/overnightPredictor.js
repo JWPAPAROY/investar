@@ -1044,7 +1044,7 @@ async function fetchAndPredict(bypassCache = false) {
         const factorCountMismatch = cachedFactors.length !== expectedCount;
         // KOSPI200F 실패 감지: failed 플래그 또는 stale(price=previousClose)
         const kospi200f = cachedFactors.find(f => f.ticker === 'KOSPI200F');
-        const kospi200fStale = kospi200f && (kospi200f.failed || (kospi200f.change === 0 && kospi200f.price > 0 && kospi200f.price === kospi200f.previousClose));
+        const kospi200fStale = !kospi200f || kospi200f.failed || kospi200f.price === null || kospi200f.price === 0 || (kospi200f.change === 0 && kospi200f.price > 0 && kospi200f.price === kospi200f.previousClose);
         if (allZero) {
           console.log(`⚠️ 오늘(${today}) 캐시 factors 전부 0 — 재조회 시도`);
           // 캐시 무시하고 아래 새 예측 로직으로 진행
