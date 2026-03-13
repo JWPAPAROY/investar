@@ -1135,12 +1135,17 @@ class KISApi {
 
     try {
       const token = await this.getAccessToken();
+      // 0순위: 연속 선물 코드 (가장 범용적)
+      const priorityCodes = ['10100000', '10100'];
+
       // 2026년부터 표준코드 첫 자리가 1->A로 변경됨 (KOSPI200: A01, KOSDAQ150: A06)
       const prefixes = ['A01', '101']; 
-      let allCodes = [];
+      let monthCodes = [];
       for (const p of prefixes) {
-        allCodes = allCodes.concat(this._getFrontMonthCodes(p));
+        monthCodes = monthCodes.concat(this._getFrontMonthCodes(p));
       }
+
+      const allCodes = [...priorityCodes, ...monthCodes];
 
       // 1차: 근월물/차근월물 순차 조회
       for (const code of allCodes) {
@@ -1323,11 +1328,16 @@ class KISApi {
   async getKosdaq150FuturesPrice() {
     try {
       const token = await this.getAccessToken();
+      // 0순위: 연속 선물 코드
+      const priorityCodes = ['10600000', '10600'];
+
       const prefixes = ['A06', '106'];
-      let allCodes = [];
+      let monthCodes = [];
       for (const p of prefixes) {
-        allCodes = allCodes.concat(this._getFrontMonthCodes(p));
+        monthCodes = monthCodes.concat(this._getFrontMonthCodes(p));
       }
+
+      const allCodes = [...priorityCodes, ...monthCodes];
 
       // 1차: 정규 선물 조회
       for (const code of allCodes) {
