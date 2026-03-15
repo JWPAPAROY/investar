@@ -105,7 +105,8 @@ function calcExpectedChange(score, regression) {
  */
 function yahooQuote(symbol) {
   return new Promise((resolve, reject) => {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=2d&interval=1d`;
+    // range=5d: 월요일/연휴 후에도 최소 2거래일 데이터 확보 (range=2d는 토일만 커버되어 0% 버그)
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=5d&interval=1d`;
     https.get(url, {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
     }, (res) => {
@@ -118,38 +119,45 @@ function yahooQuote(symbol) {
           if (!result) { reject(new Error('No chart result')); return; }
 
           const meta = result.meta || {};
-          const closes = result.indicators?.quote?.[0]?.close || [];
-          const opens = result.indicators?.quote?.[0]?.open || [];
+          const rawCloses = result.indicators?.quote?.[0]?.close || [];
+          const rawOpens = result.indicators?.quote?.[0]?.open || [];
+          const timestamps = result.timestamp || [];
 
-          let dataDate = null;
-          let dataTimestamp = null; // KST 기준 마감 시각 (ISO string)
-          if (result.timestamp && result.timestamp.length > 0) {
-            const unixTs = result.timestamp[result.timestamp.length - 1];
-            const d = new Date(unixTs * 1000);
-            dataDate = d.toISOString().slice(0, 10);
-            // KST 변환 (UTC+9)
-            const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-            dataTimestamp = kst.toISOString().replace('T', ' ').slice(0, 16); // "YYYY-MM-DD HH:mm"
+          // null/undefined 제거하여 유효 거래일만 추출
+          const valid = [];
+          for (let i = 0; i < rawCloses.length; i++) {
+            if (rawCloses[i] != null && rawCloses[i] > 0) {
+              valid.push({ close: rawCloses[i], open: rawOpens[i], ts: timestamps[i] });
+            }
           }
 
-          // 최신 2일 데이터에서 변동률 계산
-          if (closes.length >= 2) {
-            const prevClose = closes[closes.length - 2];
-            const currClose = closes[closes.length - 1];
-            const currOpen = opens[opens.length - 1];
-            if (prevClose && currClose) {
-              const change = ((currClose - prevClose) / prevClose) * 100;
-              resolve({
-                price: currClose,
-                previousClose: prevClose,
-                chartPreviousClose: meta.chartPreviousClose || meta.previousClose || prevClose,
-                open: currOpen || currClose,
-                change: +change.toFixed(4),
-                dataDate,
-                dataTimestamp,
-              });
-              return;
+          let dataDate = null;
+          let dataTimestamp = null;
+          if (valid.length > 0) {
+            const lastTs = valid[valid.length - 1].ts;
+            if (lastTs) {
+              const d = new Date(lastTs * 1000);
+              dataDate = d.toISOString().slice(0, 10);
+              const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
+              dataTimestamp = kst.toISOString().replace('T', ' ').slice(0, 16);
             }
+          }
+
+          // 유효 거래일 2개 이상: 마지막 2일 종가로 변동률 계산
+          if (valid.length >= 2) {
+            const prev = valid[valid.length - 2];
+            const curr = valid[valid.length - 1];
+            const change = ((curr.close - prev.close) / prev.close) * 100;
+            resolve({
+              price: curr.close,
+              previousClose: prev.close,
+              chartPreviousClose: meta.chartPreviousClose || meta.previousClose || prev.close,
+              open: curr.open || curr.close,
+              change: +change.toFixed(4),
+              dataDate,
+              dataTimestamp,
+            });
+            return;
           }
 
           // fallback: meta 데이터
@@ -271,7 +279,7 @@ async function fetchOvernightData() {
     // KOSPI200F — 정규선물 → CME야간선물 → DB직전유효 3단계 fallback
     try {
       const futures = await kisApi.getKospi200FuturesPrice();
-      if (futures) {
+      if (futures && futures.change !== 0) {
         futuresResults.push({
           ticker: 'KOSPI200F',
           price: futures.price,
@@ -281,18 +289,30 @@ async function fetchOvernightData() {
           dataTimestamp: `${todayKST} 06:00`,
         });
       } else {
-        console.warn('⚠️ KOSPI200F KIS API null — 실패 처리');
-        futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
+        // KIS API null 또는 change=0 (장 개시 전 stale) → DB fallback
+        const reason = futures ? 'change=0 (장 개시 전 stale)' : 'null';
+        console.warn(`⚠️ KOSPI200F KIS API ${reason} — DB fallback 시도`);
+        const dbData = await _getLastValidFuturesFactor('KOSPI200F');
+        if (dbData) {
+          futuresResults.push(dbData);
+        } else {
+          futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
+        }
       }
     } catch (err) {
-      console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message}`);
-      futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
+      console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message} — DB fallback 시도`);
+      const dbData = await _getLastValidFuturesFactor('KOSPI200F');
+      if (dbData) {
+        futuresResults.push(dbData);
+      } else {
+        futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
+      }
     }
 
     // KOSDAQ150F
     try {
       const futures = await kisApi.getKosdaq150FuturesPrice();
-      if (futures) {
+      if (futures && futures.change !== 0) {
         futuresResults.push({
           ticker: 'KOSDAQ150F',
           price: futures.price,
@@ -302,12 +322,23 @@ async function fetchOvernightData() {
           dataTimestamp: `${todayKST} 06:00`,
         });
       } else {
-        console.warn('⚠️ KOSDAQ150F KIS API null — 실패 처리');
-        futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
+        const reason = futures ? 'change=0 (장 개시 전 stale)' : 'null';
+        console.warn(`⚠️ KOSDAQ150F KIS API ${reason} — DB fallback 시도`);
+        const dbData = await _getLastValidFuturesFactor('KOSDAQ150F');
+        if (dbData) {
+          futuresResults.push(dbData);
+        } else {
+          futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
+        }
       }
     } catch (err) {
-      console.warn(`⚠️ KOSDAQ150F 데이터 수집 실패: ${err.message}`);
-      futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
+      console.warn(`⚠️ KOSDAQ150F 데이터 수집 실패: ${err.message} — DB fallback 시도`);
+      const dbData = await _getLastValidFuturesFactor('KOSDAQ150F');
+      if (dbData) {
+        futuresResults.push(dbData);
+      } else {
+        futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
+      }
     }
 
     return futuresResults;
@@ -1042,9 +1073,19 @@ async function fetchAndPredict(bypassCache = false) {
         const allZero = cachedFactors.length > 0 && cachedFactors.every(f => f.change === 0);
         const expectedCount = Object.keys(DEFAULT_WEIGHTS).length;
         const factorCountMismatch = cachedFactors.length !== expectedCount;
-        // KOSPI200F 실패 감지: failed 플래그 또는 stale(price=previousClose)
-        const kospi200f = cachedFactors.find(f => f.ticker === 'KOSPI200F');
-        const kospi200fStale = !kospi200f || kospi200f.failed || kospi200f.price === null || kospi200f.price === 0 || (kospi200f.change === 0 && kospi200f.price > 0 && kospi200f.price === kospi200f.previousClose);
+        // 주요 팩터 stale 감지: failed 플래그, price=0, change=0+price=previousClose
+        const isFactorStale = (ticker) => {
+          const f = cachedFactors.find(x => x.ticker === ticker);
+          return !f || f.failed || f.price === null || f.price === 0 || (f.change === 0 && f.price > 0 && f.price === f.previousClose);
+        };
+        const kospi200fStale = isFactorStale('KOSPI200F');
+        // 가중치 있는(활성) 팩터 중 change=0인 비율이 높으면 stale (월요일/연휴 Yahoo range=2d 버그 대응)
+        const activeFactors = cachedFactors.filter(f => {
+          const cfg = DEFAULT_WEIGHTS[f.ticker];
+          return cfg && cfg.weight !== 0;
+        });
+        const zeroActiveCount = activeFactors.filter(f => f.change === 0 && !f.failed).length;
+        const tooManyZeros = activeFactors.length > 0 && zeroActiveCount >= Math.ceil(activeFactors.length * 0.5);
         if (allZero) {
           console.log(`⚠️ 오늘(${today}) 캐시 factors 전부 0 — 재조회 시도`);
           // 캐시 무시하고 아래 새 예측 로직으로 진행
@@ -1052,8 +1093,11 @@ async function fetchAndPredict(bypassCache = false) {
           console.log(`⚠️ 오늘(${today}) 캐시 factors ${cachedFactors.length}개 ≠ 현재 ${expectedCount}개 — 재조회 시도`);
           // 팩터 구성 변경 시 캐시 무시
         } else if (kospi200fStale) {
-          console.log(`⚠️ 오늘(${today}) 캐시 KOSPI200F stale (price=previousClose=${kospi200f.price}) — 재조회 시도`);
-          // KOSPI200F가 stale이면 캐시 무시하고 재조회 (fallback 로직에서 지수 일봉 사용)
+          console.log(`⚠️ 오늘(${today}) 캐시 KOSPI200F stale — 재조회 시도`);
+          // KOSPI200F가 stale이면 캐시 무시하고 재조회
+        } else if (tooManyZeros) {
+          console.log(`⚠️ 오늘(${today}) 캐시 활성 팩터 중 ${zeroActiveCount}/${activeFactors.length}개 change=0 — 재조회 시도`);
+          // 월요일/연휴 후 Yahoo range=2d 버그로 다수 팩터 0% → 재조회
         } else {
           console.log(`📊 오늘(${today}) 예측 캐시 사용: ${existing.signal} (${existing.score})`);
 

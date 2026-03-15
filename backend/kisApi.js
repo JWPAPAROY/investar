@@ -1326,6 +1326,7 @@ class KISApi {
    * 근월물 자동 계산 및 stale 대응
    */
   async getKosdaq150FuturesPrice() {
+    await this.rateLimiter.acquire();
     try {
       const token = await this.getAccessToken();
       // 0순위: 연속 선물 코드
