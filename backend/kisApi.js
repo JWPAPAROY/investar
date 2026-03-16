@@ -1131,54 +1131,66 @@ class KISApi {
    * 근월물 자동 계산: 만기일(매월 두번째 목요일) 기준 롤오버
    */
   async getKospi200FuturesPrice() {
-    await this.rateLimiter.acquire();
+    // 최대 2회 시도 (1회 실패 시 토큰 재발급 후 재시도)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await this.rateLimiter.acquire();
+      try {
+        const token = attempt === 0 ? await this.getAccessToken() : await this._forceRefreshToken();
+        // 0순위: 연속 선물 코드 (가장 범용적)
+        const priorityCodes = ['10100000', '10100'];
 
-    try {
-      const token = await this.getAccessToken();
-      // 0순위: 연속 선물 코드 (가장 범용적)
-      const priorityCodes = ['10100000', '10100'];
-
-      // 2026년부터 표준코드 첫 자리가 1->A로 변경됨 (KOSPI200: A01, KOSDAQ150: A06)
-      const prefixes = ['A01', '101']; 
-      let monthCodes = [];
-      for (const p of prefixes) {
-        monthCodes = monthCodes.concat(this._getFrontMonthCodes(p));
-      }
-
-      const allCodes = [...priorityCodes, ...monthCodes];
-
-      // 1차: 근월물/차근월물 순차 조회
-      for (const code of allCodes) {
-        const result = await this._queryFuturesPrice(token, code);
-        const isInvalid = !result || result.price === 0;
-
-        if (!isInvalid) {
-          console.log(`📊 코스피200 선물 (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
-          return { ...result, ticker: 'KOSPI200F' };
+        // 2026년부터 표준코드 첫 자리가 1->A로 변경됨 (KOSPI200: A01, KOSDAQ150: A06)
+        const prefixes = ['A01', '101'];
+        let monthCodes = [];
+        for (const p of prefixes) {
+          monthCodes = monthCodes.concat(this._getFrontMonthCodes(p));
         }
-        console.warn(`⚠️ 코스피200 선물 ${code} 데이터 무효 — 다음 코드 시도`);
-        await this.rateLimiter.acquire();
-      }
 
-      // 2차: 모두 stale하면 CME 야간선물 코드로 재시도
-      console.warn('⚠️ 코스피200 정규선물 모두 stale — CME 야간선물 조회 시도');
-      const cmeCode = this._getCMEFuturesCode('101');
-      if (cmeCode) {
-        await this.rateLimiter.acquire();
-        const cmeResult = await this._queryFuturesPrice(token, cmeCode);
-        if (cmeResult && cmeResult.price > 0) {
-          console.log(`📊 코스피200 선물 (CME야간 ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
-          return { ...cmeResult, ticker: 'KOSPI200F' };
+        const allCodes = [...priorityCodes, ...monthCodes];
+
+        // 1차: 근월물/차근월물 순차 조회
+        for (const code of allCodes) {
+          const result = await this._queryFuturesPrice(token, code);
+          const isInvalid = !result || result.price === 0;
+
+          if (!isInvalid) {
+            console.log(`📊 코스피200 선물 (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
+            return { ...result, ticker: 'KOSPI200F' };
+          }
+          console.warn(`⚠️ 코스피200 선물 ${code} 데이터 무효 — 다음 코드 시도`);
+          await this.rateLimiter.acquire();
         }
-      }
 
-      // 3차: 둘 다 stale → null 반환 (overnightPredictor에서 DB fallback 처리)
-      console.warn('⚠️ 코스피200 선물 정규+CME 모두 stale — null 반환');
-      return null;
-    } catch (error) {
-      console.warn('⚠️ 코스피200 선물 시세 조회 실패:', error.message);
-      return null;
+        // 2차: 모두 stale하면 CME 야간선물 코드로 재시도
+        console.warn('⚠️ 코스피200 정규선물 모두 stale — CME 야간선물 조회 시도');
+        const cmeCode = this._getCMEFuturesCode('101');
+        if (cmeCode) {
+          await this.rateLimiter.acquire();
+          const cmeResult = await this._queryFuturesPrice(token, cmeCode);
+          if (cmeResult && cmeResult.price > 0) {
+            console.log(`📊 코스피200 선물 (CME야간 ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
+            return { ...cmeResult, ticker: 'KOSPI200F' };
+          }
+        }
+
+        // 모두 stale → 재시도 대상
+        if (attempt === 0) {
+          console.warn('⚠️ 코스피200 선물 1차 시도 모두 stale — 토큰 재발급 후 재시도');
+          continue;
+        }
+
+        console.warn('⚠️ 코스피200 선물 정규+CME 모두 stale — null 반환');
+        return null;
+      } catch (error) {
+        if (attempt === 0) {
+          console.warn(`⚠️ 코스피200 선물 1차 시도 실패: ${error.message} — 재시도`);
+          continue;
+        }
+        console.warn('⚠️ 코스피200 선물 시세 조회 최종 실패:', error.message);
+        return null;
+      }
     }
+    return null;
   }
 
   /**
@@ -1275,31 +1287,71 @@ class KISApi {
   }
 
   /**
+   * 토큰 강제 재발급 (캐시 무시)
+   */
+  async _forceRefreshToken() {
+    this.accessToken = null;
+    this.tokenExpiry = null;
+    // Supabase 토큰 캐시도 무효화
+    if (supabase) {
+      try {
+        await supabase.from('overnight_predictions').delete().eq('prediction_date', this.TOKEN_CACHE_DATE);
+      } catch (e) { /* ignore */ }
+    }
+    return await this.getAccessToken();
+  }
+
+  /**
    * 선물 현재가 시세 조회 (공통 헬퍼)
+   * 인증 실패(EGW00123) 시 토큰 재발급 후 1회 재시도
    */
   async _queryFuturesPrice(token, futuresCode) {
-    const response = await axios.get(
-      `${this.baseUrl}/uapi/domestic-futureoption/v1/quotations/inquire-price`,
-      {
-        headers: {
-          'Content-Type': 'application/json',
-          'authorization': `Bearer ${token}`,
-          'appkey': this.appKey,
-          'appsecret': this.appSecret,
-          'tr_id': 'FHMIF10000000',
-          'custtype': 'P'
-        },
-        params: {
-          FID_COND_MRKT_DIV_CODE: 'F',
-          FID_INPUT_ISCD: futuresCode
+    const doRequest = async (t) => {
+      const response = await axios.get(
+        `${this.baseUrl}/uapi/domestic-futureoption/v1/quotations/inquire-price`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'authorization': `Bearer ${t}`,
+            'appkey': this.appKey,
+            'appsecret': this.appSecret,
+            'tr_id': 'FHMIF10000000',
+            'custtype': 'P'
+          },
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'F',
+            FID_INPUT_ISCD: futuresCode
+          }
         }
-      }
-    );
+      );
+      return response;
+    };
 
-    if (response.data.rt_cd !== '0') {
-      console.warn(`⚠️ KIS API Error [Futures ${futuresCode}]:`, response.data.msg1);
-      return null;
+    let response;
+    try {
+      response = await doRequest(token);
+    } catch (err) {
+      // 네트워크/헤더 오류 시 토큰 재발급 후 1회 재시도
+      console.warn(`⚠️ KIS API 요청 실패 [${futuresCode}]: ${err.message} — 토큰 재발급 후 재시도`);
+      const newToken = await this._forceRefreshToken();
+      response = await doRequest(newToken);
     }
+
+    // 인증 오류(EGW00123 등) 시 토큰 재발급 후 재시도
+    if (response.data.rt_cd !== '0') {
+      const msg = response.data.msg1 || '';
+      if (msg.includes('EGW') || msg.includes('token') || msg.includes('접근')) {
+        console.warn(`⚠️ KIS API 인증 오류 [${futuresCode}]: ${msg} — 토큰 재발급 후 재시도`);
+        const newToken = await this._forceRefreshToken();
+        await this.rateLimiter.acquire();
+        response = await doRequest(newToken);
+      }
+      if (response.data.rt_cd !== '0') {
+        console.warn(`⚠️ KIS API Error [Futures ${futuresCode}]:`, response.data.msg1);
+        return null;
+      }
+    }
+
     const output = response.data.output1 || response.data.output;
     if (!output || Object.keys(output).length === 0) {
       console.warn(`⚠️ KIS API Empty Output [Futures ${futuresCode}]`);
@@ -1309,7 +1361,7 @@ class KISApi {
     const price = parseFloat(output.futs_prpr || output.stck_prpr || 0);
     const previousClose = parseFloat(output.futs_sdpr || output.stck_sdpr || 0);
     let change = parseFloat(output.futs_prdy_ctrt || output.prdy_ctrt || 0);
-    
+
     if (price === 0) {
       console.warn(`⚠️ KIS API Zero Price [Futures ${futuresCode}]:`, output);
     }
@@ -1323,51 +1375,62 @@ class KISApi {
 
   /**
    * 코스닥150 선물 현재가 시세 조회
-   * 근월물 자동 계산 및 stale 대응
+   * 근월물 자동 계산 및 stale 대응, 최대 2회 시도
    */
   async getKosdaq150FuturesPrice() {
-    await this.rateLimiter.acquire();
-    try {
-      const token = await this.getAccessToken();
-      // 0순위: 연속 선물 코드
-      const priorityCodes = ['10600000', '10600'];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await this.rateLimiter.acquire();
+      try {
+        const token = attempt === 0 ? await this.getAccessToken() : await this._forceRefreshToken();
+        // 0순위: 연속 선물 코드
+        const priorityCodes = ['10600000', '10600'];
 
-      const prefixes = ['A06', '106'];
-      let monthCodes = [];
-      for (const p of prefixes) {
-        monthCodes = monthCodes.concat(this._getFrontMonthCodes(p));
-      }
-
-      const allCodes = [...priorityCodes, ...monthCodes];
-
-      // 1차: 정규 선물 조회
-      for (const code of allCodes) {
-        const result = await this._queryFuturesPrice(token, code);
-        if (result && result.price > 0) {
-          console.log(`📊 코스닥150 선물 (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
-          return { ...result, ticker: 'KOSDAQ150F' };
+        const prefixes = ['A06', '106'];
+        let monthCodes = [];
+        for (const p of prefixes) {
+          monthCodes = monthCodes.concat(this._getFrontMonthCodes(p));
         }
-        console.warn(`⚠️ 코스닥150 선물 ${code} 데이터 무효 — 다음 코드 시도`);
-        await this.rateLimiter.acquire();
-      }
 
-      // 2차: CME 야간/차근월물 코드 시도
-      console.warn('⚠️ 코스닥150 정규선물 데이터 부재 — 야간/CME 코드 시도');
-      const cmeCode = this._getCMEFuturesCode('106');
-      if (cmeCode) {
-        await this.rateLimiter.acquire();
-        const cmeResult = await this._queryFuturesPrice(token, cmeCode);
-        if (cmeResult && cmeResult.price > 0) {
-          console.log(`📊 코스닥150 선물 (야간 ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
-          return { ...cmeResult, ticker: 'KOSDAQ150F' };
+        const allCodes = [...priorityCodes, ...monthCodes];
+
+        // 1차: 정규 선물 조회
+        for (const code of allCodes) {
+          const result = await this._queryFuturesPrice(token, code);
+          if (result && result.price > 0) {
+            console.log(`📊 코스닥150 선물 (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
+            return { ...result, ticker: 'KOSDAQ150F' };
+          }
+          console.warn(`⚠️ 코스닥150 선물 ${code} 데이터 무효 — 다음 코드 시도`);
+          await this.rateLimiter.acquire();
         }
-      }
 
-      return null;
-    } catch (error) {
-      console.warn('⚠️ 코스닥150 선물 시세 조회 실패:', error.message);
-      return null;
+        // 2차: CME 야간/차근월물 코드 시도
+        console.warn('⚠️ 코스닥150 정규선물 데이터 부재 — 야간/CME 코드 시도');
+        const cmeCode = this._getCMEFuturesCode('106');
+        if (cmeCode) {
+          await this.rateLimiter.acquire();
+          const cmeResult = await this._queryFuturesPrice(token, cmeCode);
+          if (cmeResult && cmeResult.price > 0) {
+            console.log(`📊 코스닥150 선물 (야간 ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
+            return { ...cmeResult, ticker: 'KOSDAQ150F' };
+          }
+        }
+
+        if (attempt === 0) {
+          console.warn('⚠️ 코스닥150 선물 1차 시도 모두 stale — 토큰 재발급 후 재시도');
+          continue;
+        }
+        return null;
+      } catch (error) {
+        if (attempt === 0) {
+          console.warn(`⚠️ 코스닥150 선물 1차 시도 실패: ${error.message} — 재시도`);
+          continue;
+        }
+        console.warn('⚠️ 코스닥150 선물 시세 조회 최종 실패:', error.message);
+        return null;
+      }
     }
+    return null;
   }
 }
 

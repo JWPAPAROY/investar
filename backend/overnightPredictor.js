@@ -212,43 +212,8 @@ async function getFactorVolatility() {
   }
 }
 
-/**
- * DB에서 직전 유효 KOSPI200F/KOSDAQ150F 데이터를 가져오는 fallback
- * 야간선물 마감(05:00)~정규장 개시(09:00) 사이 KIS API가 stale 반환할 때 사용
- */
-async function _getLastValidFuturesFactor(ticker) {
-  if (!supabase) return null;
-  try {
-    const today = getTodayKST();
-    const { data } = await supabase
-      .from('overnight_predictions')
-      .select('prediction_date, factors')
-      .lt('prediction_date', today)
-      .order('prediction_date', { ascending: false })
-      .limit(5);
-
-    for (const row of (data || [])) {
-      const factors = Array.isArray(row.factors) ? row.factors : [];
-      const f = factors.find(x => x.ticker === ticker);
-      if (f && f.change !== 0 && !f.failed && f.price > 0) {
-        console.log(`📊 ${ticker} DB fallback 성공: ${row.prediction_date} change=${f.change}%`);
-        return {
-          ticker,
-          price: f.price,
-          previousClose: f.previousClose,
-          change: f.change,
-          dataDate: row.prediction_date,
-          dataTimestamp: `${row.prediction_date} (DB fallback)`,
-        };
-      }
-    }
-    console.warn(`⚠️ ${ticker} DB fallback: 유효 데이터 없음`);
-    return null;
-  } catch (err) {
-    console.warn(`⚠️ ${ticker} DB fallback 실패:`, err.message);
-    return null;
-  }
-}
+// DB fallback 제거됨 (v3.61): 과거 데이터를 현재 데이터로 오인하는 버그 방지
+// KIS API 실패 시 failed: true로 처리하여 예측 스코어에서 제외
 
 /**
  * 해외 지수 데이터 수집 (병렬 호출)
@@ -276,7 +241,7 @@ async function fetchOvernightData() {
     const todayKST = getTodayKST();
     const futuresResults = [];
 
-    // KOSPI200F — 정규선물 → CME야간선물 → DB직전유효 3단계 fallback
+    // KOSPI200F — 정규선물 → CME야간선물 → failed 처리 (DB fallback 제거)
     try {
       const futures = await kisApi.getKospi200FuturesPrice();
       if (futures && futures.change !== 0) {
@@ -289,24 +254,13 @@ async function fetchOvernightData() {
           dataTimestamp: `${todayKST} 06:00`,
         });
       } else {
-        // KIS API null 또는 change=0 (장 개시 전 stale) → DB fallback
         const reason = futures ? 'change=0 (장 개시 전 stale)' : 'null';
-        console.warn(`⚠️ KOSPI200F KIS API ${reason} — DB fallback 시도`);
-        const dbData = await _getLastValidFuturesFactor('KOSPI200F');
-        if (dbData) {
-          futuresResults.push(dbData);
-        } else {
-          futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
-        }
-      }
-    } catch (err) {
-      console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message} — DB fallback 시도`);
-      const dbData = await _getLastValidFuturesFactor('KOSPI200F');
-      if (dbData) {
-        futuresResults.push(dbData);
-      } else {
+        console.warn(`⚠️ KOSPI200F KIS API ${reason} — failed 처리 (stale DB fallback 방지)`);
         futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
       }
+    } catch (err) {
+      console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message} — failed 처리`);
+      futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
     }
 
     // KOSDAQ150F
@@ -323,22 +277,12 @@ async function fetchOvernightData() {
         });
       } else {
         const reason = futures ? 'change=0 (장 개시 전 stale)' : 'null';
-        console.warn(`⚠️ KOSDAQ150F KIS API ${reason} — DB fallback 시도`);
-        const dbData = await _getLastValidFuturesFactor('KOSDAQ150F');
-        if (dbData) {
-          futuresResults.push(dbData);
-        } else {
-          futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
-        }
-      }
-    } catch (err) {
-      console.warn(`⚠️ KOSDAQ150F 데이터 수집 실패: ${err.message} — DB fallback 시도`);
-      const dbData = await _getLastValidFuturesFactor('KOSDAQ150F');
-      if (dbData) {
-        futuresResults.push(dbData);
-      } else {
+        console.warn(`⚠️ KOSDAQ150F KIS API ${reason} — failed 처리 (stale DB fallback 방지)`);
         futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
       }
+    } catch (err) {
+      console.warn(`⚠️ KOSDAQ150F 데이터 수집 실패: ${err.message} — failed 처리`);
+      futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
     }
 
     return futuresResults;
