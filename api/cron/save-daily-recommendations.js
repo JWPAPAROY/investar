@@ -1107,11 +1107,19 @@ module.exports = async (req, res) => {
     // =============================================
     // 📈 CALC-EXPECTATIONS 모드: 기대수익 통계 산출 (16:30 KST)
     // v3.46: grade×whale별 실제 수익률 분포 산출 → expected_return_stats UPSERT
+    // v3.61: 90일 롤링 윈도우 적용 — 최근 시장 상황 반영
     // =============================================
     if (mode === 'calc-expectations') {
       console.log('📈 기대수익 통계 산출 모드 시작...');
 
-      // Step 1: 페이지네이션으로 screening_recommendations 전체 조회
+      // 90일 롤링 윈도우: 최근 데이터만 사용하여 현재 시장 상황 반영
+      const ROLLING_DAYS = 90;
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - ROLLING_DAYS);
+      const cutoffStr = cutoffDate.toISOString().split('T')[0];
+      console.log(`📅 롤링 윈도우: 최근 ${ROLLING_DAYS}일 (${cutoffStr} 이후)`);
+
+      // Step 1: 페이지네이션으로 screening_recommendations 조회 (최근 90일)
       let allRecs = [];
       let from = 0;
       const PAGE_SIZE = 1000;
@@ -1119,6 +1127,7 @@ module.exports = async (req, res) => {
         const { data, error } = await supabase
           .from('screening_recommendations')
           .select('id, recommendation_grade, whale_detected')
+          .gte('recommendation_date', cutoffStr)
           .range(from, from + PAGE_SIZE - 1);
         if (error) { console.error('❌ recs 조회 실패:', error.message); break; }
         if (!data || data.length === 0) break;
@@ -1126,7 +1135,7 @@ module.exports = async (req, res) => {
         if (data.length < PAGE_SIZE) break;
         from += PAGE_SIZE;
       }
-      console.log(`📊 추천 종목 조회: ${allRecs.length}건`);
+      console.log(`📊 추천 종목 조회: ${allRecs.length}건 (최근 ${ROLLING_DAYS}일)`);
 
       // Step 2: 페이지네이션으로 recommendation_daily_prices 조회 (days 1~15)
       let allPrices = [];
@@ -1177,7 +1186,7 @@ module.exports = async (req, res) => {
         for (let day = 1; day <= 15; day++) {
           const key = `${grade}|${whaleStr}|${day}`;
           const returns = groups[key];
-          if (!returns || returns.length < 30) continue;
+          if (!returns || returns.length < 10) continue; // 90일 롤링 윈도우에 맞춰 최소 샘플 10개
           const sorted = [...returns].sort((a, b) => a - b);
           const med = sorted[Math.floor(sorted.length / 2)];
           if (med > bestMedian) {

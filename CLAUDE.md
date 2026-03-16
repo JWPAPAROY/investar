@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.60
+- **버전**: 3.61
 - **최종 업데이트**: 2026-03-12
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
@@ -387,7 +387,7 @@ RSI(14) > 85 AND 20일 이격도 > 120 → 과열 (점수 무관)
 
 텔레그램 알림에 포함할 상위 3개 종목 선별.
 
-**필터**: 매수고래(🐋) 존재 + 과열 등급 아님
+**필터**: 매수고래(🐋) 존재 + 과열 등급 아님 + `|등락률| < 25%` + `이격도 < 150`
 
 **스윗스팟 우선순위** (v3.38, 데이터 기반):
 
@@ -858,6 +858,12 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ## 📝 변경 이력
 
+### v3.61 (2026-03-16)
+- **기대수익 통계 90일 롤링 윈도우**: 전체 히스토리 → 최근 90일 데이터만 사용하도록 변경. 시장 상황 변화에 따라 기대수익 구간이 동적으로 업데이트됨
+- **최소 샘플 수 완화**: 30개 → 10개 (90일 윈도우에 맞춤)
+- **기대수익 갱신일 표시**: 프론트엔드 카드/모달에 통계 갱신 날짜 표시
+- **TOP3 기준 프론트엔드 표시**: 이격도<150 필터 조건 UI에 반영
+
 ### v3.60 (2026-03-12)
 - **선물 롤오버 로직 개선**: 선물 만기일 당일 00:00 KST부터 차근월물 데이터를 즉시 사용하도록 개선. 롤오버 공백기 시세 오류 해결.
 - **CME/Eurex 야간 선물 지원**: KOSPI 200 및 KOSDAQ 150 모두에 대해 야간 선물(prefixes A01, A06) 추적 로직 적용. 정규장 마감 후에도 실시간 선물 가격 반영.
@@ -947,7 +953,7 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ### v3.46 (2026-02-27)
 - **기대수익 구간 기능**: 등급별×고래여부별 실제 수익률 분포(p25/median/p75) 산출 → 손절가와 세트로 기대수익 구간 + 손익비(Risk-Reward) + 승률 제공
 - **`expected_return_stats` 테이블 추가**: grade, whale_detected, optimal_days, p25, median, p75, win_rate, sample_count
-- **`calc-expectations` 크론 모드**: 16:30 KST, SAVE 완료 후 실행. 페이지네이션으로 전체 추천/가격 조회 → grade×whale×day별 그룹핑 → median 최고 day를 optimal_days로 선택 → UPSERT
+- **`calc-expectations` 크론 모드**: 16:30 KST, SAVE 완료 후 실행. **90일 롤링 윈도우**로 최근 추천/가격 조회 → grade×whale×day별 그룹핑 → median 최고 day를 optimal_days로 선택 → UPSERT. 최소 샘플 10개
 - **`getExpectedReturn()` 헬퍼**: 정확 매칭(grade+whale) → median ≤ 0이면 반대 whale로 fallback → N<30이면 null
 - **텔레그램 메시지 기대수익 표시**: SAVE/ALERT 모드에 `📈 기대수익(N일): +p25% ~ +median% ~ +p75%` + `⚖️ 손익비 1:X | 승률 Y%` 라인 추가, TRACK 모드에 `📈 기대수익 진행: X%` 표시
 - **recommend/analyze API**: `expectedReturn` 필드 매칭 (각 종목에 days/p25/median/p75/winRate/sampleCount 부착)
