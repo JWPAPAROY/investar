@@ -2020,17 +2020,20 @@ class StockScreener {
     console.log(`\n🔍 TOP 3 선정 시작...`);
     console.log(`  전체 종목: ${allStocks.length}개`);
 
-    // v3.44: 매수고래 + 비과열 + 이격도/등락률 필터
-    // 고래 감지 임계값 자체를 완화했으므로 (2.5/2.0/1.5 → 2.0/1.5/1.2) 별도 대안 불필요
+    // v3.61: 매수고래 OR 기관≥3일 OR 외국인≥3일 + 비과열 + 이격도/등락률 필터
     const eligible = allStocks.filter(stock => {
       const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+      const flow = stock.institutionalFlow;
+      const instDays = flow?.institutionDays || 0;
+      const foreignDays = flow?.foreignDays || 0;
+      const hasSupply = hasBuyWhale || instDays >= 3 || foreignDays >= 3;
       const isOverheated = stock.recommendation?.grade === '과열';
       const disparity = stock.overheatingV2?.disparity || 100;
       const changeRate = Math.abs(stock.changeRate || 0);
-      return hasBuyWhale && !isOverheated && changeRate < 25 && disparity < 150;
+      return hasSupply && !isOverheated && changeRate < 25 && disparity < 150;
     });
 
-    console.log(`  └─ TOP 3 후보 (매수고래+비과열+필터): ${eligible.length}개`);
+    console.log(`  └─ TOP 3 후보 (고래/기관3+/외국인3++비과열+필터): ${eligible.length}개`);
 
     const top3 = [];
 

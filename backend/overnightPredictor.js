@@ -241,10 +241,10 @@ async function fetchOvernightData() {
     const todayKST = getTodayKST();
     const futuresResults = [];
 
-    // KOSPI200F — 정규선물 → CME야간선물 → failed 처리 (DB fallback 제거)
+    // KOSPI200F — 정규선물 → CME야간선물 (change=0+price>0은 유효 처리)
     try {
       const futures = await kisApi.getKospi200FuturesPrice();
-      if (futures && futures.change !== 0) {
+      if (futures && futures.price > 0) {
         futuresResults.push({
           ticker: 'KOSPI200F',
           price: futures.price,
@@ -253,9 +253,9 @@ async function fetchOvernightData() {
           dataDate: todayKST,
           dataTimestamp: `${todayKST} 06:00`,
         });
+        if (futures.change === 0) console.log(`ℹ️ KOSPI200F change=0 (장 개시 전 — 유효 처리, 기여도 0)`);
       } else {
-        const reason = futures ? 'change=0 (장 개시 전 stale)' : 'null';
-        console.warn(`⚠️ KOSPI200F KIS API ${reason} — failed 처리 (stale DB fallback 방지)`);
+        console.warn(`⚠️ KOSPI200F KIS API 데이터 없음 — failed 처리`);
         futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
       }
     } catch (err) {
@@ -266,7 +266,7 @@ async function fetchOvernightData() {
     // KOSDAQ150F
     try {
       const futures = await kisApi.getKosdaq150FuturesPrice();
-      if (futures && futures.change !== 0) {
+      if (futures && futures.price > 0) {
         futuresResults.push({
           ticker: 'KOSDAQ150F',
           price: futures.price,
@@ -275,9 +275,9 @@ async function fetchOvernightData() {
           dataDate: todayKST,
           dataTimestamp: `${todayKST} 06:00`,
         });
+        if (futures.change === 0) console.log(`ℹ️ KOSDAQ150F change=0 (장 개시 전 — 유효 처리, 기여도 0)`);
       } else {
-        const reason = futures ? 'change=0 (장 개시 전 stale)' : 'null';
-        console.warn(`⚠️ KOSDAQ150F KIS API ${reason} — failed 처리 (stale DB fallback 방지)`);
+        console.warn(`⚠️ KOSDAQ150F KIS API 데이터 없음 — failed 처리`);
         futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
       }
     } catch (err) {
@@ -324,7 +324,7 @@ function calculatePrediction(data, weights, correlations, factorVol = {}) {
 
     const change = d.change;
     const w = config.weight;
-    const isFailed = d.failed || (change === 0 && d.price === 0);
+    const isFailed = d.failed || (change === 0 && (d.price === 0 || d.price == null));
 
     // z-score 정규화 및 아웃라이어 댐핑 (v1.2)
     let effectiveChange = change;
@@ -364,6 +364,7 @@ function calculatePrediction(data, weights, correlations, factorVol = {}) {
         : (config.defaultCorr != null ? config.defaultCorr : null),
       source: config.source || null,
       sourceUrl: config.sourceUrl || null,
+      failed: isFailed || undefined,
     });
   }
 

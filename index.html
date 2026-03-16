@@ -1027,7 +1027,7 @@
                               <span className="text-2xl md:text-3xl flex-shrink-0">🏆</span>
                               <div className="min-w-0">
                                 <h3 className="text-lg md:text-2xl font-bold text-orange-800">모멘텀 TOP 3</h3>
-                                <p className="text-xs md:text-sm text-orange-600 mt-1">매수고래 + 비과열 + 이격도{'<'}150 + |등락률|{'<'}25% → 점수 내림차순</p>
+                                <p className="text-xs md:text-sm text-orange-600 mt-1">(매수고래 or 기관≥3일 or 외국인≥3일) + 비과열 + 이격도{'<'}150 + |등락률|{'<'}25%</p>
                               </div>
                             </div>
                             {top3Recommendations.length > 0 && (
@@ -1071,7 +1071,7 @@
                               </div>
                               <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                                 <p className="text-sm text-gray-700">
-                                  <strong className="text-orange-700">💡 선정 기준:</strong> 매수고래 + 비과열 + 이격도{'<'}150 + |등락률|{'<'}25%. 1순위: 50-69점(스윗스팟), 2순위: 80-89점, 3순위: 90점+, 4순위: 70-79점.
+                                  <strong className="text-orange-700">💡 선정 기준:</strong> (매수고래 or 기관≥3일 or 외국인≥3일) + 비과열 + 이격도{'<'}150 + |등락률|{'<'}25%. 1순위: 50-69점(스윗스팟), 2순위: 80-89점, 3순위: 90점+, 4순위: 70-79점.
                                 </p>
                               </div>
                             </>
@@ -3171,7 +3171,7 @@
                     <div className="min-w-0">
                       <h3 className="text-lg md:text-2xl font-bold text-orange-800">TOP 3 전략 성과</h3>
                       <p className="text-xs md:text-sm text-orange-600 mt-1">
-                        매수고래 + 비과열 → 점수 내림차순 실전 성과
+                        (매수고래/기관3+/외국인3+) + 비과열 → 점수 내림차순 실전 성과
                       </p>
                     </div>
                   </div>

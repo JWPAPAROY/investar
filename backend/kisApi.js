@@ -1148,29 +1148,41 @@ class KISApi {
 
         const allCodes = [...priorityCodes, ...monthCodes];
 
-        // 1차: 근월물/차근월물 순차 조회
+        // 1차: 정규선물 순차 조회
+        let bestRegular = null;
         for (const code of allCodes) {
           const result = await this._queryFuturesPrice(token, code);
-          const isInvalid = !result || result.price === 0;
-
-          if (!isInvalid) {
+          if (!result || result.price === 0) {
+            console.warn(`⚠️ 코스피200 선물 ${code} 데이터 무효 — 다음 코드 시도`);
+            await this.rateLimiter.acquire();
+            continue;
+          }
+          // change !== 0이면 즉시 반환 (확실히 유효)
+          if (result.change !== 0) {
             console.log(`📊 코스피200 선물 (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
             return { ...result, ticker: 'KOSPI200F' };
           }
-          console.warn(`⚠️ 코스피200 선물 ${code} 데이터 무효 — 다음 코드 시도`);
-          await this.rateLimiter.acquire();
+          // change === 0: 장 개시 전일 수 있음 — CME 야간선물도 확인
+          if (!bestRegular) bestRegular = { ...result, ticker: 'KOSPI200F' };
+          console.warn(`⚠️ 코스피200 선물 ${code} change=0 — CME 야간선물 확인 후 결정`);
+          break;
         }
 
-        // 2차: 모두 stale하면 CME 야간선물 코드로 재시도
-        console.warn('⚠️ 코스피200 정규선물 모두 stale — CME 야간선물 조회 시도');
+        // 2차: CME 야간선물 조회 (정규선물이 없거나 change=0일 때)
         const cmeCode = this._getCMEFuturesCode('101');
         if (cmeCode) {
           await this.rateLimiter.acquire();
           const cmeResult = await this._queryFuturesPrice(token, cmeCode);
-          if (cmeResult && cmeResult.price > 0) {
+          if (cmeResult && cmeResult.price > 0 && cmeResult.change !== 0) {
             console.log(`📊 코스피200 선물 (CME야간 ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
             return { ...cmeResult, ticker: 'KOSPI200F' };
           }
+        }
+
+        // 3차: 정규선물 change=0이라도 price 있으면 반환 (진짜 변동 없음)
+        if (bestRegular) {
+          console.log(`📊 코스피200 선물 (정규+CME 모두 change=0): ${bestRegular.price}`);
+          return bestRegular;
         }
 
         // 모두 stale → 재시도 대상
@@ -1394,26 +1406,38 @@ class KISApi {
         const allCodes = [...priorityCodes, ...monthCodes];
 
         // 1차: 정규 선물 조회
+        let bestRegular = null;
         for (const code of allCodes) {
           const result = await this._queryFuturesPrice(token, code);
-          if (result && result.price > 0) {
+          if (!result || result.price === 0) {
+            console.warn(`⚠️ 코스닥150 선물 ${code} 데이터 무효 — 다음 코드 시도`);
+            await this.rateLimiter.acquire();
+            continue;
+          }
+          if (result.change !== 0) {
             console.log(`📊 코스닥150 선물 (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
             return { ...result, ticker: 'KOSDAQ150F' };
           }
-          console.warn(`⚠️ 코스닥150 선물 ${code} 데이터 무효 — 다음 코드 시도`);
-          await this.rateLimiter.acquire();
+          if (!bestRegular) bestRegular = { ...result, ticker: 'KOSDAQ150F' };
+          console.warn(`⚠️ 코스닥150 선물 ${code} change=0 — CME 야간선물 확인 후 결정`);
+          break;
         }
 
-        // 2차: CME 야간/차근월물 코드 시도
-        console.warn('⚠️ 코스닥150 정규선물 데이터 부재 — 야간/CME 코드 시도');
+        // 2차: CME 야간선물 조회
         const cmeCode = this._getCMEFuturesCode('106');
         if (cmeCode) {
           await this.rateLimiter.acquire();
           const cmeResult = await this._queryFuturesPrice(token, cmeCode);
-          if (cmeResult && cmeResult.price > 0) {
+          if (cmeResult && cmeResult.price > 0 && cmeResult.change !== 0) {
             console.log(`📊 코스닥150 선물 (야간 ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
             return { ...cmeResult, ticker: 'KOSDAQ150F' };
           }
+        }
+
+        // 3차: 정규선물 change=0이라도 price 있으면 반환
+        if (bestRegular) {
+          console.log(`📊 코스닥150 선물 (정규+CME 모두 change=0): ${bestRegular.price}`);
+          return bestRegular;
         }
 
         if (attempt === 0) {
