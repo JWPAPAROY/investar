@@ -4597,35 +4597,55 @@
       const reasons = [];
       let verdict, color, icon;
 
-      // 우선순위 판단
+      // 우선순위 판단 — 수익률 기반 판단을 먼저, 스코어링은 보조
       if (ret <= -10 || crash) {
         verdict = '긴급 손절'; color = 'bg-red-600'; icon = '🚨';
         if (crash) reasons.push('폭락 진행 중');
         reasons.push(`수익률 ${ret.toFixed(1)}%`);
-      } else if (ret <= -5 && (sellWhale || supplyLost)) {
+      } else if (ret <= -7 && sellWhale) {
         verdict = '손절'; color = 'bg-red-500'; icon = '⛔';
-        if (sellWhale) reasons.push('매도고래 감지');
-        if (supplyLost) reasons.push('수급 이탈');
+        reasons.push('매도고래 감지');
         reasons.push(`수익률 ${ret.toFixed(1)}%`);
+      } else if (ret <= -5 && gradeRank <= 2 && supplyLost) {
+        verdict = '손절'; color = 'bg-red-500'; icon = '⛔';
+        reasons.push(`${grade}등급, 수급 부재`);
+        reasons.push(`수익률 ${ret.toFixed(1)}%`);
+      } else if (ret >= 20) {
+        verdict = '익절'; color = 'bg-green-600'; icon = '💰';
+        reasons.push(`+${ret.toFixed(1)}% 고수익 확보`);
+        if (isOverheat) reasons.push('과열 구간');
       } else if (er && ret >= er.p75) {
         verdict = '익절'; color = 'bg-green-600'; icon = '💰';
         reasons.push(`기대수익 p75(+${er.p75}%) 초과`);
-      } else if (er && ret >= er.median && isOverheat) {
+      } else if (ret >= 10 && (isOverheat || sellWhale || gradeRank <= 2)) {
         verdict = '익절'; color = 'bg-green-600'; icon = '💰';
-        reasons.push(`중앙값(+${er.median}%) 도달 + 과열`);
-      } else if (er && ret >= er.median && (sellWhale || rsi > 80)) {
+        if (isOverheat) reasons.push('과열 구간');
+        if (sellWhale) reasons.push('매도고래');
+        if (gradeRank <= 2) reasons.push(`${grade}등급 약화`);
+        reasons.push(`+${ret.toFixed(1)}% 수익 확보`);
+      } else if (er && ret >= er.median && (isOverheat || sellWhale || rsi > 80)) {
         verdict = '분할 익절'; color = 'bg-green-500'; icon = '📤';
         reasons.push(`중앙값(+${er.median}%) 확보`);
-        if (sellWhale) reasons.push('매도고래');
-        if (rsi > 80) reasons.push(`RSI ${rsi.toFixed(0)}`);
+        if (isOverheat) reasons.push('과열');
+        else if (sellWhale) reasons.push('매도고래');
+        else if (rsi > 80) reasons.push(`RSI ${rsi.toFixed(0)}`);
+      } else if (ret >= 5 && gradeRank <= 2 && supplyLost) {
+        verdict = '분할 익절'; color = 'bg-green-500'; icon = '📤';
+        reasons.push(`${grade}등급 + 수급 부재, 수익 확보 권장`);
       } else if (er && ret >= er.p25 && gradeRank <= 2) {
         verdict = '분할 익절'; color = 'bg-green-500'; icon = '📤';
-        reasons.push(`p25(+${er.p25}%) 확보 + ${grade}등급 약화`);
+        reasons.push(`p25(+${er.p25}%) 확보 + ${grade}등급`);
       } else if (ret > 0 && gradeRank >= 3 && hasSupply) {
         verdict = '홀딩'; color = 'bg-blue-500'; icon = '✊';
         reasons.push(`${grade}등급 유지`);
-        if (instDays >= 1) reasons.push(`기관 ${instDays}일 매수`);
-        if (foreignDays >= 1) reasons.push(`외인 ${foreignDays}일 매수`);
+        if (instDays >= 1) reasons.push(`기관 ${instDays}일`);
+        if (foreignDays >= 1) reasons.push(`외인 ${foreignDays}일`);
+      } else if (ret > 0 && gradeRank >= 3 && buyWhale) {
+        verdict = '홀딩'; color = 'bg-blue-500'; icon = '✊';
+        reasons.push(`${grade}등급 + 매수고래`);
+      } else if (ret > 0 && gradeRank <= 2) {
+        verdict = '분할 익절'; color = 'bg-green-500'; icon = '📤';
+        reasons.push(`${grade}등급 약세, 수익 시 분할 정리`);
       } else if (ret < 0 && gradeRank >= 4 && buyWhale) {
         verdict = '추가매수 고려'; color = 'bg-purple-500'; icon = '🐋';
         reasons.push(`${grade}등급 + 매수고래 → 눌림목`);
@@ -4635,9 +4655,16 @@
       } else if (ret <= -5 && gradeRank <= 2) {
         verdict = '손절 고려'; color = 'bg-orange-500'; icon = '⚠️';
         reasons.push(`${grade}등급 + 수익률 ${ret.toFixed(1)}%`);
+      } else if (ret < 0 && gradeRank <= 2 && supplyLost) {
+        verdict = '손절 고려'; color = 'bg-orange-500'; icon = '⚠️';
+        reasons.push(`${grade}등급, 수급 부재, 반등 근거 부족`);
+      } else if (ret >= 0) {
+        verdict = '홀딩'; color = 'bg-blue-500'; icon = '✊';
+        reasons.push('수익 구간, 추이 관찰');
+        if (er) reasons.push(`목표 +${er.median}%`);
       } else {
         verdict = '관망'; color = 'bg-gray-500'; icon = '👀';
-        reasons.push('추가 확인 필요');
+        reasons.push(`수익률 ${ret.toFixed(1)}%, 추가 확인 필요`);
       }
 
       // 경고사항
@@ -4934,6 +4961,7 @@
                             type="number"
                             placeholder="매수가 입력"
                             value={buyPrices[stock.stockCode] || ''}
+                            onWheel={(e) => e.target.blur()}
                             onChange={(e) => {
                               const val = e.target.value;
                               setBuyPrices(prev => ({ ...prev, [stock.stockCode]: val }));
