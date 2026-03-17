@@ -2020,8 +2020,8 @@ class StockScreener {
     console.log(`\n🔍 TOP 3 선정 시작...`);
     console.log(`  전체 종목: ${allStocks.length}개`);
 
-    // v3.63: 매수고래 OR 기관≥3일 OR 외국인≥3일 + 비과열 + 이격도/등락률 + 시총≤1조 필터
-    const eligible = allStocks.filter(stock => {
+    // v3.63: 기본 필터 (시총 제외)
+    const baseEligible = allStocks.filter(stock => {
       const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
       const flow = stock.institutionalFlow;
       const instDays = flow?.institutionDays || 0;
@@ -2030,28 +2030,34 @@ class StockScreener {
       const isOverheated = stock.recommendation?.grade === '과열';
       const disparity = stock.overheatingV2?.disparity || 100;
       const changeRate = Math.abs(stock.changeRate || 0);
-      const marketCapBillion = (stock.marketCap || 0) / 100000000; // 억 단위
-      return hasSupply && !isOverheated && changeRate < 25 && disparity < 150 && marketCapBillion <= 10000;
+      return hasSupply && !isOverheated && changeRate < 25 && disparity < 150;
     });
-
-    console.log(`  └─ TOP 3 후보 (고래/기관3+/외국인3++비과열+필터): ${eligible.length}개`);
 
     const top3 = [];
 
-    const addFromRange = (lo, hi) => {
-      const pool = eligible
-        .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
-        .sort((a, b) => b.totalScore - a.totalScore);
-      for (const s of pool) {
-        if (top3.length >= 3) break;
-        top3.push(s);
-      }
+    const addFromPool = (pool) => {
+      const addFromRange = (lo, hi) => {
+        const candidates = pool
+          .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
+          .sort((a, b) => b.totalScore - a.totalScore);
+        for (const s of candidates) {
+          if (top3.length >= 3) break;
+          top3.push(s);
+        }
+      };
+      addFromRange(50, 69);   // 1순위: 스윗스팟
+      addFromRange(80, 89);   // 2순위
+      addFromRange(90, 100);  // 3순위
+      addFromRange(70, 79);   // 4순위: 최후 보충
     };
 
-    addFromRange(50, 69);   // 1순위: 스윗스팟
-    addFromRange(80, 89);   // 2순위
-    addFromRange(90, 100);  // 3순위
-    addFromRange(70, 79);   // 4순위: 최후 보충
+    // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
+    const mcCap = s => (s.marketCap || 0) / 100000000; // 억 단위
+    const tier1 = baseEligible.filter(s => mcCap(s) <= 10000); // ≤1조
+    console.log(`  └─ TOP 3 후보: 1조이하 ${tier1.length}개 / 전체 ${baseEligible.length}개`);
+
+    addFromPool(tier1);
+    if (top3.length < 3) addFromPool(baseEligible); // 시총 무제한 fallback
 
     // top3Meta 추가
     const result = top3.map((stock, i) => {

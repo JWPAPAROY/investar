@@ -357,32 +357,38 @@ async function sendTelegramMessage(message) {
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.63: 매수고래 OR 기관≥3일 OR 외국인≥3일 + 비과열 + 이격도/등락률 + 시총≤1조 필터
-  const eligible = stocks.filter(s => {
+  // v3.63: 기본 필터 (시총 제외)
+  const baseEligible = stocks.filter(s => {
     const hasSupply = s.whale_detected || (s.institution_buy_days || 0) >= 3 || (s.foreign_buy_days || 0) >= 3;
-    const marketCapBillion = (s.market_cap || 0) / 100000000; // 억 단위
     return hasSupply &&
       s.recommendation_grade !== '과열' &&
       Math.abs(s.change_rate || 0) < 25 &&
-      (s.disparity || 100) < 150 &&
-      marketCapBillion <= 10000;
+      (s.disparity || 100) < 150;
   });
+
   const top3 = [];
 
-  const addFromRange = (lo, hi) => {
-    const pool = eligible
-      .filter(s => s.total_score >= lo && s.total_score <= hi && !top3.some(t => t.stock_code === s.stock_code))
-      .sort((a, b) => b.total_score - a.total_score);
-    for (const s of pool) {
-      if (top3.length >= 3) break;
-      top3.push(s);
-    }
+  const addFromPool = (pool) => {
+    const addFromRange = (lo, hi) => {
+      const candidates = pool
+        .filter(s => s.total_score >= lo && s.total_score <= hi && !top3.some(t => t.stock_code === s.stock_code))
+        .sort((a, b) => b.total_score - a.total_score);
+      for (const s of candidates) {
+        if (top3.length >= 3) break;
+        top3.push(s);
+      }
+    };
+    addFromRange(50, 69);
+    addFromRange(80, 89);
+    addFromRange(90, 100);
+    addFromRange(70, 79);
   };
 
-  addFromRange(50, 69);   // 1순위: 스윗스팟
-  addFromRange(80, 89);   // 2순위
-  addFromRange(90, 100);  // 3순위
-  addFromRange(70, 79);   // 4순위: 최후 보충
+  // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
+  const mcCap = s => (s.market_cap || 0) / 100000000;
+  const tier1 = baseEligible.filter(s => mcCap(s) <= 10000);
+  addFromPool(tier1);
+  if (top3.length < 3) addFromPool(baseEligible);
 
   return top3;
 }
@@ -412,8 +418,8 @@ function selectWhaleStocks(stocks, top3) {
 function selectSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.63: 매수고래 OR 기관≥3일 OR 외국인≥3일 + 비과열 + 이격도/등락률 + 시총≤1조 필터
-  const eligible = stocks.filter(s => {
+  // v3.63: 기본 필터 (시총 제외)
+  const baseEligible = stocks.filter(s => {
     const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
     const flow = s.institutionalFlow;
     const instDays = flow?.institutionDays || 0;
@@ -422,25 +428,31 @@ function selectSaveTop3(stocks) {
     const isOverheated = s.recommendation?.grade === '과열';
     const disparity = s.overheatingV2?.disparity || 100;
     const changeRate = Math.abs(s.changeRate || 0);
-    const marketCapBillion = (s.marketCap || 0) / 100000000; // 억 단위
-    return hasSupply && !isOverheated && changeRate < 25 && disparity < 150 && marketCapBillion <= 10000;
+    return hasSupply && !isOverheated && changeRate < 25 && disparity < 150;
   });
   const top3 = [];
 
-  const addFromRange = (lo, hi) => {
-    const pool = eligible
-      .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
-      .sort((a, b) => b.totalScore - a.totalScore);
-    for (const s of pool) {
-      if (top3.length >= 3) break;
-      top3.push(s);
-    }
+  const addFromPool = (pool) => {
+    const addFromRange = (lo, hi) => {
+      const candidates = pool
+        .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
+        .sort((a, b) => b.totalScore - a.totalScore);
+      for (const s of candidates) {
+        if (top3.length >= 3) break;
+        top3.push(s);
+      }
+    };
+    addFromRange(50, 69);
+    addFromRange(80, 89);
+    addFromRange(90, 100);
+    addFromRange(70, 79);
   };
 
-  addFromRange(50, 69);   // 1순위: 스윗스팟
-  addFromRange(80, 89);   // 2순위
-  addFromRange(90, 100);  // 3순위
-  addFromRange(70, 79);   // 4순위: 최후 보충
+  // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
+  const mcCap = s => (s.marketCap || 0) / 100000000;
+  const tier1 = baseEligible.filter(s => mcCap(s) <= 10000);
+  addFromPool(tier1);
+  if (top3.length < 3) addFromPool(baseEligible);
 
   return top3;
 }
