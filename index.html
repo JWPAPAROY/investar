@@ -4575,6 +4575,7 @@
     function StockAnalysis({ apiBaseUrl }) {
       const [inputText, setInputText] = useState('');
       const [results, setResults] = useState([]);
+      const [aiEvaluation, setAiEvaluation] = useState(null);
       const [loading, setLoading] = useState(false);
       const [error, setError] = useState(null);
       const [selectedStock, setSelectedStock] = useState(null);
@@ -4650,6 +4651,7 @@
           setLoading(true);
           setError(null);
           setResults([]);
+          setAiEvaluation(null);
           setShowSuggestions(false);
 
           const response = await fetch(`${apiBaseUrl}/screening/analyze?codes=${allCodes.join(',')}`);
@@ -4657,6 +4659,7 @@
 
           if (data.success) {
             setResults((data.data || []).sort((a, b) => b.totalScore - a.totalScore));
+            if (data.aiEvaluation) setAiEvaluation(data.aiEvaluation);
             if (data.errors && data.errors.length > 0) {
               setError(`일부 종목 분석 실패:\n${data.errors.map(e => `${e.code}: ${e.error}`).join('\n')}`);
             }
@@ -4768,6 +4771,36 @@
               <p className="mt-4 text-gray-600">
                 종목 분석 중... (종목당 ~3초)
               </p>
+            </div>
+          )}
+
+          {/* AI 종목 평가 */}
+          {aiEvaluation && aiEvaluation.length > 0 && (
+            <div className="bg-gradient-to-r from-violet-50 to-indigo-50 border border-violet-200 rounded-xl shadow p-4 md:p-5">
+              <h3 className="font-bold text-violet-900 mb-3 flex items-center gap-2 text-base md:text-lg">
+                <span className="text-lg">🤖</span> AI 종목 평가
+              </h3>
+              <div className="space-y-2">
+                {aiEvaluation.map((ev, i) => {
+                  const verdictStyle = {
+                    '적극매수': 'bg-red-500 text-white',
+                    '매수': 'bg-orange-500 text-white',
+                    '관망': 'bg-gray-400 text-white',
+                    '비추천': 'bg-blue-500 text-white',
+                  }[ev.verdict] || 'bg-gray-300 text-gray-700';
+                  return (
+                    <div key={i} className="flex items-start gap-2 md:gap-3 py-2 border-b border-violet-100 last:border-0">
+                      <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-bold ${verdictStyle}`}>
+                        {ev.verdict}
+                      </span>
+                      <div className="min-w-0">
+                        <span className="font-semibold text-gray-900 text-sm">{ev.stockName}</span>
+                        <span className="text-gray-600 text-xs md:text-sm ml-2">{ev.comment}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
 
