@@ -4,7 +4,6 @@
 
 const screener = require('../../backend/screening');
 const supabase = require('../../backend/supabaseClient');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -114,13 +113,13 @@ module.exports = async function handler(req, res) {
       }
     }
 
-    // AI 종목 평가 생성 (Gemini)
+    // 규칙 기반 종목 평가
     let aiEvaluation = null;
-    if (results.length > 0 && process.env.GEMINI_API_KEY) {
+    if (results.length > 0) {
       try {
-        aiEvaluation = await generateStockEvaluation(results);
+        aiEvaluation = generateRuleBasedEvaluation(results);
       } catch (e) {
-        console.warn('⚠️ AI 종목 평가 실패:', e.message);
+        console.warn('⚠️ 종목 평가 실패:', e.message);
       }
     }
 
@@ -139,110 +138,105 @@ module.exports = async function handler(req, res) {
 };
 
 /**
- * Gemini AI 기반 종목 종합 평가
- * 전체 종목 데이터를 한 프롬프트에 넣어 1회 호출
+ * 규칙 기반 종목 종합 평가
+ * 스코어링 데이터에서 직접 판단 + 한줄평 생성
  */
-async function generateStockEvaluation(stocks) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) return null;
+function generateRuleBasedEvaluation(stocks) {
+  const evaluations = [];
 
-  // 종목별 핵심 데이터 요약
-  const stockSummaries = stocks.map(s => {
+  for (const s of stocks) {
     const rec = s.recommendation || {};
+    const grade = rec.grade || 'D';
     const adv = s.advancedAnalysis?.indicators || {};
     const flow = s.institutionalFlow || {};
-    const whale = (adv.whale || []);
-    const buyWhale = whale.some(w => w.type?.includes('매수'));
-    const sellWhale = whale.some(w => w.type?.includes('매도'));
+    const whaleList = adv.whale || [];
+    const buyWhale = whaleList.some(w => w.type?.includes('매수'));
+    const sellWhale = whaleList.some(w => w.type?.includes('매도'));
     const escape = adv.escapeVelocity?.detected;
     const vol = s.volumeAnalysis || {};
-    const er = s.expectedReturn;
+    const volRatio = vol.volumeRatio || 0;
     const overheat = s.overheatingV2 || {};
+    const rsi = overheat.rsi || 0;
+    const disparity = overheat.disparity || 100;
+    const instDays = flow.institutionDays || 0;
+    const foreignDays = flow.foreignDays || 0;
+    const totalScore = s.totalScore || 0;
+    const er = s.expectedReturn;
 
-    return [
-      `[${s.stockName}(${s.stockCode})]`,
-      `등급=${rec.grade || '?'} 총점=${s.totalScore || 0}`,
-      `Base=${s.scoreBreakdown?.base || 0} Whale=${s.scoreBreakdown?.whale || 0} Momentum=${s.scoreBreakdown?.momentum || 0} Trend=${s.scoreBreakdown?.trend || 0} Signal=${s.scoreBreakdown?.signal || 0}`,
-      `등락률=${s.changeRate != null ? s.changeRate + '%' : '?'} 거래량비율=${vol.volumeRatio?.toFixed(1) || '?'}x`,
-      `시총=${s.marketCap ? Math.round(s.marketCap / 100000000) + '억' : '?'}`,
-      buyWhale ? '매수고래감지' : sellWhale ? '매도고래감지' : '고래없음',
-      escape ? '탈출속도달성' : '',
-      `기관=${flow.institutionDays || 0}일연속매수 외국인=${flow.foreignDays || 0}일연속매수`,
-      `RSI=${overheat.rsi?.toFixed(0) || '?'} 이격도=${overheat.disparity?.toFixed(1) || '?'}`,
-      er ? `기대수익(${er.days}일): p25=${er.p25}% 중앙=${er.median}% p75=${er.p75}% 승률=${er.winRate}%` : '',
-    ].filter(Boolean).join(', ');
-  }).join('\n');
+    const isOverheat = grade === '과열' || (rsi > 85 && disparity > 120);
+    const gradeRank = { 'S+': 6, 'S': 5, 'A': 4, 'B': 3, 'C': 2, 'D': 1, '과열': 0 };
+    const rank = gradeRank[grade] ?? 1;
+    const hasStrongSupply = instDays >= 3 || foreignDays >= 3;
+    const hasSupply = instDays >= 1 || foreignDays >= 1;
+    const hasDualSupply = instDays >= 2 && foreignDays >= 2;
 
-  const prompt = `당신은 한국 주식시장 전문 애널리스트입니다. 아래 종목 분석 데이터를 보고, 각 종목에 대해 매수 판단을 포함한 평가를 해주세요.
-
-[스코어링 체계 안내]
-- 총점 0-100점 = Base(기본품질 0-25) + Whale(매수고래 0/15/30) + Momentum(모멘텀 0-30) + Trend(추세 0-15) + Signal(가감)
-- 등급: S+(≥90), S(75-89), A(60-74), B(45-59), C(30-44), D(<30), 과열(RSI>85 & 이격도>120)
-- 매수고래: 대형 투자자 대량 매수 신호 (+30점 확인됨 / +15점 미확인)
-- 탈출속도: 저항선 돌파+강한마감+대량거래 동시 달성 (+5점)
-- 기관/외국인 연속매수일: 수급 흐름 판단 핵심 (3일+이면 강력)
-- 거래량비율: 1.0-1.5x가 최적(조용한 축적), 5x 이상은 과열 위험
-- 기대수익: 동일 등급·조건의 과거 종목 실제 수익률 분포 (p25=하위25%, 중앙값, p75=상위25%)
-
-[분석 데이터]
-${stockSummaries}
-
-[출력 형식]
-각 종목별로 아래 형식으로 작성:
-종목명|판단|한줄평
-
-- 판단은 반드시 다음 중 하나: 적극매수, 매수, 관망, 비추천
-- 한줄평은 40자 이내로 핵심만. 매수 이유 또는 비매수 이유를 명확히.
-- 판단 기준:
-  - 적극매수: A등급 이상 + (매수고래 or 기관≥3일) + 과열 아님
-  - 매수: B등급 이상 + 수급 긍정적 + 리스크 관리 가능
-  - 관망: 수급 불확실하거나 과열 신호 있거나 C등급
-  - 비추천: D등급이거나 매도고래 감지 또는 과열
-
-종목명|판단|한줄평 형식만 출력. 다른 말 없이.`;
-
-  const genAI = new GoogleGenerativeAI(apiKey);
-  const models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
-
-  for (const modelName of models) {
-    try {
-      const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(prompt);
-      const text = (await result.response).text().trim();
-      if (!text) continue;
-
-      // 파싱: "종목명|판단|한줄평" 형식
-      const evaluations = [];
-      for (const line of text.split('\n')) {
-        const parts = line.split('|').map(s => s.trim());
-        if (parts.length >= 3) {
-          const stockName = parts[0];
-          const verdict = parts[1];
-          const comment = parts.slice(2).join('|'); // 한줄평에 | 포함 가능성 대비
-          // 종목코드 매칭
-          const matched = stocks.find(s =>
-            s.stockName === stockName ||
-            stockName.includes(s.stockName) ||
-            stockName.includes(s.stockCode)
-          );
-          evaluations.push({
-            stockCode: matched?.stockCode || null,
-            stockName,
-            verdict,
-            comment,
-          });
-        }
-      }
-
-      console.log(`✅ AI 종목 평가 완료 (${modelName}): ${evaluations.length}개`);
-      return evaluations;
-    } catch (err) {
-      console.warn(`⚠️ AI 평가 실패 (${modelName}):`, err.message);
-      if (err.status === 429) {
-        await new Promise(r => setTimeout(r, 5000));
-      }
+    // 판단 로직
+    let verdict;
+    if (isOverheat || (sellWhale && rank <= 2)) {
+      verdict = '비추천';
+    } else if (rank <= 1) {
+      verdict = '비추천';
+    } else if (rank >= 4 && (buyWhale || hasStrongSupply) && !isOverheat) {
+      verdict = '적극매수';
+    } else if (rank >= 3 && hasSupply && volRatio < 5) {
+      verdict = '매수';
+    } else if (rank >= 3 && buyWhale) {
+      verdict = '매수';
+    } else {
+      verdict = '관망';
     }
+
+    // 한줄평 생성
+    const reasons = [];
+    if (verdict === '비추천') {
+      if (isOverheat) reasons.push(`RSI ${rsi.toFixed(0)} 과열`);
+      if (sellWhale) reasons.push('매도고래 감지');
+      if (rank <= 1 && !isOverheat && !sellWhale) reasons.push(`${grade}등급, 진입 근거 부족`);
+    } else if (verdict === '적극매수') {
+      if (buyWhale) reasons.push('매수고래');
+      if (escape) reasons.push('탈출속도');
+      if (hasStrongSupply) {
+        const parts = [];
+        if (instDays >= 3) parts.push(`기관${instDays}일`);
+        if (foreignDays >= 3) parts.push(`외인${foreignDays}일`);
+        reasons.push(parts.join('+') + ' 연속매수');
+      }
+      if (hasDualSupply) reasons.push('쌍방수급');
+      reasons.push(`${grade}등급 ${totalScore}점`);
+    } else if (verdict === '매수') {
+      if (buyWhale) reasons.push('매수고래');
+      if (hasSupply) {
+        const parts = [];
+        if (instDays >= 1) parts.push(`기관${instDays}일`);
+        if (foreignDays >= 1) parts.push(`외인${foreignDays}일`);
+        reasons.push(parts.join('+') + ' 매수');
+      }
+      if (volRatio >= 1.0 && volRatio <= 1.5) reasons.push('조용한 축적');
+      reasons.push(`${grade}등급 ${totalScore}점`);
+    } else {
+      // 관망
+      if (rank <= 2) reasons.push(`${grade}등급`);
+      if (!hasSupply && !buyWhale) reasons.push('수급 부재');
+      if (volRatio >= 5) reasons.push(`거래량 ${volRatio.toFixed(1)}배 과열`);
+      if (rsi > 70) reasons.push(`RSI ${rsi.toFixed(0)} 고위`);
+      if (reasons.length === 0) reasons.push('추가 확인 필요');
+    }
+
+    // 기대수익 정보 추가 (적극매수/매수에만)
+    if (er && (verdict === '적극매수' || verdict === '매수')) {
+      reasons.push(`기대+${er.median}%(${er.days}일)`);
+    }
+
+    const comment = reasons.join(', ').slice(0, 50);
+
+    evaluations.push({
+      stockCode: s.stockCode || null,
+      stockName: s.stockName || s.stockCode,
+      verdict,
+      comment,
+    });
   }
 
-  return null;
+  console.log(`✅ 규칙 기반 종목 평가: ${evaluations.length}개`);
+  return evaluations;
 }
