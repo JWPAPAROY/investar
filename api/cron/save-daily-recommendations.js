@@ -1891,18 +1891,18 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Step 2: 저장 구간(50점+) 필터링 — v3.35: 상한 제거 (90점+ TOP3도 저장)
+    // Step 2: 저장 구간 필터링 — v3.63: 전 등급 저장 (기대수익 통계용), 성과 추적은 기존대로
     const filteredStocks = stocks.filter(stock => {
-      return stock.totalScore >= 50;
+      return stock.totalScore >= 0; // 전 등급 저장
     });
 
-    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (저장 구간 50점+)`);
+    console.log(`✅ 스크리닝 완료: ${stocks.length}개 중 ${filteredStocks.length}개 (전 등급 저장)`);
 
     if (filteredStocks.length === 0) {
       return res.status(200).json({
         success: true,
         saved: 0,
-        message: 'No B+ grade stocks found'
+        message: 'No stocks found'
       });
     }
 
@@ -2005,7 +2005,8 @@ module.exports = async (req, res) => {
         // v3.36: 스코어링 v2 병렬 비교
         total_score_v2: stock.totalScoreV2 || 0,
 
-        is_active: true,
+        // v3.63: B등급(45점) 이상만 성과 추적, 나머지는 기대수익 통계용으로만 저장
+        is_active: (stock.totalScore || 0) >= 45,
         is_top3: false,
         is_defense_top3: false,
         is_top3_v2: false
