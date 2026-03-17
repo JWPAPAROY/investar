@@ -4571,6 +4571,85 @@
 
     // DNA 추출 컴포넌트
     // 종목 분석 컴포넌트 (복수 종목 지원 + 종목명 자동완성)
+    // 매수가 기반 홀딩/익절/손절 판단 로직
+    function generateHoldingAdvice(result, buyPrice) {
+      const cp = result.currentPrice || 0;
+      if (!cp || !buyPrice || buyPrice <= 0) return null;
+      const ret = ((cp - buyPrice) / buyPrice) * 100;
+      const grade = result.recommendation?.grade || 'D';
+      const gradeRank = { 'S+': 6, 'S': 5, 'A': 4, 'B': 3, 'C': 2, 'D': 1, '과열': 0 }[grade] ?? 1;
+      const overheat = result.overheatingV2 || {};
+      const rsi = overheat.rsi || 0;
+      const disparity = overheat.disparity || 100;
+      const isOverheat = grade === '과열' || (rsi > 85 && disparity > 120);
+      const adv = result.advancedAnalysis?.indicators || {};
+      const whaleList = adv.whale || [];
+      const buyWhale = whaleList.some(w => w.type?.includes('매수'));
+      const sellWhale = whaleList.some(w => w.type?.includes('매도'));
+      const flow = result.institutionalFlow || {};
+      const instDays = flow.institutionDays || 0;
+      const foreignDays = flow.foreignDays || 0;
+      const hasSupply = instDays >= 1 || foreignDays >= 1;
+      const supplyLost = instDays === 0 && foreignDays === 0 && !buyWhale;
+      const er = result.expectedReturn;
+      const crash = result.crashCheck?.isCrashing;
+
+      const reasons = [];
+      let verdict, color, icon;
+
+      // 우선순위 판단
+      if (ret <= -10 || crash) {
+        verdict = '긴급 손절'; color = 'bg-red-600'; icon = '🚨';
+        if (crash) reasons.push('폭락 진행 중');
+        reasons.push(`수익률 ${ret.toFixed(1)}%`);
+      } else if (ret <= -5 && (sellWhale || supplyLost)) {
+        verdict = '손절'; color = 'bg-red-500'; icon = '⛔';
+        if (sellWhale) reasons.push('매도고래 감지');
+        if (supplyLost) reasons.push('수급 이탈');
+        reasons.push(`수익률 ${ret.toFixed(1)}%`);
+      } else if (er && ret >= er.p75) {
+        verdict = '익절'; color = 'bg-green-600'; icon = '💰';
+        reasons.push(`기대수익 p75(+${er.p75}%) 초과`);
+      } else if (er && ret >= er.median && isOverheat) {
+        verdict = '익절'; color = 'bg-green-600'; icon = '💰';
+        reasons.push(`중앙값(+${er.median}%) 도달 + 과열`);
+      } else if (er && ret >= er.median && (sellWhale || rsi > 80)) {
+        verdict = '분할 익절'; color = 'bg-green-500'; icon = '📤';
+        reasons.push(`중앙값(+${er.median}%) 확보`);
+        if (sellWhale) reasons.push('매도고래');
+        if (rsi > 80) reasons.push(`RSI ${rsi.toFixed(0)}`);
+      } else if (er && ret >= er.p25 && gradeRank <= 2) {
+        verdict = '분할 익절'; color = 'bg-green-500'; icon = '📤';
+        reasons.push(`p25(+${er.p25}%) 확보 + ${grade}등급 약화`);
+      } else if (ret > 0 && gradeRank >= 3 && hasSupply) {
+        verdict = '홀딩'; color = 'bg-blue-500'; icon = '✊';
+        reasons.push(`${grade}등급 유지`);
+        if (instDays >= 1) reasons.push(`기관 ${instDays}일 매수`);
+        if (foreignDays >= 1) reasons.push(`외인 ${foreignDays}일 매수`);
+      } else if (ret < 0 && gradeRank >= 4 && buyWhale) {
+        verdict = '추가매수 고려'; color = 'bg-purple-500'; icon = '🐋';
+        reasons.push(`${grade}등급 + 매수고래 → 눌림목`);
+      } else if (ret < 0 && gradeRank >= 3 && hasSupply) {
+        verdict = '홀딩'; color = 'bg-blue-500'; icon = '✊';
+        reasons.push('일시 조정, 수급 유지');
+      } else if (ret <= -5 && gradeRank <= 2) {
+        verdict = '손절 고려'; color = 'bg-orange-500'; icon = '⚠️';
+        reasons.push(`${grade}등급 + 수익률 ${ret.toFixed(1)}%`);
+      } else {
+        verdict = '관망'; color = 'bg-gray-500'; icon = '👀';
+        reasons.push('추가 확인 필요');
+      }
+
+      // 경고사항
+      const warnings = [];
+      if (er && ret > 0 && ret < er.median) warnings.push(`중앙값(+${er.median}%)까지 +${(er.median - ret).toFixed(1)}%p 남음`);
+      if (er && ret >= er.p75) warnings.push('기대수익 상단 초과, 차익실현 적기');
+      if (isOverheat && verdict !== '익절') warnings.push(`RSI ${rsi.toFixed(0)} / 이격도 ${disparity.toFixed(0)} 과열`);
+      if (sellWhale && !verdict.includes('손절')) warnings.push('매도고래 감지 주의');
+
+      return { verdict, color, icon, reasons, warnings, currentReturn: ret, currentPrice: cp, expectedReturn: er };
+    }
+
     function StockAnalysis({ apiBaseUrl }) {
       const [inputText, setInputText] = useState('');
       const [results, setResults] = useState([]);
@@ -4585,6 +4664,8 @@
       const searchTimer = React.useRef(null);
       const inputRef = React.useRef(null);
       const [selectedChips, setSelectedChips] = useState([]); // [{code, name, market}]
+      const [buyPrices, setBuyPrices] = useState({}); // { stockCode: price }
+      const [holdingAdvices, setHoldingAdvices] = useState({}); // { stockCode: advice }
 
       // 종목명 검색 (디바운스 300ms)
       const searchStocks = (query) => {
@@ -4838,13 +4919,88 @@
                     ? (b.defenseScore || 0) - (a.defenseScore || 0)
                     : b.totalScore - a.totalScore)
                   .map((stock, index) => (
-                    <RecommendationCard
-                      key={stock.stockCode}
-                      stock={stock}
-                      rank={index + 1}
-                      onClick={() => setSelectedStock(stock)}
-                      strategyFilter={strategyFilter}
-                    />
+                    <div key={stock.stockCode}>
+                      <RecommendationCard
+                        stock={stock}
+                        rank={index + 1}
+                        onClick={() => setSelectedStock(stock)}
+                        strategyFilter={strategyFilter}
+                      />
+                      {/* 매수가 입력 + 향방 판단 */}
+                      <div className="mt-2 bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-500 whitespace-nowrap">📌 매수가</span>
+                          <input
+                            type="number"
+                            placeholder="매수가 입력"
+                            value={buyPrices[stock.stockCode] || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setBuyPrices(prev => ({ ...prev, [stock.stockCode]: val }));
+                              if (val && Number(val) > 0) {
+                                const advice = generateHoldingAdvice(stock, Number(val));
+                                setHoldingAdvices(prev => ({ ...prev, [stock.stockCode]: advice }));
+                              } else {
+                                setHoldingAdvices(prev => ({ ...prev, [stock.stockCode]: null }));
+                              }
+                            }}
+                            className="flex-1 min-w-0 px-2 py-1 border border-gray-300 rounded text-sm focus:border-indigo-500 focus:outline-none"
+                          />
+                          <span className="text-xs text-gray-400">원</span>
+                        </div>
+                        {holdingAdvices[stock.stockCode] && (() => {
+                          const adv = holdingAdvices[stock.stockCode];
+                          return (
+                            <div className="mt-2 space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-lg">{adv.icon}</span>
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-bold text-white ${adv.color}`}>
+                                  {adv.verdict}
+                                </span>
+                                <span className={`text-sm font-bold ${adv.currentReturn >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                                  {adv.currentReturn >= 0 ? '+' : ''}{adv.currentReturn.toFixed(2)}%
+                                </span>
+                                <span className="text-xs text-gray-400">
+                                  (현재 {adv.currentPrice?.toLocaleString()}원)
+                                </span>
+                              </div>
+                              {/* 기대수익 구간 대비 위치 바 */}
+                              {adv.expectedReturn && (
+                                <div className="relative h-5 bg-gray-100 rounded-full overflow-hidden">
+                                  {/* p25~p75 구간 */}
+                                  <div className="absolute h-full bg-green-100 rounded"
+                                    style={{
+                                      left: `${Math.max(0, Math.min(100, (adv.expectedReturn.p25 + 10) / 40 * 100))}%`,
+                                      width: `${Math.max(5, (adv.expectedReturn.p75 - adv.expectedReturn.p25) / 40 * 100)}%`
+                                    }} />
+                                  {/* 중앙값 마커 */}
+                                  <div className="absolute h-full w-0.5 bg-green-500"
+                                    style={{ left: `${Math.max(0, Math.min(100, (adv.expectedReturn.median + 10) / 40 * 100))}%` }} />
+                                  {/* 현재 수익률 마커 */}
+                                  <div className="absolute h-full w-1.5 bg-red-500 rounded-full"
+                                    style={{ left: `${Math.max(0, Math.min(100, (adv.currentReturn + 10) / 40 * 100))}%` }} />
+                                  <div className="absolute inset-0 flex items-center justify-between px-1 text-[9px] text-gray-500">
+                                    <span>-10%</span>
+                                    <span>p25: +{adv.expectedReturn.p25}%</span>
+                                    <span>med: +{adv.expectedReturn.median}%</span>
+                                    <span>p75: +{adv.expectedReturn.p75}%</span>
+                                    <span>+30%</span>
+                                  </div>
+                                </div>
+                              )}
+                              <div className="text-xs text-gray-600">
+                                {adv.reasons.join(' · ')}
+                              </div>
+                              {adv.warnings.length > 0 && (
+                                <div className="text-xs text-amber-600">
+                                  ⚠️ {adv.warnings.join(' · ')}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
                   ))}
               </div>
             </>
