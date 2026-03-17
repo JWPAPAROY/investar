@@ -4658,13 +4658,34 @@
       } else if (ret < 0 && gradeRank <= 2 && supplyLost) {
         verdict = '손절 고려'; color = 'bg-orange-500'; icon = '⚠️';
         reasons.push(`${grade}등급, 수급 부재, 반등 근거 부족`);
-      } else if (ret >= 0) {
+      } else if (ret >= 0 && gradeRank >= 3) {
         verdict = '홀딩'; color = 'bg-blue-500'; icon = '✊';
-        reasons.push('수익 구간, 추이 관찰');
+        reasons.push(`${grade}등급, 수익 구간`);
         if (er) reasons.push(`목표 +${er.median}%`);
+      } else if (ret >= 0) {
+        // 수익이지만 등급 낮음
+        verdict = '분할 익절'; color = 'bg-green-500'; icon = '📤';
+        reasons.push(`${grade}등급 약세, 수익 시 분할 정리`);
+      } else if (ret > -5 && hasSupply) {
+        // 소폭 손실이지만 수급 있음
+        verdict = '홀딩'; color = 'bg-blue-400'; icon = '✊';
+        reasons.push('소폭 조정, 수급 유지 중');
+        if (instDays >= 1) reasons.push(`기관 ${instDays}일`);
+        if (foreignDays >= 1) reasons.push(`외인 ${foreignDays}일`);
+      } else if (ret > -5 && gradeRank >= 3) {
+        verdict = '홀딩'; color = 'bg-blue-400'; icon = '✊';
+        reasons.push(`${grade}등급, 소폭 조정`);
+      } else if (ret > -5) {
+        // 소폭 손실 + 낮은 등급 + 수급 없음
+        verdict = '손절 고려'; color = 'bg-orange-500'; icon = '⚠️';
+        reasons.push(`${grade}등급, 수익률 ${ret.toFixed(1)}%`);
+        if (sellWhale) reasons.push('매도고래');
+        if (supplyLost) reasons.push('수급 부재');
       } else {
-        verdict = '관망'; color = 'bg-gray-500'; icon = '👀';
-        reasons.push(`수익률 ${ret.toFixed(1)}%, 추가 확인 필요`);
+        // ret <= -5, 나머지
+        verdict = '손절 고려'; color = 'bg-orange-500'; icon = '⚠️';
+        reasons.push(`수익률 ${ret.toFixed(1)}%`);
+        if (gradeRank <= 2) reasons.push(`${grade}등급`);
       }
 
       // 경고사항
