@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.61
+- **버전**: 3.62
 - **최종 업데이트**: 2026-03-12
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
@@ -615,10 +615,13 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 - 10일 이상: `getFactorVolatility()` — 팩터별 60일 mean/std → z-score 정규화
 - 30일 이상(가중치): 각 팩터와 KOSPI 개장 변동률의 피어슨 상관계수 → 부호 보존, 절대값 비례 → 합계 1.0 정규화 (v3.55: 60일→30일 완화)
 - 20일 이상(회귀): score→KOSPI 종가 변동률 EWMA 가중 OLS 회귀 → slope/intercept/sigma 산출
-- **선물 롤오버 및 야간선물 강화 (v3.60)**: 
+- **야간선물 캐시 시스템 (v3.62)**:
+    - 05:10 KST cron (`night-futures` 모드): 야간장(18:00~05:00) 마감 직후 `101W9000` (KOSPI200), `106W9000` (KOSDAQ150) 종가를 KIS REST API로 조회 → Supabase 캐시 저장.
+    - 08:00 KST alert 모드: `loadNightFutures()`로 캐시 우선 로드 → 유효 데이터 있으면 정규선물 대신 사용.
+    - 캐시 무효: 날짜 불일치, failed, change=0 → 정규선물 fallback.
+- **선물 롤오버 (v3.60)**:
     - 만기일 당일 00:00 KST부터 차근월물(6월/9월/12월/3월) 자동 조회.
     - 정규 선물 시세가 0이거나 stale할 경우 CME/Eurex 야간 선물 코드(A01/A06) 자동 추적.
-    - ETF Proxy 대용치 로직 완전 제거 (실제 선물 데이터만 사용).
 - 팩터 수 변경 시 캐시 자동 무효화
 
 ### 팩터 신뢰도
@@ -650,8 +653,11 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 ### 데이터 흐름
 
 ```
+05:10 KST (night-futures 모드):
+  saveNightFutures() → KIS API 101W9000/106W9000 → Supabase 캐시
+
 08:00 KST (alert 모드):
-  fetchAndPredict() → Yahoo Finance chart API × 11개
+  fetchAndPredict() → loadNightFutures(캐시) + Yahoo Finance × 11개
   → 가중 스코어 계산 → OLS 회귀 예측 범위 → Supabase 저장 → 텔레그램 전송
 
 16:10 KST (save 모드):
@@ -697,6 +703,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 | 07:05 | 16:05 | update-prices | 전체 종목 종가 업데이트 (장 마감 후) |
 | 07:20 | 16:20 | patterns | 성공 패턴 수집 |
 | 07:30 | 16:30 | calc-expectations | 기대수익 통계 산출 (grade×whale별) |
+| 20:10 | 05:10 | night-futures | 야간선물 종가 캐시 (101W9000/106W9000) |
 | 23:00 | 08:00 | alert | 실시간 스크리닝 TOP 3 알림 + 해외 전망 |
 | 01:00 | 10:00 | track | 장중 주가 추적 |
 | 02:30 | 11:30 | track | 장중 주가 추적 |
@@ -857,6 +864,12 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.62 (2026-03-17)
+- **야간선물 종가 캐시 시스템**: KIS API REST(`FHMIF10000000`)로 야간선물 종목코드 `101W9000`(KOSPI200), `106W9000`(KOSDAQ150)을 05:10 KST에 조회하여 Supabase에 캐시. 08:00 alert 시 캐시 우선 사용.
+- **야간선물 cron 추가**: `night-futures` 모드 (20:10 UTC = 05:10 KST). 야간장(18:00~05:00) 마감 직후 실행.
+- **fetchOvernightData 선물 로직 개선**: 야간선물 캐시(`loadNightFutures()`) → 정규선물 실시간 조회 2단계 fallback. 야간선물 유효 데이터 있으면 정규선물 조회 생략.
+- **KIS API 야간선물 REST 가능 확인**: `FHMIF10000000` + `FID_COND_MRKT_DIV_CODE=F` + 코드 `101W9000`으로 야간선물 시세 조회 가능 (야간장 외 시간에는 Empty Output). `JF` 마켓코드는 에러는 아니나 데이터 반환 없음 확인.
 
 ### v3.61 (2026-03-16)
 - **기대수익 통계 90일 롤링 윈도우**: 전체 히스토리 → 최근 90일 데이터만 사용하도록 변경. 시장 상황 변화에 따라 기대수익 구간이 동적으로 업데이트됨

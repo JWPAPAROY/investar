@@ -1110,6 +1110,24 @@ module.exports = async (req, res) => {
     }
 
     // =============================================
+    // 🌙 NIGHT-FUTURES 모드: 야간선물 종가 캐시 (05:10 KST)
+    // 야간장(18:00~05:00) 마감 직후 종가를 Supabase에 저장
+    // → 08:00 alert 모드에서 읽어서 예측 스코어에 반영
+    // =============================================
+    if (mode === 'night-futures') {
+      console.log('🌙 야간선물 종가 캐시 모드 시작...');
+      const results = await overnightPredictor.saveNightFutures();
+      const valid = results ? results.filter(r => !r.failed && r.price > 0) : [];
+      console.log(`🌙 야간선물 캐시 완료: ${valid.length}/${results?.length || 0}개 유효`);
+      return res.status(200).json({
+        success: true,
+        mode: 'night-futures',
+        results,
+        validCount: valid.length,
+      });
+    }
+
+    // =============================================
     // 📈 CALC-EXPECTATIONS 모드: 기대수익 통계 산출 (16:30 KST)
     // v3.46: grade×whale별 실제 수익률 분포 산출 → expected_return_stats UPSERT
     // v3.61: 90일 롤링 윈도우 적용 — 최근 시장 상황 반영

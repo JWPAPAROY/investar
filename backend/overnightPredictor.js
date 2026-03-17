@@ -237,52 +237,50 @@ async function fetchOvernightData() {
   });
 
   // KIS API 선물 조회 (KOSPI200F, KOSDAQ150F)
+  // 1순위: 05:10 KST에 저장된 야간선물 캐시 (101W9000/106W9000)
+  // 2순위: 정규선물 실시간 조회 (10100000/10600000) — 정규장 중이면 유효
   const kisFuturesPromise = (async () => {
     const todayKST = getTodayKST();
     const futuresResults = [];
 
-    // KOSPI200F — 정규선물 → CME야간선물 (change=0+price>0은 유효 처리)
-    try {
-      const futures = await kisApi.getKospi200FuturesPrice();
-      if (futures && futures.price > 0) {
-        futuresResults.push({
-          ticker: 'KOSPI200F',
-          price: futures.price,
-          previousClose: futures.previousClose,
-          change: futures.change,
-          dataDate: todayKST,
-          dataTimestamp: `${todayKST} 06:00`,
-        });
-        if (futures.change === 0) console.log(`ℹ️ KOSPI200F change=0 (장 개시 전 — 유효 처리, 기여도 0)`);
-      } else {
-        console.warn(`⚠️ KOSPI200F KIS API 데이터 없음 — failed 처리`);
-        futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
-      }
-    } catch (err) {
-      console.warn(`⚠️ KOSPI200F 데이터 수집 실패: ${err.message} — failed 처리`);
-      futuresResults.push({ ticker: 'KOSPI200F', change: 0, price: 0, previousClose: 0, failed: true });
-    }
+    // 1순위: 야간선물 캐시 로드
+    const nightCache = await loadNightFutures();
+    const kisTickers = ['KOSPI200F', 'KOSDAQ150F'];
+    const getters = {
+      'KOSPI200F': () => kisApi.getKospi200FuturesPrice(),
+      'KOSDAQ150F': () => kisApi.getKosdaq150FuturesPrice(),
+    };
 
-    // KOSDAQ150F
-    try {
-      const futures = await kisApi.getKosdaq150FuturesPrice();
-      if (futures && futures.price > 0) {
-        futuresResults.push({
-          ticker: 'KOSDAQ150F',
-          price: futures.price,
-          previousClose: futures.previousClose,
-          change: futures.change,
-          dataDate: todayKST,
-          dataTimestamp: `${todayKST} 06:00`,
-        });
-        if (futures.change === 0) console.log(`ℹ️ KOSDAQ150F change=0 (장 개시 전 — 유효 처리, 기여도 0)`);
-      } else {
-        console.warn(`⚠️ KOSDAQ150F KIS API 데이터 없음 — failed 처리`);
-        futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
+    for (const ticker of kisTickers) {
+      // 야간선물 캐시에 유효 데이터가 있으면 우선 사용
+      if (nightCache && nightCache[ticker]) {
+        const nc = nightCache[ticker];
+        console.log(`🌙 ${ticker} 야간선물 캐시 사용: ${nc.price} (${nc.change >= 0 ? '+' : ''}${nc.change}%)`);
+        futuresResults.push(nc);
+        continue;
       }
-    } catch (err) {
-      console.warn(`⚠️ KOSDAQ150F 데이터 수집 실패: ${err.message} — failed 처리`);
-      futuresResults.push({ ticker: 'KOSDAQ150F', change: 0, price: 0, previousClose: 0, failed: true });
+
+      // 2순위: 정규선물 실시간 조회
+      try {
+        const futures = await getters[ticker]();
+        if (futures && futures.price > 0) {
+          futuresResults.push({
+            ticker,
+            price: futures.price,
+            previousClose: futures.previousClose,
+            change: futures.change,
+            dataDate: todayKST,
+            dataTimestamp: `${todayKST} 06:00`,
+          });
+          if (futures.change === 0) console.log(`ℹ️ ${ticker} change=0 (장 개시 전 — 유효 처리, 기여도 0)`);
+        } else {
+          console.warn(`⚠️ ${ticker} KIS API 데이터 없음 — failed 처리`);
+          futuresResults.push({ ticker, change: 0, price: 0, previousClose: 0, failed: true });
+        }
+      } catch (err) {
+        console.warn(`⚠️ ${ticker} 데이터 수집 실패: ${err.message} — failed 처리`);
+        futuresResults.push({ ticker, change: 0, price: 0, previousClose: 0, failed: true });
+      }
     }
 
     return futuresResults;
@@ -1316,6 +1314,136 @@ function generateRuleBriefing(factors, sig, score) {
   return brief.trim();
 }
 
+// ─── 야간선물 캐시 (05:10 KST 저장 → 08:00 KST 읽기) ───
+
+const NIGHT_FUTURES_CACHE_DATE = '8888-12-31'; // 특수 날짜 키 (토큰 캐시와 별도)
+
+/**
+ * 야간선물 종가 조회 및 Supabase 캐시 저장
+ * 05:10 KST cron에서 호출 — 야간장(18:00~05:00) 마감 직후 데이터 캡처
+ *
+ * 종목코드: 101W9000 (KOSPI200 야간선물), 106W9000 (KOSDAQ150 야간선물)
+ * REST API: FHMIF10000000 + FID_COND_MRKT_DIV_CODE=F
+ */
+async function saveNightFutures() {
+  if (!supabase) {
+    console.warn('⚠️ Supabase 미설정 — 야간선물 저장 불가');
+    return null;
+  }
+
+  const todayKST = getTodayKST();
+  console.log(`🌙 야간선물 종가 조회 시작 (${todayKST})`);
+
+  const nightCodes = [
+    { code: '101W9000', ticker: 'KOSPI200F', name: '코스피200 야간선물' },
+    { code: '106W9000', ticker: 'KOSDAQ150F', name: '코스닥150 야간선물' },
+  ];
+
+  const results = [];
+
+  for (const { code, ticker, name } of nightCodes) {
+    try {
+      await kisApi.rateLimiter.acquire();
+      const token = await kisApi.getAccessToken();
+      const result = await kisApi._queryFuturesPrice(token, code, 'F');
+
+      if (result && result.price > 0) {
+        const entry = {
+          ticker,
+          code,
+          price: result.price,
+          previousClose: result.previousClose,
+          change: result.change,
+          capturedAt: new Date().toISOString(),
+        };
+        results.push(entry);
+        console.log(`✅ ${name} (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
+      } else {
+        console.warn(`⚠️ ${name} (${code}): 데이터 없음 (price=0)`);
+        results.push({ ticker, code, price: 0, previousClose: 0, change: 0, failed: true });
+      }
+    } catch (err) {
+      console.warn(`⚠️ ${name} (${code}) 조회 실패: ${err.message}`);
+      results.push({ ticker, code, price: 0, previousClose: 0, change: 0, failed: true });
+    }
+  }
+
+  // Supabase에 캐시 저장 (overnight_predictions 테이블의 특수 날짜 행 재활용)
+  try {
+    const cacheData = {
+      date: todayKST,
+      results,
+      savedAt: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('overnight_predictions')
+      .upsert({
+        prediction_date: NIGHT_FUTURES_CACHE_DATE,
+        factors: cacheData,
+        score: 0,
+        signal: 'night_futures_cache',
+      }, { onConflict: 'prediction_date' });
+
+    if (error) {
+      console.warn('⚠️ 야간선물 캐시 저장 실패:', error.message);
+    } else {
+      console.log(`✅ 야간선물 캐시 저장 완료 (${todayKST})`);
+    }
+  } catch (err) {
+    console.warn('⚠️ 야간선물 캐시 저장 예외:', err.message);
+  }
+
+  return results;
+}
+
+/**
+ * 야간선물 캐시 로드 (08:00 KST alert 모드에서 호출)
+ * @returns {Object|null} { KOSPI200F: { change, price, ... }, KOSDAQ150F: { ... } }
+ */
+async function loadNightFutures() {
+  if (!supabase) return null;
+
+  try {
+    const { data: cache } = await supabase
+      .from('overnight_predictions')
+      .select('factors')
+      .eq('prediction_date', NIGHT_FUTURES_CACHE_DATE)
+      .single();
+
+    if (!cache || !cache.factors || !cache.factors.date) return null;
+
+    const todayKST = getTodayKST();
+    if (cache.factors.date !== todayKST) {
+      console.log(`ℹ️ 야간선물 캐시 날짜 불일치: ${cache.factors.date} ≠ ${todayKST}`);
+      return null;
+    }
+
+    const result = {};
+    for (const r of cache.factors.results) {
+      if (!r.failed && r.price > 0 && r.change !== 0) {
+        result[r.ticker] = {
+          ticker: r.ticker,
+          price: r.price,
+          previousClose: r.previousClose,
+          change: r.change,
+          dataDate: todayKST,
+          dataTimestamp: r.capturedAt || `${todayKST} 05:10`,
+          nightSession: true,
+        };
+      }
+    }
+
+    if (Object.keys(result).length > 0) {
+      console.log(`🌙 야간선물 캐시 로드 성공: ${Object.keys(result).join(', ')}`);
+    }
+    return Object.keys(result).length > 0 ? result : null;
+  } catch (err) {
+    console.warn('⚠️ 야간선물 캐시 로드 실패:', err.message);
+    return null;
+  }
+}
+
 module.exports = {
   fetchAndPredict,
   updateActualResult,
@@ -1323,6 +1451,8 @@ module.exports = {
   calculatePrediction,
   getActiveWeights,
   getRegressionParams,
+  saveNightFutures,
+  loadNightFutures,
   DEFAULT_WEIGHTS,
   DEFAULT_REGRESSION,
   generateAiInterpretation,

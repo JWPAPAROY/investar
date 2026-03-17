@@ -30,6 +30,10 @@
       "schedule": "5 7 * * 1-5"
     },
     {
+      "path": "/api/cron/save-daily-recommendations?mode=night-futures",
+      "schedule": "10 20 * * 0-4"
+    },
+    {
       "path": "/api/cron/save-daily-recommendations?mode=alert",
       "schedule": "0 23 * * 0-4"
     },
