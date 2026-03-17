@@ -357,13 +357,15 @@ async function sendTelegramMessage(message) {
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.61: 매수고래 OR 기관≥3일 OR 외국인≥3일 + 비과열 + 이격도/등락률 필터
+  // v3.63: 매수고래 OR 기관≥3일 OR 외국인≥3일 + 비과열 + 이격도/등락률 + 시총≤1조 필터
   const eligible = stocks.filter(s => {
     const hasSupply = s.whale_detected || (s.institution_buy_days || 0) >= 3 || (s.foreign_buy_days || 0) >= 3;
+    const marketCapBillion = (s.market_cap || 0) / 100000000; // 억 단위
     return hasSupply &&
       s.recommendation_grade !== '과열' &&
       Math.abs(s.change_rate || 0) < 25 &&
-      (s.disparity || 100) < 150;
+      (s.disparity || 100) < 150 &&
+      marketCapBillion <= 10000;
   });
   const top3 = [];
 
@@ -410,7 +412,7 @@ function selectWhaleStocks(stocks, top3) {
 function selectSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.61: 매수고래 OR 기관≥3일 OR 외국인≥3일 + 비과열 + 이격도/등락률 필터
+  // v3.63: 매수고래 OR 기관≥3일 OR 외국인≥3일 + 비과열 + 이격도/등락률 + 시총≤1조 필터
   const eligible = stocks.filter(s => {
     const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
     const flow = s.institutionalFlow;
@@ -420,7 +422,8 @@ function selectSaveTop3(stocks) {
     const isOverheated = s.recommendation?.grade === '과열';
     const disparity = s.overheatingV2?.disparity || 100;
     const changeRate = Math.abs(s.changeRate || 0);
-    return hasSupply && !isOverheated && changeRate < 25 && disparity < 150;
+    const marketCapBillion = (s.marketCap || 0) / 100000000; // 억 단위
+    return hasSupply && !isOverheated && changeRate < 25 && disparity < 150 && marketCapBillion <= 10000;
   });
   const top3 = [];
 
