@@ -1157,31 +1157,43 @@ class KISApi {
             await this.rateLimiter.acquire();
             continue;
           }
-          // change !== 0이면 즉시 반환 (확실히 유효)
           if (result.change !== 0) {
             console.log(`📊 코스피200 선물 (${code}): ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
             return { ...result, ticker: 'KOSPI200F' };
           }
-          // change === 0: 장 개시 전일 수 있음 — CME 야간선물도 확인
           if (!bestRegular) bestRegular = { ...result, ticker: 'KOSPI200F' };
-          console.warn(`⚠️ 코스피200 선물 ${code} change=0 — CME 야간선물 확인 후 결정`);
+          console.warn(`⚠️ 코스피200 선물 ${code} change=0 — 야간선물 확인`);
           break;
         }
 
-        // 2차: CME 야간선물 조회 (정규선물이 없거나 change=0일 때)
+        // 2차: 야간선물 (JF 마켓코드) — 05:00~09:00 사이에 야간 종가 반환 기대
+        const nightCode = this._getCMEFuturesCode('A01') || 'A01606';
+        await this.rateLimiter.acquire();
+        try {
+          const nightResult = await this._queryFuturesPrice(token, nightCode, 'JF');
+          if (nightResult && nightResult.price > 0 && nightResult.change !== 0) {
+            console.log(`📊 코스피200 야간선물 (JF ${nightCode}): ${nightResult.price} (${nightResult.change >= 0 ? '+' : ''}${nightResult.change}%)`);
+            return { ...nightResult, ticker: 'KOSPI200F' };
+          }
+          console.log(`ℹ️ 코스피200 야간선물 (JF ${nightCode}): ${nightResult ? 'price=' + nightResult.price + ' change=' + nightResult.change : 'null'}`);
+        } catch (e) {
+          console.warn(`⚠️ 코스피200 야간선물 (JF) 조회 실패: ${e.message}`);
+        }
+
+        // 3차: CME 야간선물 코드 (F 마켓코드로)
         const cmeCode = this._getCMEFuturesCode('101');
         if (cmeCode) {
           await this.rateLimiter.acquire();
           const cmeResult = await this._queryFuturesPrice(token, cmeCode);
           if (cmeResult && cmeResult.price > 0 && cmeResult.change !== 0) {
-            console.log(`📊 코스피200 선물 (CME야간 ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
+            console.log(`📊 코스피200 선물 (CME ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
             return { ...cmeResult, ticker: 'KOSPI200F' };
           }
         }
 
-        // 3차: 정규선물 change=0이라도 price 있으면 반환 (진짜 변동 없음)
+        // 4차: 정규선물 change=0이라도 price 있으면 반환
         if (bestRegular) {
-          console.log(`📊 코스피200 선물 (정규+CME 모두 change=0): ${bestRegular.price}`);
+          console.log(`📊 코스피200 선물 (정규/야간/CME 모두 change=0): ${bestRegular.price}`);
           return bestRegular;
         }
 
@@ -1317,7 +1329,7 @@ class KISApi {
    * 선물 현재가 시세 조회 (공통 헬퍼)
    * 인증 실패(EGW00123) 시 토큰 재발급 후 1회 재시도
    */
-  async _queryFuturesPrice(token, futuresCode) {
+  async _queryFuturesPrice(token, futuresCode, marketCode = 'F') {
     const doRequest = async (t) => {
       const response = await axios.get(
         `${this.baseUrl}/uapi/domestic-futureoption/v1/quotations/inquire-price`,
@@ -1331,7 +1343,7 @@ class KISApi {
             'custtype': 'P'
           },
           params: {
-            FID_COND_MRKT_DIV_CODE: 'F',
+            FID_COND_MRKT_DIV_CODE: marketCode,
             FID_INPUT_ISCD: futuresCode
           }
         }
@@ -1419,24 +1431,38 @@ class KISApi {
             return { ...result, ticker: 'KOSDAQ150F' };
           }
           if (!bestRegular) bestRegular = { ...result, ticker: 'KOSDAQ150F' };
-          console.warn(`⚠️ 코스닥150 선물 ${code} change=0 — CME 야간선물 확인 후 결정`);
+          console.warn(`⚠️ 코스닥150 선물 ${code} change=0 — 야간선물 확인`);
           break;
         }
 
-        // 2차: CME 야간선물 조회
+        // 2차: 야간선물 (JF 마켓코드)
+        const nightCode = this._getCMEFuturesCode('A06') || 'A06606';
+        await this.rateLimiter.acquire();
+        try {
+          const nightResult = await this._queryFuturesPrice(token, nightCode, 'JF');
+          if (nightResult && nightResult.price > 0 && nightResult.change !== 0) {
+            console.log(`📊 코스닥150 야간선물 (JF ${nightCode}): ${nightResult.price} (${nightResult.change >= 0 ? '+' : ''}${nightResult.change}%)`);
+            return { ...nightResult, ticker: 'KOSDAQ150F' };
+          }
+          console.log(`ℹ️ 코스닥150 야간선물 (JF ${nightCode}): ${nightResult ? 'price=' + nightResult.price + ' change=' + nightResult.change : 'null'}`);
+        } catch (e) {
+          console.warn(`⚠️ 코스닥150 야간선물 (JF) 조회 실패: ${e.message}`);
+        }
+
+        // 3차: CME 야간선물 코드 (F 마켓코드로)
         const cmeCode = this._getCMEFuturesCode('106');
         if (cmeCode) {
           await this.rateLimiter.acquire();
           const cmeResult = await this._queryFuturesPrice(token, cmeCode);
           if (cmeResult && cmeResult.price > 0 && cmeResult.change !== 0) {
-            console.log(`📊 코스닥150 선물 (야간 ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
+            console.log(`📊 코스닥150 선물 (CME ${cmeCode}): ${cmeResult.price} (${cmeResult.change >= 0 ? '+' : ''}${cmeResult.change}%)`);
             return { ...cmeResult, ticker: 'KOSDAQ150F' };
           }
         }
 
-        // 3차: 정규선물 change=0이라도 price 있으면 반환
+        // 4차: 정규선물 change=0이라도 price 있으면 반환
         if (bestRegular) {
-          console.log(`📊 코스닥150 선물 (정규+CME 모두 change=0): ${bestRegular.price}`);
+          console.log(`📊 코스닥150 선물 (정규/야간/CME 모두 change=0): ${bestRegular.price}`);
           return bestRegular;
         }
 
