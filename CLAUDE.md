@@ -868,6 +868,9 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ### v3.65 (2026-03-18)
 - **Cron 슬롯 통합**: `patterns`(16:20 KST) + `calc-expectations`(16:30 KST) → `post-market`(16:20 KST) 단일 cron으로 통합. 패턴 수집 → 기대수익 산출 순차 실행. Vercel cron 11/12 → 10/12 (2슬롯 확보).
+- **Tier 1 — getCurrentPrice 미사용 필드 활용**: 기존 API 응답에서 `bstp_kor_isnm`(업종명), `hts_frgn_ehrt`(외인소진율), `per`, `pbr`, `pgtr_ntby_qty`(프로그램매매) 추출. 추가 API 호출 없이 종목카드/모달에 업종·외인비중·PER·PBR 표시.
+- **Tier 2 — 기관/외인 순매수 랭킹 통합**: `getInstitutionalRanking()` 신규 (TR_ID: FHPTJ04400000). 스크리닝 완료 후 기관/외인 순매수 상위 KOSPI+KOSDAQ 4회 호출 → 종목에 랭킹 매칭. 카드에 "기관순매수 N위"/"외인순매수 N위" 뱃지 표시.
+- **Tier 2 — 상세 투자자매매동향 API**: `getDetailedInvestorData()` 신규 (TR_ID: FHPTJ04160001). 13개 투자자 유형(증권/투신/사모/은행/보험/종금/기금 등) 세분화 순매수 데이터. 향후 스크리닝 정밀화에 활용 예정.
 
 ### v3.64 (2026-03-18)
 - **야간선물 캐시 버그 수정**: 마켓코드가 `F`(정규장)였던 것이 원인 — `CM`(야간선물)이 정답. KIS API `FID_COND_MRKT_DIV_CODE` 값: F=지수선물, CM=야간선물, JF=주식선물, EU=야간옵션. 기존 `101W9000` 종목코드도 비표준으로 제거, 정규선물 코드(10100000/10600000) + `CM` 마켓코드 조합으로 변경.

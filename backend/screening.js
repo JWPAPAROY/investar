@@ -1309,6 +1309,12 @@ class StockScreener {
         changeRate: currentData.changeRate,
         volume: currentData.volume,
         marketCap: currentData.marketCap,
+        // v3.65 Tier 1: getCurrentPrice 추가 필드
+        sectorName: currentData.sectorName || null,
+        foreignRatio: currentData.foreignRatio || 0,
+        per: currentData.per || 0,
+        pbr: currentData.pbr || 0,
+        programNetBuy: currentData.programNetBuy || 0,
         volumeAnalysis,
         advancedAnalysis,
         institutionalFlow, // 신규: 기관/외국인 수급
@@ -1910,6 +1916,50 @@ class StockScreener {
 
     // 점수 기준 내림차순 정렬
     results.sort((a, b) => b.totalScore - a.totalScore);
+
+    // v3.65 Tier 2: 기관/외인 순매수 랭킹 매칭 (4회 API 호출)
+    try {
+      const [instKospi, instKosdaq, frgnKospi, frgnKosdaq] = await Promise.all([
+        kisApi.getInstitutionalRanking({ market: '0001', investorType: '2', sortBy: '0' }),
+        kisApi.getInstitutionalRanking({ market: '1001', investorType: '2', sortBy: '0' }),
+        kisApi.getInstitutionalRanking({ market: '0001', investorType: '1', sortBy: '0' }),
+        kisApi.getInstitutionalRanking({ market: '1001', investorType: '1', sortBy: '0' }),
+      ]);
+
+      // 종목코드 → 랭킹 정보 매핑
+      const rankingMap = new Map();
+      const addRanking = (list, type) => {
+        if (!list) return;
+        list.forEach((item, idx) => {
+          const existing = rankingMap.get(item.stockCode) || {};
+          if (type === 'inst') {
+            existing.instRank = Math.min(existing.instRank || 999, idx + 1);
+            existing.instNetBuy = (existing.instNetBuy || 0) + item.netBuyQty;
+          } else {
+            existing.frgnRank = Math.min(existing.frgnRank || 999, idx + 1);
+            existing.frgnNetBuy = (existing.frgnNetBuy || 0) + item.netBuyQty;
+          }
+          rankingMap.set(item.stockCode, existing);
+        });
+      };
+      addRanking(instKospi, 'inst');
+      addRanking(instKosdaq, 'inst');
+      addRanking(frgnKospi, 'frgn');
+      addRanking(frgnKosdaq, 'frgn');
+
+      // 결과 종목에 랭킹 정보 부착
+      let matched = 0;
+      results.forEach(stock => {
+        const ranking = rankingMap.get(stock.stockCode);
+        if (ranking) {
+          stock.institutionalRanking = ranking;
+          matched++;
+        }
+      });
+      console.log(`📊 기관/외인 랭킹 매칭: ${matched}/${results.length}개 종목`);
+    } catch (e) {
+      console.warn('⚠️ 기관/외인 랭킹 조회 실패 (스킵):', e.message);
+    }
 
     console.log(`\n✅ 종합 스크리닝 완료!`);
     console.log(`  - 분석: ${analyzed}개`);

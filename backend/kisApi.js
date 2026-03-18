@@ -242,6 +242,12 @@ class KISApi {
         low: parseInt(output.stck_lwpr || 0),               // 저가
         open: parseInt(output.stck_oprc || 0),              // 시가
         prevClose: parseInt(output.stck_sdpr || 0),         // 전일종가
+        // v3.65: Tier 1 — 기존 응답에서 미사용 필드 추출
+        sectorName: output.bstp_kor_isnm || null,           // 업종명 (반도체, 자동차 등)
+        foreignRatio: parseFloat(output.hts_frgn_ehrt || 0), // 외국인 소진율(%)
+        per: parseFloat(output.per || 0),                    // PER
+        pbr: parseFloat(output.pbr || 0),                    // PBR
+        programNetBuy: parseInt(output.pgtr_ntby_qty || 0),  // 프로그램매매 순매수 수량
         timestamp: new Date().toISOString()
       };
     } catch (error) {
@@ -1481,6 +1487,145 @@ class KISApi {
       }
     }
     return null;
+  }
+  /**
+   * v3.65 Tier 2: 종목별 투자자매매동향 일별 (13개 투자자 유형)
+   * TR_ID: FHPTJ04160001
+   * 기존 getInvestorData(FHKST01010900)는 3유형(개인/외국인/기관)만 반환
+   * 이 API는 13유형(증권/투자신탁/사모펀드/은행/보험/종금/기금 등) 세분화 반환
+   *
+   * ※ 당일 데이터는 15:40 이후 조회 가능
+   * @param {string} stockCode - 종목코드
+   * @param {number} days - 조회일수 (기본 5)
+   * @returns {Promise<Array|null>} 일자별 상세 투자자 매매 데이터
+   */
+  async getDetailedInvestorData(stockCode, days = 5) {
+    await this.rateLimiter.acquire();
+
+    try {
+      const token = await this.getAccessToken();
+      // 어제 날짜 기준 조회 (당일은 15:40 이후에만 가능)
+      const today = new Date();
+      const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+
+      const response = await axios.get(
+        `${this.baseUrl}/uapi/domestic-stock/v1/quotations/investor-trade-by-stock-daily`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'authorization': `Bearer ${token}`,
+            'appkey': this.appKey,
+            'appsecret': this.appSecret,
+            'tr_id': 'FHPTJ04160001',
+            'custtype': 'P'
+          },
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'J',
+            FID_INPUT_ISCD: stockCode,
+            FID_INPUT_DATE_1: dateStr,
+            FID_ORG_ADJ_PRC: '',
+            FID_ETC_CLS_CODE: '1'
+          }
+        }
+      );
+
+      if (response.data.rt_cd !== '0') {
+        console.warn(`⚠️ 상세 투자자 동향 오류 [${stockCode}]:`, response.data.msg1);
+        return null;
+      }
+
+      const output2 = response.data.output2;
+      if (!output2 || !Array.isArray(output2)) return null;
+
+      return output2.slice(0, days).map(item => ({
+        date: item.stck_bsop_date,
+        close: parseInt(item.stck_clpr || 0),
+        foreignNet: parseInt(item.frgn_ntby_qty || 0),         // 외국인 순매수
+        institutionNet: parseInt(item.orgn_ntby_qty || 0),      // 기관계 순매수
+        individualNet: parseInt(item.prsn_ntby_qty || 0),       // 개인 순매수
+        // 기관 세분화
+        securities: parseInt(item.scrt_ntby_qty || 0),          // 증권
+        investTrust: parseInt(item.ivtr_ntby_qty || 0),         // 투자신탁
+        privateFund: parseInt(item.pe_fund_ntby_vol || 0),      // 사모펀드
+        bank: parseInt(item.bank_ntby_qty || 0),                // 은행
+        insurance: parseInt(item.insu_ntby_qty || 0),           // 보험
+        financialInvest: parseInt(item.mrbn_ntby_qty || 0),     // 종금
+        pension: parseInt(item.fund_ntby_qty || 0),             // 기금(연기금)
+        etcCorp: parseInt(item.etc_corp_ntby_vol || 0),         // 기타법인
+        etcOrg: parseInt(item.etc_orgt_ntby_vol || 0),          // 기타단체
+      }));
+    } catch (error) {
+      console.warn(`⚠️ 상세 투자자 동향 조회 실패 [${stockCode}]:`, error.message);
+      return null;
+    }
+  }
+
+  /**
+   * v3.65 Tier 2: 국내기관/외국인 매매종목 가집계 (순매수 상위 랭킹)
+   * TR_ID: FHPTJ04400000
+   * 장중 실시간 기관/외인 순매수 상위 종목 리스트 반환
+   *
+   * @param {Object} options
+   * @param {string} options.market - '0000':전체, '0001':코스피, '1001':코스닥
+   * @param {string} options.investorType - '0':전체, '1':외국인, '2':기관계, '3':기타
+   * @param {string} options.sortBy - '0':순매수상위, '1':순매도상위
+   * @param {string} options.sortUnit - '0':수량정렬, '1':금액정렬
+   * @returns {Promise<Array|null>} 종목별 순매수 랭킹
+   */
+  async getInstitutionalRanking({ market = '0001', investorType = '2', sortBy = '0', sortUnit = '0' } = {}) {
+    await this.rateLimiter.acquire();
+
+    try {
+      const token = await this.getAccessToken();
+
+      const response = await axios.get(
+        `${this.baseUrl}/uapi/domestic-stock/v1/quotations/foreign-institution-total`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'authorization': `Bearer ${token}`,
+            'appkey': this.appKey,
+            'appsecret': this.appSecret,
+            'tr_id': 'FHPTJ04400000',
+            'custtype': 'P'
+          },
+          params: {
+            FID_COND_MRKT_DIV_CODE: 'V',
+            FID_COND_SCR_DIV_CODE: '16449',
+            FID_INPUT_ISCD: market,
+            FID_DIV_CLS_CODE: sortUnit,
+            FID_RANK_SORT_CLS_CODE: sortBy,
+            FID_ETC_CLS_CODE: investorType
+          }
+        }
+      );
+
+      if (response.data.rt_cd !== '0') {
+        console.warn(`⚠️ 기관/외인 랭킹 오류:`, response.data.msg1);
+        return null;
+      }
+
+      const output = response.data.output;
+      if (!output || !Array.isArray(output)) return null;
+
+      return output.map(item => ({
+        stockCode: item.mksc_shrn_iscd,
+        stockName: item.hts_kor_isnm,
+        netBuyQty: parseInt(item.ntby_qty || 0),
+        currentPrice: parseInt(item.stck_prpr || 0),
+        changeRate: parseFloat(item.prdy_ctrt || 0),
+        volume: parseInt(item.acml_vol || 0),
+        foreignNet: parseInt(item.frgn_ntby_qty || 0),
+        institutionNet: parseInt(item.orgn_ntby_qty || 0),
+        investTrustNet: parseInt(item.ivtr_ntby_qty || 0),
+        bankNet: parseInt(item.bank_ntby_qty || 0),
+        insuranceNet: parseInt(item.insu_ntby_qty || 0),
+        pensionNet: parseInt(item.fund_ntby_qty || 0),
+      }));
+    } catch (error) {
+      console.warn('⚠️ 기관/외인 랭킹 조회 실패:', error.message);
+      return null;
+    }
   }
 }
 

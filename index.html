@@ -1766,6 +1766,16 @@
         });
       }
 
+      // v3.65 Tier 2: 기관/외인 순매수 랭킹 뱃지
+      if (stock.institutionalRanking) {
+        if (stock.institutionalRanking.instRank && stock.institutionalRanking.instRank <= 10) {
+          badges.push({ text: `기관순매수 ${stock.institutionalRanking.instRank}위`, color: 'bg-blue-600' });
+        }
+        if (stock.institutionalRanking.frgnRank && stock.institutionalRanking.frgnRank <= 10) {
+          badges.push({ text: `외인순매수 ${stock.institutionalRanking.frgnRank}위`, color: 'bg-teal-600' });
+        }
+      }
+
       return (
         <div
           className="stock-card bg-white rounded-xl shadow-lg overflow-hidden cursor-pointer slide-in"
@@ -1968,6 +1978,24 @@
                 </div>
               </div>
             </div>
+
+            {/* v3.65 Tier 1: 업종/외인/PER 추가 지표 */}
+            {(stock.sectorName || stock.foreignRatio > 0 || stock.per > 0) && (
+              <div className="grid grid-cols-3 gap-1 md:gap-2 text-xs md:text-sm mt-1">
+                <div className="bg-amber-50 p-2 rounded">
+                  <p className="text-gray-600 text-xs">업종</p>
+                  <p className="font-bold text-amber-700 truncate">{stock.sectorName || '-'}</p>
+                </div>
+                <div className="bg-cyan-50 p-2 rounded">
+                  <p className="text-gray-600 text-xs">외인비중</p>
+                  <p className="font-bold text-cyan-700">{stock.foreignRatio > 0 ? `${stock.foreignRatio.toFixed(1)}%` : '-'}</p>
+                </div>
+                <div className="bg-rose-50 p-2 rounded">
+                  <p className="text-gray-600 text-xs">PER</p>
+                  <p className="font-bold text-rose-700">{stock.per > 0 ? stock.per.toFixed(1) : '-'}</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       );
@@ -2029,7 +2057,7 @@
               <div className="flex justify-between items-start gap-3">
                 <div className="min-w-0">
                   <h2 className="text-xl md:text-3xl font-bold truncate">{stock.stockName}</h2>
-                  <p className="text-indigo-100 mt-1 text-sm md:text-base">{stock.stockCode}</p>
+                  <p className="text-indigo-100 mt-1 text-sm md:text-base">{stock.stockCode}{stock.sectorName ? ` · ${stock.sectorName}` : ''}</p>
                 </div>
                 <button
                   onClick={onClose}
@@ -2063,6 +2091,30 @@
                 </div>
               </div>
 
+              {/* v3.65: 기본 정보 (업종/외인/PER/PBR) */}
+              {(stock.foreignRatio > 0 || stock.per > 0 || stock.pbr > 0) && (
+                <div className="grid grid-cols-4 gap-2 text-sm">
+                  {stock.sectorName && (
+                    <div className="bg-amber-50 rounded-lg p-3 text-center">
+                      <div className="text-gray-500 text-xs mb-1">업종</div>
+                      <div className="font-bold text-amber-700 truncate">{stock.sectorName}</div>
+                    </div>
+                  )}
+                  <div className="bg-cyan-50 rounded-lg p-3 text-center">
+                    <div className="text-gray-500 text-xs mb-1">외인비중</div>
+                    <div className="font-bold text-cyan-700">{stock.foreignRatio > 0 ? `${stock.foreignRatio.toFixed(1)}%` : '-'}</div>
+                  </div>
+                  <div className="bg-rose-50 rounded-lg p-3 text-center">
+                    <div className="text-gray-500 text-xs mb-1">PER</div>
+                    <div className="font-bold text-rose-700">{stock.per > 0 ? stock.per.toFixed(1) : '-'}</div>
+                  </div>
+                  <div className="bg-violet-50 rounded-lg p-3 text-center">
+                    <div className="text-gray-500 text-xs mb-1">PBR</div>
+                    <div className="font-bold text-violet-700">{stock.pbr > 0 ? stock.pbr.toFixed(1) : '-'}</div>
+                  </div>
+                </div>
+              )}
+
               {/* 과열 감지 v2 정보 */}
               {stock.overheatingV2 && stock.overheatingV2.overheated && (
                 <div className="p-4 bg-red-100 border-2 border-red-400 rounded-xl">
@@ -2070,6 +2122,25 @@
                   <div className="flex gap-4 text-sm">
                     <span>RSI(14): <b className={stock.overheatingV2.rsi > 80 ? 'text-red-700' : ''}>{stock.overheatingV2.rsi}</b></span>
                     <span>이격도(20일): <b className={stock.overheatingV2.disparity > 115 ? 'text-red-700' : ''}>{stock.overheatingV2.disparity}</b></span>
+                  </div>
+                </div>
+              )}
+
+              {/* v3.65 Tier 2: 기관/외인 순매수 랭킹 */}
+              {stock.institutionalRanking && (
+                <div className="bg-gradient-to-r from-blue-50 to-teal-50 border border-blue-200 rounded-xl p-4">
+                  <h4 className="font-bold text-blue-800 mb-2">🏛️ 기관/외인 순매수 랭킹</h4>
+                  <div className="flex gap-4 text-sm">
+                    {stock.institutionalRanking.instRank && stock.institutionalRanking.instRank <= 30 && (
+                      <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full font-semibold">
+                        기관 {stock.institutionalRanking.instRank}위
+                      </span>
+                    )}
+                    {stock.institutionalRanking.frgnRank && stock.institutionalRanking.frgnRank <= 30 && (
+                      <span className="bg-teal-100 text-teal-800 px-3 py-1 rounded-full font-semibold">
+                        외인 {stock.institutionalRanking.frgnRank}위
+                      </span>
+                    )}
                   </div>
                 </div>
               )}
