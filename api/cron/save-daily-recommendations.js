@@ -1143,6 +1143,40 @@ module.exports = async (req, res) => {
     }
 
     // =============================================
+    // 📦 POST-MARKET 모드: 패턴 수집 + 기대수익 통계 순차 실행 (16:20 KST)
+    // v3.65: patterns(16:20) + calc-expectations(16:30) cron 통합 → 슬롯 1개 절약
+    // =============================================
+    if (mode === 'post-market') {
+      console.log('📦 장후 처리 통합 모드 시작 (패턴 수집 → 기대수익 산출)...');
+      const results = { patterns: null, expectations: null };
+
+      // Step A: 패턴 수집 (patterns API를 가짜 req/res로 직접 호출)
+      try {
+        const patternsHandler = require('../patterns/index');
+        const patternResult = await new Promise((resolve, reject) => {
+          const fakeReq = { method: 'GET', query: { collect: 'true' } };
+          const fakeRes = {
+            setHeader: () => {},
+            status: (code) => ({
+              json: (data) => resolve({ code, ...data }),
+              end: () => resolve({ code })
+            })
+          };
+          patternsHandler(fakeReq, fakeRes).catch(reject);
+        });
+        results.patterns = { success: patternResult.success, collected: patternResult.collected || 0, backfilled: patternResult.backfilled || 0 };
+        console.log(`📊 패턴 수집 완료: ${patternResult.collected || 0}개 수집, ${patternResult.backfilled || 0}개 백필`);
+      } catch (e) {
+        console.error('⚠️ 패턴 수집 실패 (계속 진행):', e.message);
+        results.patterns = { success: false, error: e.message };
+      }
+
+      // Step B: 기대수익 통계 산출 — fall through to calc-expectations
+      mode = 'calc-expectations';
+      req._postMarketResults = results;
+    }
+
+    // =============================================
     // 📈 CALC-EXPECTATIONS 모드: 기대수익 통계 산출 (16:30 KST)
     // v3.46: grade×whale별 실제 수익률 분포 산출 → expected_return_stats UPSERT
     // v3.61: 90일 롤링 윈도우 적용 — 최근 시장 상황 반영
@@ -1270,6 +1304,16 @@ module.exports = async (req, res) => {
           return res.status(500).json({ success: false, error: upsertErr.message });
         }
         console.log(`✅ expected_return_stats UPSERT 완료: ${stats.length}건`);
+      }
+
+      // post-market 통합 모드에서 호출된 경우 통합 결과 반환
+      if (req._postMarketResults) {
+        req._postMarketResults.expectations = { success: true, stats: stats.length, totalRecs: allRecs.length, totalPrices: allPrices.length };
+        return res.status(200).json({
+          success: true,
+          mode: 'post-market',
+          ...req._postMarketResults
+        });
       }
 
       return res.status(200).json({

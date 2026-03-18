@@ -38,12 +38,8 @@
       "schedule": "0 23 * * 0-4"
     },
     {
-      "path": "/api/patterns?collect=true",
+      "path": "/api/cron/save-daily-recommendations?mode=post-market",
       "schedule": "20 7 * * 1-5"
-    },
-    {
-      "path": "/api/cron/save-daily-recommendations?mode=calc-expectations",
-      "schedule": "30 7 * * 1-5"
     },
     {
       "path": "/api/cron/save-daily-recommendations?mode=track&time=1",

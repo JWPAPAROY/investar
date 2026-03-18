@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.64
+- **버전**: 3.65
 - **최종 업데이트**: 2026-03-18
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
@@ -703,8 +703,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 |-----|-----|------|------|
 | 06:35 | 15:35 | save | 결산: 스크리닝 → Supabase 저장 + 텔레그램 |
 | 07:05 | 16:05 | update-prices | 전체 종목 종가 업데이트 (장 마감 후) |
-| 07:20 | 16:20 | patterns | 성공 패턴 수집 |
-| 07:30 | 16:30 | calc-expectations | 기대수익 통계 산출 (grade×whale별) |
+| 07:20 | 16:20 | post-market | 장후 통합 처리 (패턴 수집 → 기대수익 산출) |
 | 19:55 | 04:55 | night-futures | 야간선물 종가 캐시 (야간장 마감 5분 전) |
 | 23:00 | 08:00 | alert | 실시간 스크리닝 TOP 3 알림 + 해외 전망 |
 | 01:00 | 10:00 | track | 장중 주가 추적 |
@@ -866,6 +865,9 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.65 (2026-03-18)
+- **Cron 슬롯 통합**: `patterns`(16:20 KST) + `calc-expectations`(16:30 KST) → `post-market`(16:20 KST) 단일 cron으로 통합. 패턴 수집 → 기대수익 산출 순차 실행. Vercel cron 11/12 → 10/12 (2슬롯 확보).
 
 ### v3.64 (2026-03-18)
 - **야간선물 캐시 버그 수정**: 마켓코드가 `F`(정규장)였던 것이 원인 — `CM`(야간선물)이 정답. KIS API `FID_COND_MRKT_DIV_CODE` 값: F=지수선물, CM=야간선물, JF=주식선물, EU=야간옵션. 기존 `101W9000` 종목코드도 비표준으로 제거, 정규선물 코드(10100000/10600000) + `CM` 마켓코드 조합으로 변경.
