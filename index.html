@@ -1829,47 +1829,50 @@
               </div>
             </div>
 
-            {/* v3.46: 기대수익 구간 */}
-            {stock.expectedReturn && stock.expectedReturn.median > 0 && (() => {
+            {/* v3.46: 기대수익 구간 (v3.67: 마이너스 기대수익도 표시) */}
+            {stock.expectedReturn && (() => {
               const er = stock.expectedReturn;
               const price = stock.currentPrice;
+              const isPositive = er.median > 0;
               const riskPct = 5;
-              const rrRatio = (er.median / riskPct).toFixed(1);
+              const rrRatio = isPositive ? (er.median / riskPct).toFixed(1) : '0.0';
+              const sign = (v) => v > 0 ? '+' : '';
               return (
-                <div className="mt-3 bg-gradient-to-r from-green-50 to-emerald-50 border-2 border-green-200 rounded-lg p-3">
+                <div className={`mt-3 bg-gradient-to-r ${isPositive ? 'from-green-50 to-emerald-50 border-green-200' : 'from-red-50 to-orange-50 border-red-200'} border-2 rounded-lg p-3`}>
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-bold text-green-700">📈 기대수익 구간 ({er.days}일 기준)</span>
+                    <span className={`text-sm font-bold ${isPositive ? 'text-green-700' : 'text-red-700'}`}>{isPositive ? '📈 기대수익' : '📉 예상손실'} 구간 ({er.days}일 기준)</span>
                     <span className="flex items-center gap-1">
                       {er.matchMethod && er.matchMethod !== 'grade_based' && <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold">유사매칭</span>}
                       {(!er.matchMethod || er.matchMethod === 'grade_based') && <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">등급기준</span>}
-                      <span className="text-xs text-green-600 bg-green-100 px-2 py-0.5 rounded-full" title={er.updatedAt ? `최근 90일 데이터 기준 · 갱신: ${new Date(er.updatedAt).toLocaleDateString('ko-KR')}` : ''}>N={er.sampleCount}</span>
+                      <span className={`text-xs ${isPositive ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'} px-2 py-0.5 rounded-full`} title={er.updatedAt ? `최근 90일 데이터 기준 · 갱신: ${new Date(er.updatedAt).toLocaleDateString('ko-KR')}` : ''}>N={er.sampleCount}</span>
                     </span>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-xs mb-2">
                     <div className="bg-white rounded p-2 text-center">
                       <div className="text-gray-600 mb-1">하단 (25%)</div>
-                      <div className="font-bold text-green-600">+{er.p25.toFixed(1)}%</div>
+                      <div className={`font-bold ${er.p25 >= 0 ? 'text-green-600' : 'text-red-600'}`}>{sign(er.p25)}{er.p25.toFixed(1)}%</div>
                       <div className="text-gray-500 text-[10px]">{Math.floor(price * (1 + er.p25 / 100)).toLocaleString()}원</div>
                     </div>
-                    <div className="bg-white rounded p-2 text-center border border-green-300">
+                    <div className={`bg-white rounded p-2 text-center border ${isPositive ? 'border-green-300' : 'border-red-300'}`}>
                       <div className="text-gray-600 mb-1 font-semibold">중앙값</div>
-                      <div className="font-bold text-green-700 text-sm">+{er.median.toFixed(1)}%</div>
+                      <div className={`font-bold text-sm ${isPositive ? 'text-green-700' : 'text-red-700'}`}>{sign(er.median)}{er.median.toFixed(1)}%</div>
                       <div className="text-gray-500 text-[10px]">{Math.floor(price * (1 + er.median / 100)).toLocaleString()}원</div>
                     </div>
                     <div className="bg-white rounded p-2 text-center">
                       <div className="text-gray-600 mb-1">상단 (75%)</div>
-                      <div className="font-bold text-emerald-600">+{er.p75.toFixed(1)}%</div>
+                      <div className={`font-bold ${er.p75 >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{sign(er.p75)}{er.p75.toFixed(1)}%</div>
                       <div className="text-gray-500 text-[10px]">{Math.floor(price * (1 + er.p75 / 100)).toLocaleString()}원</div>
                     </div>
                   </div>
                   <div className="flex items-center justify-between text-xs">
                     <div className="flex items-center gap-2">
-                      <span className="text-green-700 font-semibold">⚖️ 손익비 1:{rrRatio}</span>
+                      {isPositive && <span className="text-green-700 font-semibold">⚖️ 손익비 1:{rrRatio}</span>}
+                      {!isPositive && <span className="text-red-700 font-semibold">⚠️ 손실 예상 종목</span>}
                       <span className="text-gray-500">|</span>
-                      <span className="text-green-600">승률 {er.winRate.toFixed(0)}%</span>
+                      <span className={isPositive ? 'text-green-600' : 'text-red-600'}>승률 {er.winRate.toFixed(0)}%</span>
                     </div>
                     <div className="w-20 bg-gray-200 rounded-full h-2">
-                      <div className="bg-green-500 h-2 rounded-full" style={{ width: `${Math.min(100, er.winRate)}%` }}></div>
+                      <div className={`${isPositive ? 'bg-green-500' : 'bg-red-500'} h-2 rounded-full`} style={{ width: `${Math.min(100, er.winRate)}%` }}></div>
                     </div>
                   </div>
                 </div>
@@ -2406,51 +2409,54 @@
                 </div>
               )}
 
-              {/* v3.46: 기대수익 구간 상세 */}
-              {stock.expectedReturn && stock.expectedReturn.median > 0 && (() => {
+              {/* v3.46: 기대수익 구간 상세 (v3.67: 마이너스도 표시) */}
+              {stock.expectedReturn && (() => {
                 const er = stock.expectedReturn;
                 const price = stock.currentPrice;
+                const isPositive = er.median > 0;
                 const riskPct = 5;
-                const rrRatio = (er.median / riskPct).toFixed(1);
+                const rrRatio = isPositive ? (er.median / riskPct).toFixed(1) : '0.0';
+                const sign = (v) => v > 0 ? '+' : '';
                 return (
-                  <div className="bg-gradient-to-br from-green-50 to-emerald-50 border-2 border-green-300 rounded-xl p-3 md:p-6">
+                  <div className={`bg-gradient-to-br ${isPositive ? 'from-green-50 to-emerald-50 border-green-300' : 'from-red-50 to-orange-50 border-red-300'} border-2 rounded-xl p-3 md:p-6`}>
                     <div className="flex items-center justify-between mb-3 md:mb-4">
-                      <h3 className="text-lg md:text-xl font-bold">📈 기대수익 구간</h3>
+                      <h3 className="text-lg md:text-xl font-bold">{isPositive ? '📈 기대수익 구간' : '📉 예상손실 구간'}</h3>
                       <span className="flex items-center gap-1">
                         {er.matchMethod && er.matchMethod !== 'grade_based' && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">유사매칭</span>}
                         {(!er.matchMethod || er.matchMethod === 'grade_based') && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">등급기준</span>}
-                        <span className="text-sm text-green-600 bg-green-100 px-3 py-1 rounded-full font-semibold">{er.days}일 | N={er.sampleCount}</span>
+                        <span className={`text-sm ${isPositive ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'} px-3 py-1 rounded-full font-semibold`}>{er.days}일 | N={er.sampleCount}</span>
                       </span>
                     </div>
                     <p className="text-sm text-gray-600 mb-4">{er.matchMethod && er.matchMethod !== 'grade_based' ? '유사 지표(점수·고래·기관·시총·거래량·RSI)를 가진 최근 90일 종목의 실제 수익률 분포입니다.' : '동일 등급·고래 조건의 최근 90일 종목 실제 수익률 분포입니다.'}{er.updatedAt && ` (${new Date(er.updatedAt).toLocaleDateString('ko-KR')} 갱신)`}</p>
                     <div className="grid grid-cols-3 gap-2 md:gap-3 mb-4">
-                      <div className="bg-white p-2 md:p-3 rounded-lg border border-green-200 text-center">
+                      <div className={`bg-white p-2 md:p-3 rounded-lg border ${er.p25 >= 0 ? 'border-green-200' : 'border-red-200'} text-center`}>
                         <p className="text-gray-600 text-[10px] md:text-xs mb-1">하단 (25%)</p>
-                        <p className="text-lg md:text-2xl font-bold text-green-600">+{er.p25.toFixed(1)}%</p>
+                        <p className={`text-lg md:text-2xl font-bold ${er.p25 >= 0 ? 'text-green-600' : 'text-red-600'}`}>{sign(er.p25)}{er.p25.toFixed(1)}%</p>
                         <p className="text-xs text-gray-500 mt-1">{Math.floor(price * (1 + er.p25 / 100)).toLocaleString()}원</p>
                       </div>
-                      <div className="bg-white p-2 md:p-3 rounded-lg border-2 border-green-400 text-center">
+                      <div className={`bg-white p-2 md:p-3 rounded-lg border-2 ${isPositive ? 'border-green-400' : 'border-red-400'} text-center`}>
                         <p className="text-gray-600 text-[10px] md:text-xs mb-1 font-semibold">중앙값 (50%)</p>
-                        <p className="text-xl md:text-3xl font-bold text-green-700">+{er.median.toFixed(1)}%</p>
+                        <p className={`text-xl md:text-3xl font-bold ${isPositive ? 'text-green-700' : 'text-red-700'}`}>{sign(er.median)}{er.median.toFixed(1)}%</p>
                         <p className="text-xs text-gray-500 mt-1">{Math.floor(price * (1 + er.median / 100)).toLocaleString()}원</p>
                       </div>
-                      <div className="bg-white p-2 md:p-3 rounded-lg border border-emerald-200 text-center">
+                      <div className={`bg-white p-2 md:p-3 rounded-lg border ${er.p75 >= 0 ? 'border-emerald-200' : 'border-red-200'} text-center`}>
                         <p className="text-gray-600 text-[10px] md:text-xs mb-1">상단 (75%)</p>
-                        <p className="text-lg md:text-2xl font-bold text-emerald-600">+{er.p75.toFixed(1)}%</p>
+                        <p className={`text-lg md:text-2xl font-bold ${er.p75 >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{sign(er.p75)}{er.p75.toFixed(1)}%</p>
                         <p className="text-xs text-gray-500 mt-1">{Math.floor(price * (1 + er.p75 / 100)).toLocaleString()}원</p>
                       </div>
                     </div>
-                    <div className="flex items-center justify-between bg-white rounded-lg p-3 border border-green-200">
+                    <div className={`flex items-center justify-between bg-white rounded-lg p-3 border ${isPositive ? 'border-green-200' : 'border-red-200'}`}>
                       <div className="flex items-center gap-3">
                         <div>
-                          <span className="text-sm font-bold text-green-700">⚖️ 손익비 1:{rrRatio}</span>
-                          <span className="text-xs text-gray-500 ml-1">(손절 -5% 기준)</span>
+                          {isPositive && <span className="text-sm font-bold text-green-700">⚖️ 손익비 1:{rrRatio}</span>}
+                          {!isPositive && <span className="text-sm font-bold text-red-700">⚠️ 손실 예상 종목</span>}
+                          {isPositive && <span className="text-xs text-gray-500 ml-1">(손절 -5% 기준)</span>}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold text-green-600">승률 {er.winRate.toFixed(0)}%</span>
+                        <span className={`text-sm font-semibold ${isPositive ? 'text-green-600' : 'text-red-600'}`}>승률 {er.winRate.toFixed(0)}%</span>
                         <div className="w-24 bg-gray-200 rounded-full h-3">
-                          <div className="bg-green-500 h-3 rounded-full" style={{ width: `${Math.min(100, er.winRate)}%` }}></div>
+                          <div className={`${isPositive ? 'bg-green-500' : 'bg-red-500'} h-3 rounded-full`} style={{ width: `${Math.min(100, er.winRate)}%` }}></div>
                         </div>
                       </div>
                     </div>
@@ -5112,9 +5118,9 @@
                                     style={{ left: `${Math.max(0, Math.min(100, (adv.currentReturn + 10) / 40 * 100))}%` }} />
                                   <div className="absolute inset-0 flex items-center justify-between px-1 text-[9px] text-gray-500">
                                     <span>-10%</span>
-                                    <span>p25: +{adv.expectedReturn.p25}%</span>
-                                    <span>med: +{adv.expectedReturn.median}%</span>
-                                    <span>p75: +{adv.expectedReturn.p75}%</span>
+                                    <span>p25: {adv.expectedReturn.p25 > 0 ? '+' : ''}{adv.expectedReturn.p25}%</span>
+                                    <span>med: {adv.expectedReturn.median > 0 ? '+' : ''}{adv.expectedReturn.median}%</span>
+                                    <span>p75: {adv.expectedReturn.p75 > 0 ? '+' : ''}{adv.expectedReturn.p75}%</span>
                                     <span>+30%</span>
                                   </div>
                                 </div>
