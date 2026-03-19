@@ -1348,12 +1348,20 @@ module.exports = async (req, res) => {
       const MIN_SIMILAR_SAMPLES = 20;
       const today = getTodayDateKST();
 
-      // 오늘 추천 종목 (is_active = B등급 이상)
-      const todayRecs = allRecs.filter(r => r.recommendation_date === today);
-      console.log(`📊 오늘(${today}) 추천 종목: ${todayRecs.length}건 — 유사 매칭 시작`);
+      // 대상: 오늘 추천 종목. 없으면 가장 최근 추천일 사용 (수동 실행 대응)
+      let targetDate = today;
+      let targetRecs = allRecs.filter(r => r.recommendation_date === today);
+      if (targetRecs.length === 0) {
+        const dates = [...new Set(allRecs.map(r => r.recommendation_date))].sort().reverse();
+        if (dates.length > 0) {
+          targetDate = dates[0];
+          targetRecs = allRecs.filter(r => r.recommendation_date === targetDate);
+        }
+      }
+      console.log(`📊 대상(${targetDate}) 추천 종목: ${targetRecs.length}건 — 유사 매칭 시작`);
 
-      // 과거 종목 풀 (오늘 제외)
-      const historicalRecs = allRecs.filter(r => r.recommendation_date !== today);
+      // 과거 종목 풀 (대상일 제외)
+      const historicalRecs = allRecs.filter(r => r.recommendation_date !== targetDate);
 
       // rec ID → 수익률 매핑 (day별)
       const pricesByRecId = new Map();
@@ -1471,13 +1479,13 @@ module.exports = async (req, res) => {
       }
 
       const stockExpStats = [];
-      for (const rec of todayRecs) {
+      for (const rec of targetRecs) {
         const sig = getBucketSignature(rec);
         const result = findSimilarReturns(sig, historicalRecs, pricesByRecId);
 
         if (result) {
           stockExpStats.push({
-            recommendation_date: today,
+            recommendation_date: targetDate,
             stock_code: rec.stock_code,
             optimal_days: result.optimal_days,
             p25: result.p25,
@@ -1492,7 +1500,7 @@ module.exports = async (req, res) => {
         }
       }
 
-      console.log(`📊 종목별 유사 매칭: ${stockExpStats.length}/${todayRecs.length}건 성공`);
+      console.log(`📊 종목별 유사 매칭: ${stockExpStats.length}/${targetRecs.length}건 성공`);
       stockExpStats.forEach(s => console.log(`  ${s.stock_code}: method=${s.match_method}, dims=${s.match_dimensions}, day=${s.optimal_days}, median=${s.median}%, N=${s.sample_count}`));
 
       // Step 7: stock_expected_returns UPSERT
