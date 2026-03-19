@@ -814,13 +814,14 @@ async function getRecentHistory(previousKospi, regression) {
     const { data, error } = await supabase
       .from('overnight_predictions')
       .select('prediction_date, score, signal, hit, kospi_close_change')
+      .lt('prediction_date', '8888-01-01')
       .order('prediction_date', { ascending: false })
       .limit(30);
 
     if (error || !data) return [];
 
-    // TOKEN_CACHE 행(KIS 토큰 캐시용 9999-12-31) 및 비정상 데이터 필터링
-    const filtered = data.filter(d => d.signal !== 'TOKEN_CACHE' && d.prediction_date < '9999');
+    // 특수 날짜 행 필터링 (9999-12-31: 토큰 캐시, 8888-12-31: 야간선물 캐시)
+    const filtered = data.filter(d => d.signal !== 'TOKEN_CACHE' && d.prediction_date < '8888');
 
     // 차트용 오름차순으로 뒤집기
     const rows = filtered.reverse();
