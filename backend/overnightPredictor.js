@@ -237,30 +237,53 @@ async function fetchOvernightData() {
   });
 
   // KIS API 선물 조회 (KOSPI200F, KOSDAQ150F)
-  // 1순위: 04:55 KST에 저장된 야간선물 캐시
-  // 2순위: 정규선물 실시간 조회 (10100000/10600000) — 정규장 중이면 유효
+  // 1순위: CM(야간선물) 마켓코드로 직접 조회 — 마감 후에도 최종 종가 유지
+  // 2순위: 정규선물 실시간 조회 (getKospi200FuturesPrice 등 — F/JF/CME 다단계 fallback)
   const kisFuturesPromise = (async () => {
     const todayKST = getTodayKST();
     const futuresResults = [];
 
-    // 1순위: 야간선물 캐시 로드
-    const nightCache = await loadNightFutures();
     const kisTickers = ['KOSPI200F', 'KOSDAQ150F'];
+    const cmCodes = {
+      'KOSPI200F': ['10100000', 'A01606'],
+      'KOSDAQ150F': ['10600000', 'A06606'],
+    };
     const getters = {
       'KOSPI200F': () => kisApi.getKospi200FuturesPrice(),
       'KOSDAQ150F': () => kisApi.getKosdaq150FuturesPrice(),
     };
 
     for (const ticker of kisTickers) {
-      // 야간선물 캐시에 유효 데이터가 있으면 우선 사용
-      if (nightCache && nightCache[ticker]) {
-        const nc = nightCache[ticker];
-        console.log(`🌙 ${ticker} 야간선물 캐시 사용: ${nc.price} (${nc.change >= 0 ? '+' : ''}${nc.change}%)`);
-        futuresResults.push(nc);
-        continue;
+      let found = false;
+
+      // 1순위: CM(야간선물) 직접 조회 — 06:00 마감 종가를 08:00에도 반환
+      for (const code of cmCodes[ticker]) {
+        try {
+          await kisApi.rateLimiter.acquire();
+          const token = await kisApi.getAccessToken();
+          const result = await kisApi._queryFuturesPrice(token, code, 'CM');
+          if (result && result.price > 0 && result.change !== 0) {
+            console.log(`🌙 ${ticker} CM 직접 조회: ${result.price} (${result.change >= 0 ? '+' : ''}${result.change}%)`);
+            futuresResults.push({
+              ticker,
+              price: result.price,
+              previousClose: result.previousClose,
+              change: result.change,
+              dataDate: todayKST,
+              dataTimestamp: `${todayKST} 06:00`,
+              nightSession: true,
+            });
+            found = true;
+            break;
+          }
+        } catch (err) {
+          console.warn(`⚠️ ${ticker} CM+${code} 조회 실패: ${err.message}`);
+        }
       }
 
-      // 2순위: 정규선물 실시간 조회
+      if (found) continue;
+
+      // 2순위: 정규선물 다단계 fallback (F → JF → CME)
       try {
         const futures = await getters[ticker]();
         if (futures && futures.price > 0) {

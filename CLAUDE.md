@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.65
-- **최종 업데이트**: 2026-03-18
+- **버전**: 3.66
+- **최종 업데이트**: 2026-03-19
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -743,6 +743,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 - `screening_recommendations`: 추천 종목 이력 (20개+ 지표 포함)
 - `recommendation_daily_prices`: 일별 가격 추적
 - `expected_return_stats`: 등급×고래별 기대수익 통계 (v3.46)
+- `stock_expected_returns`: 종목별 유사 매칭 기대수익 (v3.66)
 - `overnight_predictions`: 해외 지수 기반 시장 방향 예측 + 적중률 (v3.47)
 - `success_patterns`: +10% 달성 종목 지표 특징
 - `recommendation_statistics` (뷰): 종목별 성과 통계
@@ -865,6 +866,13 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.66 (2026-03-19)
+- **종목별 유사 매칭 기대수익**: 기존 등급×고래 일괄 기대수익 → 종목별 6차원 유사 매칭(점수구간/고래/기관매수일/시총/거래량비율/RSI)으로 개별 기대수익 산출. 최소 20개 유사 샘플 필요, 차원을 점진적으로 완화(RSI→거래량→시총→기관 순 제거)하여 매칭률 확보, fallback은 기존 등급 기반.
+- **`stock_expected_returns` 테이블 추가**: `recommendation_date + stock_code` 복합키, match_method/match_dimensions 메타데이터 저장. `post-market` cron(16:20)에서 당일 추천 종목 대상 산출.
+- **기대수익 조회 우선순위 변경**: `getExpectedReturn()`, `recommend.js`, `analyze.js` — 종목별 유사 매칭 → 등급 기반 fallback 2단계. `matchMethod` 필드로 출처 구분.
+- **야간선물 CM 직접 조회**: 04:55 Supabase 캐시 의존 → 08:00 alert 시 CM 마켓코드로 야간선물 최종 종가 직접 조회. 마감 전 1시간 오차 해소.
+- **alert cron 중복 전송 방지**: `overnight_predictions.alert_sent_at` 필드 추가. cron 재실행 시 이미 전송했으면 스킵 (웹훅 `/알림` 수동 명령은 허용).
 
 ### v3.65 (2026-03-18)
 - **Cron 슬롯 통합**: `patterns`(16:20 KST) + `calc-expectations`(16:30 KST) → `post-market`(16:20 KST) 단일 cron으로 통합. 패턴 수집 → 기대수익 산출 순차 실행. Vercel cron 11/12 → 10/12 (2슬롯 확보).

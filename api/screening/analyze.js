@@ -27,11 +27,17 @@ module.exports = async function handler(req, res) {
   try {
     const kisApi = require('../../backend/kisApi');
 
-    // v3.46: 기대수익 통계 조회
+    // v3.46: 기대수익 통계 조회 (v3.66: 종목별 유사 매칭 추가)
     let expectations = [];
+    let stockExpected = [];
     try {
-      const { data } = await supabase.from('expected_return_stats').select('*');
-      expectations = data || [];
+      const [expRes, stockExpRes] = await Promise.all([
+        supabase.from('expected_return_stats').select('*'),
+        supabase.from('stock_expected_returns').select('*')
+          .gte('recommendation_date', new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0]),
+      ]);
+      expectations = expRes.data || [];
+      stockExpected = stockExpRes.data || [];
     } catch(e) {}
 
     // 1단계: 종목명 사전 확보 — Supabase 우선, 없으면 KIS API getStockName fallback
@@ -92,16 +98,34 @@ module.exports = async function handler(req, res) {
             const name = nameMap.get(code);
             if (name) result.stockName = name;
           }
-          // v3.46: 기대수익 구간 매칭
-          if (expectations.length > 0) {
-            const grade = result.recommendation?.grade;
-            const whale = result.advancedAnalysis?.indicators?.whale?.some(w => w.type === '매수고래') || false;
-            let match = expectations.find(e => e.grade === grade && e.whale_detected === whale);
-            if (!match || match.sample_count < 5) {
-              match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
+          // v3.46: 기대수익 구간 매칭 (v3.66: 종목별 유사 매칭 우선)
+          if (stockExpected.length > 0 || expectations.length > 0) {
+            const stockCode = result.stockCode || code;
+            let matched = false;
+            // 1순위: 종목별 유사 매칭
+            if (stockExpected.length > 0 && stockCode) {
+              const stockMatch = stockExpected.find(e => e.stock_code === stockCode);
+              if (stockMatch && stockMatch.sample_count >= 20) {
+                result.expectedReturn = {
+                  days: stockMatch.optimal_days, p25: +stockMatch.p25, median: +stockMatch.median,
+                  p75: +stockMatch.p75, winRate: +stockMatch.win_rate, sampleCount: stockMatch.sample_count,
+                  matchMethod: stockMatch.match_method, matchDimensions: stockMatch.match_dimensions,
+                  updatedAt: stockMatch.updated_at,
+                };
+                matched = true;
+              }
             }
-            if (match && match.sample_count >= 5) {
-              result.expectedReturn = { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count, updatedAt: match.updated_at };
+            // 2순위: 등급 기반
+            if (!matched && expectations.length > 0) {
+              const grade = result.recommendation?.grade;
+              const whale = result.advancedAnalysis?.indicators?.whale?.some(w => w.type === '매수고래') || false;
+              let match = expectations.find(e => e.grade === grade && e.whale_detected === whale);
+              if (!match || match.sample_count < 5) {
+                match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
+              }
+              if (match && match.sample_count >= 5) {
+                result.expectedReturn = { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count, matchMethod: 'grade_based', updatedAt: match.updated_at };
+              }
             }
           }
           results.push(result);

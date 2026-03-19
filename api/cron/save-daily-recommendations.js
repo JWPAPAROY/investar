@@ -584,7 +584,40 @@ function getTop3FromDb(stocks, field = 'is_top3') {
 /**
  * v3.46: 기대수익 구간 매칭
  */
+// v3.66: 종목별 기대수익 데이터 (모듈 스코프 — alert/save/track 모드에서 로드)
+let _stockExpectedReturns = [];
+
+async function loadStockExpectedReturns(supabaseClient) {
+  try {
+    // 최근 3일치 로드 (오늘 + 전거래일 커버)
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 5);
+    const { data } = await supabaseClient
+      .from('stock_expected_returns')
+      .select('*')
+      .gte('recommendation_date', cutoff.toISOString().split('T')[0]);
+    _stockExpectedReturns = data || [];
+    console.log(`📊 종목별 기대수익 로드: ${_stockExpectedReturns.length}건`);
+  } catch (e) {
+    console.warn('⚠️ stock_expected_returns 로드 실패:', e.message);
+    _stockExpectedReturns = [];
+  }
+}
+
 function getExpectedReturn(stock, expectations) {
+  // v3.66: 종목별 유사 매칭 데이터 우선
+  const stockCode = stock.stock_code || stock.stockCode;
+  if (_stockExpectedReturns.length > 0 && stockCode) {
+    const stockMatch = _stockExpectedReturns.find(e => e.stock_code === stockCode);
+    if (stockMatch && stockMatch.sample_count >= 20) {
+      return {
+        days: stockMatch.optimal_days, p25: +stockMatch.p25, median: +stockMatch.median,
+        p75: +stockMatch.p75, winRate: +stockMatch.win_rate, sampleCount: stockMatch.sample_count,
+        matchMethod: stockMatch.match_method, matchDimensions: stockMatch.match_dimensions,
+      };
+    }
+  }
+  // fallback: 등급 기반
   if (!expectations || expectations.length === 0) return null;
   const grade = stock.recommendation?.grade || stock.recommendation_grade || stock.grade;
   const whale = stock.advancedAnalysis?.indicators?.whale?.some(w => w.type === '매수고래')
@@ -594,7 +627,7 @@ function getExpectedReturn(stock, expectations) {
     match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
   }
   if (!match || match.sample_count < 5) return null;
-  return { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count };
+  return { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count, matchMethod: 'grade_based' };
 }
 
 /**
@@ -1180,6 +1213,7 @@ module.exports = async (req, res) => {
     // 📈 CALC-EXPECTATIONS 모드: 기대수익 통계 산출 (16:30 KST)
     // v3.46: grade×whale별 실제 수익률 분포 산출 → expected_return_stats UPSERT
     // v3.61: 90일 롤링 윈도우 적용 — 최근 시장 상황 반영
+    // v3.66: 종목별 유사 매칭 기대수익 추가 → stock_expected_returns UPSERT
     // =============================================
     if (mode === 'calc-expectations') {
       console.log('📈 기대수익 통계 산출 모드 시작...');
@@ -1192,13 +1226,14 @@ module.exports = async (req, res) => {
       console.log(`📅 롤링 윈도우: 최근 ${ROLLING_DAYS}일 (${cutoffStr} 이후)`);
 
       // Step 1: 페이지네이션으로 screening_recommendations 조회 (최근 90일)
+      // v3.66: 유사 매칭용 6개 차원 추가 조회
       let allRecs = [];
       let from = 0;
       const PAGE_SIZE = 1000;
       while (true) {
         const { data, error } = await supabase
           .from('screening_recommendations')
-          .select('id, recommendation_grade, whale_detected')
+          .select('id, recommendation_date, stock_code, recommendation_grade, whale_detected, total_score, institution_buy_days, market_cap, volume_ratio, rsi')
           .gte('recommendation_date', cutoffStr)
           .range(from, from + PAGE_SIZE - 1);
         if (error) { console.error('❌ recs 조회 실패:', error.message); break; }
@@ -1291,24 +1326,197 @@ module.exports = async (req, res) => {
         });
       });
 
-      console.log(`📊 산출 결과: ${stats.length}개 조합`);
+      console.log(`📊 등급 기반 산출 결과: ${stats.length}개 조합`);
       stats.forEach(s => console.log(`  ${s.grade}|whale=${s.whale_detected}: day=${s.optimal_days}, median=${s.median}%, p25=${s.p25}%, p75=${s.p75}%, winRate=${s.win_rate}%, N=${s.sample_count}`));
 
-      // Step 6: UPSERT
+      // Step 6: UPSERT (기존 등급 기반)
       if (stats.length > 0) {
         const { error: upsertErr } = await supabase
           .from('expected_return_stats')
           .upsert(stats, { onConflict: 'grade,whale_detected' });
         if (upsertErr) {
           console.error('❌ UPSERT 실패:', upsertErr.message);
-          return res.status(500).json({ success: false, error: upsertErr.message });
+        } else {
+          console.log(`✅ expected_return_stats UPSERT 완료: ${stats.length}건`);
         }
-        console.log(`✅ expected_return_stats UPSERT 완료: ${stats.length}건`);
+      }
+
+      // =============================================
+      // v3.66: 종목별 유사 매칭 기대수익 산출
+      // 오늘 추천된 종목 각각에 대해, 과거 유사 종목의 수익률 분포 산출
+      // =============================================
+      const MIN_SIMILAR_SAMPLES = 20;
+      const today = getTodayDateKST();
+
+      // 오늘 추천 종목 (is_active = B등급 이상)
+      const todayRecs = allRecs.filter(r => r.recommendation_date === today);
+      console.log(`📊 오늘(${today}) 추천 종목: ${todayRecs.length}건 — 유사 매칭 시작`);
+
+      // 과거 종목 풀 (오늘 제외)
+      const historicalRecs = allRecs.filter(r => r.recommendation_date !== today);
+
+      // rec ID → 수익률 매핑 (day별)
+      const pricesByRecId = new Map();
+      allPrices.forEach(p => {
+        if (!pricesByRecId.has(p.recommendation_id)) pricesByRecId.set(p.recommendation_id, []);
+        pricesByRecId.get(p.recommendation_id).push(p);
+      });
+
+      // 버킷 함수: 각 차원을 이산 구간으로 변환
+      function getScoreBucket(score) {
+        if (score >= 90) return '90+';
+        if (score >= 75) return '75-89';
+        if (score >= 60) return '60-74';
+        if (score >= 45) return '45-59';
+        return '30-44';
+      }
+      function getInstBucket(days) {
+        if (days >= 3) return '3+';
+        if (days >= 1) return '1-2';
+        return '0';
+      }
+      function getCapBucket(cap) {
+        if (cap >= 10000) return '1T+';     // 1조+
+        if (cap >= 3000) return '3K-1T';    // 3000억~1조
+        return '<3K';                        // 3000억 미만
+      }
+      function getVolBucket(ratio) {
+        if (ratio >= 3.0) return '3+';
+        if (ratio >= 1.5) return '1.5-3';
+        return '<1.5';
+      }
+      function getRsiBucket(rsi) {
+        if (rsi >= 70) return '70+';
+        if (rsi >= 50) return '50-70';
+        if (rsi >= 30) return '30-50';
+        return '<30';
+      }
+
+      // 종목의 버킷 시그니처 생성
+      function getBucketSignature(rec) {
+        return {
+          score: getScoreBucket(rec.total_score || 0),
+          whale: !!(rec.whale_detected),
+          inst: getInstBucket(rec.institution_buy_days || 0),
+          cap: getCapBucket(rec.market_cap || 0),
+          vol: getVolBucket(rec.volume_ratio || 0),
+          rsi: getRsiBucket(rec.rsi || 50),
+        };
+      }
+
+      // 유사 종목 매칭 (점진적 완화)
+      // dimensions: [score, whale, inst, cap, vol, rsi]
+      // 완화 순서: rsi → vol → cap → inst (whale, score는 항상 유지)
+      function findSimilarReturns(targetSig, pool, pricesMap) {
+        const relaxLevels = [
+          ['score', 'whale', 'inst', 'cap', 'vol', 'rsi'],  // 6차원 정확
+          ['score', 'whale', 'inst', 'cap', 'vol'],          // RSI 제거
+          ['score', 'whale', 'inst', 'cap'],                  // 거래량비율 제거
+          ['score', 'whale', 'inst'],                          // 시총 제거
+          ['score', 'whale'],                                  // 기관 제거
+        ];
+
+        for (const dims of relaxLevels) {
+          const matchedIds = [];
+          for (const rec of pool) {
+            const sig = getBucketSignature(rec);
+            let match = true;
+            for (const d of dims) {
+              if (sig[d] !== targetSig[d]) { match = false; break; }
+            }
+            if (match && pricesMap.has(rec.id)) matchedIds.push(rec.id);
+          }
+
+          if (matchedIds.length >= MIN_SIMILAR_SAMPLES) {
+            // day별 수익률 수집
+            const dayGroups = {};
+            for (const id of matchedIds) {
+              const prices = pricesMap.get(id);
+              if (!prices) continue;
+              for (const p of prices) {
+                if (p.cumulative_return == null) continue;
+                const day = p.days_since_recommendation;
+                if (!dayGroups[day]) dayGroups[day] = [];
+                dayGroups[day].push(p.cumulative_return);
+              }
+            }
+
+            // optimal_days 찾기
+            let bestDay = null, bestMedian = -Infinity;
+            for (let day = 1; day <= 15; day++) {
+              const returns = dayGroups[day];
+              if (!returns || returns.length < MIN_SIMILAR_SAMPLES) continue;
+              const sorted = [...returns].sort((a, b) => a - b);
+              const med = sorted[Math.floor(sorted.length / 2)];
+              if (med > bestMedian) { bestMedian = med; bestDay = day; }
+            }
+            if (bestDay === null) continue;
+
+            const returns = dayGroups[bestDay];
+            const sorted = [...returns].sort((a, b) => a - b);
+            const n = sorted.length;
+            return {
+              optimal_days: bestDay,
+              p25: parseFloat(sorted[Math.floor(n * 0.25)].toFixed(2)),
+              median: parseFloat(sorted[Math.floor(n * 0.5)].toFixed(2)),
+              p75: parseFloat(sorted[Math.floor(n * 0.75)].toFixed(2)),
+              win_rate: parseFloat((sorted.filter(r => r > 0).length / n * 100).toFixed(2)),
+              sample_count: n,
+              match_dimensions: dims.join(','),
+              match_method: dims.length >= 5 ? 'similar_exact' : 'similar_relaxed',
+            };
+          }
+        }
+        return null; // fallback to grade-based
+      }
+
+      const stockExpStats = [];
+      for (const rec of todayRecs) {
+        const sig = getBucketSignature(rec);
+        const result = findSimilarReturns(sig, historicalRecs, pricesByRecId);
+
+        if (result) {
+          stockExpStats.push({
+            recommendation_date: today,
+            stock_code: rec.stock_code,
+            optimal_days: result.optimal_days,
+            p25: result.p25,
+            median: result.median,
+            p75: result.p75,
+            win_rate: result.win_rate,
+            sample_count: result.sample_count,
+            match_method: result.match_method,
+            match_dimensions: result.match_dimensions,
+            updated_at: new Date().toISOString(),
+          });
+        }
+      }
+
+      console.log(`📊 종목별 유사 매칭: ${stockExpStats.length}/${todayRecs.length}건 성공`);
+      stockExpStats.forEach(s => console.log(`  ${s.stock_code}: method=${s.match_method}, dims=${s.match_dimensions}, day=${s.optimal_days}, median=${s.median}%, N=${s.sample_count}`));
+
+      // Step 7: stock_expected_returns UPSERT
+      if (stockExpStats.length > 0) {
+        // Supabase는 한번에 최대 1000행 UPSERT
+        const { error: stockExpErr } = await supabase
+          .from('stock_expected_returns')
+          .upsert(stockExpStats, { onConflict: 'recommendation_date,stock_code' });
+        if (stockExpErr) {
+          console.error('❌ stock_expected_returns UPSERT 실패:', stockExpErr.message);
+        } else {
+          console.log(`✅ stock_expected_returns UPSERT 완료: ${stockExpStats.length}건`);
+        }
       }
 
       // post-market 통합 모드에서 호출된 경우 통합 결과 반환
       if (req._postMarketResults) {
-        req._postMarketResults.expectations = { success: true, stats: stats.length, totalRecs: allRecs.length, totalPrices: allPrices.length };
+        req._postMarketResults.expectations = {
+          success: true,
+          stats: stats.length,
+          stockExpected: stockExpStats.length,
+          totalRecs: allRecs.length,
+          totalPrices: allPrices.length
+        };
         return res.status(200).json({
           success: true,
           mode: 'post-market',
@@ -1320,6 +1528,7 @@ module.exports = async (req, res) => {
         success: true,
         mode: 'calc-expectations',
         stats: stats.length,
+        stockExpected: stockExpStats.length,
         totalRecs: allRecs.length,
         totalPrices: allPrices.length
       });
@@ -1334,6 +1543,28 @@ module.exports = async (req, res) => {
 
       const today = getTodayDateKST();
       console.log(`📅 기준 날짜: ${today}`);
+
+      // v3.66: cron 중복 실행 방지 — 오늘 이미 alert 전송했으면 스킵 (웹훅 수동 명령은 허용)
+      if (!req._fromWebhook) {
+        try {
+          const { data: existing } = await supabase
+            .from('overnight_predictions')
+            .select('alert_sent_at')
+            .eq('prediction_date', today)
+            .single();
+          if (existing?.alert_sent_at) {
+            console.log(`⚠️ 오늘(${today}) alert 이미 전송됨 (${existing.alert_sent_at}) — cron 중복 스킵`);
+            return res.status(200).json({
+              success: true,
+              mode: 'alert',
+              message: `Alert already sent today (${existing.alert_sent_at})`,
+              skipped: true
+            });
+          }
+        } catch (e) {
+          // 캐시 없음 — 정상 진행
+        }
+      }
 
       // Step 1: 전날 SAVE 결과에서 TOP 3 가져오기 (Supabase 조회)
       console.log('🔍 전날 SAVE 결과 조회 중...');
@@ -1483,6 +1714,7 @@ module.exports = async (req, res) => {
       // v3.46: 기대수익 통계 조회
       let expectations = [];
       try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
+      await loadStockExpectedReturns(supabase);
 
       // Step 5: 해외 시장 기반 전망
       let prediction = null;
@@ -1496,6 +1728,18 @@ module.exports = async (req, res) => {
       // Step 6: 텔레그램 알림 전송
       const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction);
       const sent = await sendTelegramMessage(message);
+
+      // v3.66: alert 전송 완료 시각 기록 (cron 중복 방지용)
+      if (sent) {
+        try {
+          await supabase
+            .from('overnight_predictions')
+            .update({ alert_sent_at: new Date().toISOString() })
+            .eq('prediction_date', today);
+        } catch (e) {
+          console.warn('⚠️ alert_sent_at 기록 실패:', e.message);
+        }
+      }
 
       return res.status(200).json({
         success: true,
@@ -1664,6 +1908,7 @@ module.exports = async (req, res) => {
       // v3.46: 기대수익 통계 조회
       let expectations = [];
       try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
+      await loadStockExpectedReturns(supabase);
 
       // Step 3: 메시지 포맷 및 전송
       const trackMsg = formatTrackMessage(dayResults, kstTimeStr, sentiment, expectations);
@@ -1896,6 +2141,7 @@ module.exports = async (req, res) => {
       // v3.46: 기대수익 통계 조회
       let expectations = [];
       try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
+      await loadStockExpectedReturns(supabase);
 
       // v3.55: 해외 전망 조회 (결산 메시지에 표시)
       let prediction = null;
@@ -2266,6 +2512,7 @@ module.exports = async (req, res) => {
       // v3.46: 기대수익 통계 조회
       let expectations = [];
       try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
+      await loadStockExpectedReturns(supabase);
 
       // 3. 해외 예측 조회 (SAVE 방어 트리거용)
       let prediction = null;

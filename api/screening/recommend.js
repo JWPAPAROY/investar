@@ -27,17 +27,37 @@ module.exports = async function handler(req, res) {
     const limitNum = limit ? parseInt(limit) : undefined; // limit 없으면 전체 반환
     const result = await screener.screenAllStocks(market, limitNum);
 
-    // v3.46: 기대수익 구간 매칭
+    // v3.46: 기대수익 구간 매칭 (v3.66: 종목별 유사 매칭 우선)
     let expectations = [];
+    let stockExpected = [];
     try {
       if (supabase) {
-        const { data } = await supabase.from('expected_return_stats').select('*');
-        expectations = data || [];
+        const [expRes, stockExpRes] = await Promise.all([
+          supabase.from('expected_return_stats').select('*'),
+          supabase.from('stock_expected_returns').select('*')
+            .gte('recommendation_date', new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0]),
+        ]);
+        expectations = expRes.data || [];
+        stockExpected = stockExpRes.data || [];
       }
     } catch(e) {}
 
-    if (expectations.length > 0) {
+    if (expectations.length > 0 || stockExpected.length > 0) {
       const matchExpectedReturn = (stock) => {
+        // v3.66: 종목별 유사 매칭 우선
+        const stockCode = stock.stockCode || stock.stock_code;
+        if (stockExpected.length > 0 && stockCode) {
+          const stockMatch = stockExpected.find(e => e.stock_code === stockCode);
+          if (stockMatch && stockMatch.sample_count >= 20) {
+            return {
+              days: stockMatch.optimal_days, p25: +stockMatch.p25, median: +stockMatch.median,
+              p75: +stockMatch.p75, winRate: +stockMatch.win_rate, sampleCount: stockMatch.sample_count,
+              matchMethod: stockMatch.match_method, matchDimensions: stockMatch.match_dimensions,
+              updatedAt: stockMatch.updated_at,
+            };
+          }
+        }
+        // fallback: 등급 기반
         const grade = stock.recommendation?.grade;
         const whale = stock.advancedAnalysis?.indicators?.whale?.some(w => w.type === '매수고래') || false;
         let match = expectations.find(e => e.grade === grade && e.whale_detected === whale);
@@ -45,7 +65,7 @@ module.exports = async function handler(req, res) {
           match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
         }
         if (!match || match.sample_count < 5) return null;
-        return { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count, updatedAt: match.updated_at };
+        return { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count, matchMethod: 'grade_based', updatedAt: match.updated_at };
       };
       result.stocks.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
       if (result.top3) result.top3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
