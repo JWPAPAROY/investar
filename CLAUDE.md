@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.66
+- **버전**: 3.67
 - **최종 업데이트**: 2026-03-19
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
@@ -866,6 +866,9 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.67 (2026-03-19)
+- **종목 분석 실시간 유사 매칭**: analyze API에서 분석된 종목의 지표(점수/고래/기관매수일/시총/거래량비율/RSI)를 `similarityMatcher.js`로 실시간 유사 매칭. 사전 계산된 `stock_expected_returns` 없는 종목도 기대수익 산출 가능. 3단계 fallback: 사전계산 유사매칭 → 실시간 유사매칭 → 등급 기반.
 
 ### v3.66 (2026-03-19)
 - **종목별 유사 매칭 기대수익**: 기존 등급×고래 일괄 기대수익 → 종목별 6차원 유사 매칭(점수구간/고래/기관매수일/시총/거래량비율/RSI)으로 개별 기대수익 산출. 최소 20개 유사 샘플 필요, 차원을 점진적으로 완화(RSI→거래량→시총→기관 순 제거)하여 매칭률 확보, fallback은 기존 등급 기반.

@@ -4,6 +4,7 @@
 
 const screener = require('../../backend/screening');
 const supabase = require('../../backend/supabaseClient');
+const { computeSimilarExpectedReturn } = require('../../backend/similarityMatcher');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -98,11 +99,11 @@ module.exports = async function handler(req, res) {
             const name = nameMap.get(code);
             if (name) result.stockName = name;
           }
-          // v3.46: 기대수익 구간 매칭 (v3.66: 종목별 유사 매칭 우선)
-          if (stockExpected.length > 0 || expectations.length > 0) {
+          // v3.46: 기대수익 구간 매칭 (v3.66: 종목별 유사 매칭 우선, v3.67: 실시간 유사 매칭)
+          {
             const stockCode = result.stockCode || code;
             let matched = false;
-            // 1순위: 종목별 유사 매칭
+            // 1순위: 사전 계산된 종목별 유사 매칭
             if (stockExpected.length > 0 && stockCode) {
               const stockMatch = stockExpected.find(e => e.stock_code === stockCode);
               if (stockMatch && stockMatch.sample_count >= 20) {
@@ -115,7 +116,27 @@ module.exports = async function handler(req, res) {
                 matched = true;
               }
             }
-            // 2순위: 등급 기반
+            // 2순위: 실시간 유사 매칭 (분석된 지표로 즉석 계산)
+            if (!matched) {
+              try {
+                const indicators = {
+                  totalScore: result.totalScore || 0,
+                  whaleDetected: result.advancedAnalysis?.indicators?.whale?.some(w => w.type === '매수고래') || false,
+                  institutionDays: result.institutionalFlow?.institutionDays || 0,
+                  marketCap: result.marketCap || 0,
+                  volumeRatio: result.volumeAnalysis?.volumeRatio || 0,
+                  rsi: result.overheatingV2?.rsi || 50,
+                };
+                const simResult = await computeSimilarExpectedReturn(indicators);
+                if (simResult) {
+                  result.expectedReturn = simResult;
+                  matched = true;
+                }
+              } catch (e) {
+                console.warn(`⚠️ [${code}] 실시간 유사 매칭 실패:`, e.message);
+              }
+            }
+            // 3순위: 등급 기반
             if (!matched && expectations.length > 0) {
               const grade = result.recommendation?.grade;
               const whale = result.advancedAnalysis?.indicators?.whale?.some(w => w.type === '매수고래') || false;
