@@ -2131,9 +2131,21 @@ module.exports = async (req, res) => {
       console.log(`📊 주가 추적 모드 시작 (${kstTimeStr} KST)...`);
 
       // v3.70: 체크포인트 번호 (1=10:00, 2=11:30, 3=13:30, 4=15:00)
-      const trackTime = parseInt(req.query.time) || 1;
+      // 수동 호출(/추적)은 time 파라미터 없음 → 현재 시각 기반 자동 결정
+      const isManualTrack = req._fromWebhook || false;
+      let trackTime = parseInt(req.query.time);
+      if (!trackTime || isNaN(trackTime)) {
+        const kstHour = kstNow.getHours();
+        const kstMin = kstNow.getMinutes();
+        const kstMinutes = kstHour * 60 + kstMin;
+        // 가장 가까운 이전 체크포인트: 10:00=600, 11:30=690, 13:30=810, 15:00=900
+        if (kstMinutes >= 900) trackTime = 4;
+        else if (kstMinutes >= 810) trackTime = 3;
+        else if (kstMinutes >= 690) trackTime = 2;
+        else trackTime = 1;
+      }
       const volumeColumn = `volume_t${trackTime}`;
-      console.log(`📊 체크포인트: time=${trackTime}, column=${volumeColumn}`);
+      console.log(`📊 체크포인트: time=${trackTime}, column=${volumeColumn}, manual=${isManualTrack}`);
 
       // 토큰 미리 확보 (cold start 시 토큰 발급 지연 방지)
       try {
@@ -2333,8 +2345,8 @@ module.exports = async (req, res) => {
           console.log(`📊 [${stock.stock_name}] 모멘텀: ${stock.momentum.emoji} ${stock.momentum.label} (score=${stock.momentum.compositeScore}, accel=${stock.momentum.volumeAccel}, pos=${stock.momentum.pricePosition}%)`);
         }
 
-        // v3.70: 오늘 체크포인트 거래량 DB 저장
-        const volumeUpserts = todayStocks
+        // v3.70: 오늘 체크포인트 거래량 DB 저장 (cron만, 수동 호출 시 스킵)
+        const volumeUpserts = isManualTrack ? [] : todayStocks
           .filter(s => s.recommendation_id && s.volume > 0)
           .map(s => ({
             recommendation_id: s.recommendation_id,
@@ -2342,7 +2354,9 @@ module.exports = async (req, res) => {
             [volumeColumn]: s.volume
           }));
 
-        if (volumeUpserts.length > 0) {
+        if (isManualTrack) {
+          console.log('📊 수동 호출 — 거래량 DB 저장 스킵 (cron 데이터 보존)');
+        } else if (volumeUpserts.length > 0) {
           try {
             // 기존 레코드가 있으면 해당 컬럼만 업데이트, 없으면 새 레코드
             for (const upsert of volumeUpserts) {
