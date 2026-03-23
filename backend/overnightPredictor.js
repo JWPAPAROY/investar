@@ -131,10 +131,26 @@ function yahooQuote(symbol) {
             }
           }
 
+          // 같은 날짜 중복 제거 (월요일 장 개시 전 Yahoo가 금요일 데이터를 2개 반환하는 현상 대응)
+          // 같은 UTC 날짜의 엔트리가 여러 개면 마지막 것만 유지
+          const deduped = [];
+          for (let i = 0; i < valid.length; i++) {
+            const dateStr = new Date(valid[i].ts * 1000).toISOString().slice(0, 10);
+            if (deduped.length > 0) {
+              const lastDateStr = new Date(deduped[deduped.length - 1].ts * 1000).toISOString().slice(0, 10);
+              if (dateStr === lastDateStr) {
+                // 같은 날짜 → 기존 엔트리를 최신으로 교체
+                deduped[deduped.length - 1] = valid[i];
+                continue;
+              }
+            }
+            deduped.push(valid[i]);
+          }
+
           let dataDate = null;
           let dataTimestamp = null;
-          if (valid.length > 0) {
-            const lastTs = valid[valid.length - 1].ts;
+          if (deduped.length > 0) {
+            const lastTs = deduped[deduped.length - 1].ts;
             if (lastTs) {
               const d = new Date(lastTs * 1000);
               dataDate = d.toISOString().slice(0, 10);
@@ -144,9 +160,9 @@ function yahooQuote(symbol) {
           }
 
           // 유효 거래일 2개 이상: 마지막 2일 종가로 변동률 계산
-          if (valid.length >= 2) {
-            const prev = valid[valid.length - 2];
-            const curr = valid[valid.length - 1];
+          if (deduped.length >= 2) {
+            const prev = deduped[deduped.length - 2];
+            const curr = deduped[deduped.length - 1];
             const change = ((curr.close - prev.close) / prev.close) * 100;
             resolve({
               price: curr.close,

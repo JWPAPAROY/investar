@@ -1724,11 +1724,11 @@ module.exports = async (req, res) => {
       try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
       await loadStockExpectedReturns(supabase);
 
-      // Step 5: 해외 시장 기반 전망
+      // Step 5: 해외 시장 기반 전망 (bypassCache: 선물 최신가 반영)
       let prediction = null;
       try {
-        prediction = await overnightPredictor.fetchAndPredict();
-        console.log(`🌏 해외 전망: ${prediction.emoji} ${prediction.label} (${prediction.score})`);
+        prediction = await overnightPredictor.fetchAndPredict(true);
+        console.log(`🌏 해외 전망 (fresh): ${prediction.emoji} ${prediction.label} (${prediction.score})`);
       } catch (predErr) {
         console.warn('⚠️ 해외 전망 조회 실패:', predErr.message);
       }

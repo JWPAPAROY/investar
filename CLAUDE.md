@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.67
-- **최종 업데이트**: 2026-03-19
+- **버전**: 3.68
+- **최종 업데이트**: 2026-03-23
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -31,6 +31,8 @@ investar/
 │   ├── cron/
 │   │   └── save-daily-recommendations.js  # 결산/알림/추적 + 텔레그램 웹훅
 │   └── health.js
+│
+├── api/koreainvestment/          # 한국투자증권 OpenAPI 공식 문서 (카테고리별)
 │
 ├── backend/                      # 백엔드 로직
 │   ├── kisApi.js                # KIS OpenAPI 클라이언트
@@ -866,6 +868,10 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.68 (2026-03-23)
+- **월요일 현물지수 0% 버그 수정**: Yahoo Finance `range=5d`가 현물 지수/ETF(^SOX, EWY, ^VIX, ^TNX 등)에 대해 금요일 데이터를 2개 엔트리(장중+장마감후)로 반환 → 마지막 2개가 동일 날짜여서 change=0% 계산되는 문제. UTC 날짜 기준 중복 엔트리 제거(dedup) 로직 추가. 선물(ES=F, NQ=F 등)은 일요일 밤부터 거래되어 영향 없었음. ^SOX(-2.45%), ^VIX(+11.3%) 등 가중치 합 28%가 매주 월요일마다 누락되던 문제 해소.
+- **alert 크론 선물 최신가 반영**: alert 모드(08:00 KST)에서 `fetchAndPredict(true)` (bypassCache)로 변경. 사용자가 07:30에 웹 조회하여 캐시가 생성되어도 08:00 alert 시 최신 선물가(ES=F, NQ=F 등)로 예측 재생성. 현물 지수(SOX, VIX 등)는 미국장 마감 후 변동 없으므로 동일.
 
 ### v3.67 (2026-03-19)
 - **종목 분석 실시간 유사 매칭**: analyze API에서 분석된 종목의 지표(점수/고래/기관매수일/시총/거래량비율/RSI)를 `similarityMatcher.js`로 실시간 유사 매칭. 사전 계산된 `stock_expected_returns` 없는 종목도 기대수익 산출 가능. 3단계 fallback: 사전계산 유사매칭 → 실시간 유사매칭 → 등급 기반.
