@@ -2089,7 +2089,19 @@ class StockScreener {
       const addFromRange = (lo, hi) => {
         const candidates = pool
           .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
-          .sort((a, b) => b.totalScore - a.totalScore);
+          .sort((a, b) => {
+            // v3.69: 같은 점수대에서 수급 tiebreak (쌍방 > 기관 > 외인 > 고래)
+            if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+            const supplyRank = (s) => {
+              const inst = s.institutionalFlow?.institutionDays || 0;
+              const frgn = s.institutionalFlow?.foreignDays || 0;
+              if (inst >= 2 && frgn >= 2) return 4;
+              if (inst >= 3) return 3;
+              if (frgn >= 3) return 2;
+              return 1;
+            };
+            return supplyRank(b) - supplyRank(a);
+          });
         for (const s of candidates) {
           if (top3.length >= 3) break;
           top3.push(s);
