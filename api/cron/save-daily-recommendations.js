@@ -2375,16 +2375,18 @@ module.exports = async (req, res) => {
                   .eq('recommendation_id', upsert.recommendation_id)
                   .eq('tracking_date', today);
               } else {
+                // 새 레코드 생성 시 현재가 포함 (closing_price=0 방지)
+                const stockInfo = todayStocks.find(s => s.recommendation_id === upsert.recommendation_id);
                 await supabase
                   .from('recommendation_daily_prices')
                   .insert({
                     recommendation_id: upsert.recommendation_id,
                     tracking_date: today,
-                    closing_price: 0,
-                    change_rate: 0,
-                    volume: 0,
-                    cumulative_return: 0,
-                    days_since_recommendation: 0,
+                    closing_price: stockInfo?.current_price || 0,
+                    change_rate: stockInfo?.return_rate ? parseFloat(stockInfo.return_rate.toFixed(2)) : 0,
+                    volume: stockInfo?.volume || 0,
+                    cumulative_return: stockInfo?.return_rate ? parseFloat(stockInfo.return_rate.toFixed(2)) : 0,
+                    days_since_recommendation: 1,
                     [volumeColumn]: upsert[volumeColumn]
                   });
               }

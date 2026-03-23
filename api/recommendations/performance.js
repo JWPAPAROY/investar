@@ -272,7 +272,7 @@ module.exports = async (req, res) => {
         let currentPrice = rec.recommended_price;
 
         // daily_prices 데이터 매핑
-        const priceData = pricesByRecId[rec.id] || [];
+        const priceData = (pricesByRecId[rec.id] || []).filter(p => p.closing_price > 0);  // closing_price=0 레코드 제외
         if (priceData.length > 0) {
           dailyPrices = priceData.map(p => ({
             date: p.tracking_date,
