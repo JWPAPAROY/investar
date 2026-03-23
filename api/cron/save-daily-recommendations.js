@@ -1186,7 +1186,9 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null, expectations 
         const displayName = getDisplayName(stock);
         if (stock.current_price > 0) {
           const returnStr = r >= 0 ? `+${r.toFixed(1)}%` : `${r.toFixed(1)}%`;
-          msg += `  ${i + 1}. ${displayName} ${marketTag} → ${returnStr} ${signal}\n`;
+          // v3.70: D-1/D-2에도 모멘텀 시그널 간결 표시
+          const mTag = stock.momentum ? ` ${stock.momentum.emoji}` : '';
+          msg += `  ${i + 1}. ${displayName} ${marketTag} → ${returnStr} ${signal}${mTag}\n`;
         } else {
           msg += `  ${i + 1}. ${displayName} ${marketTag} → ⚠️ 조회실패\n`;
         }
@@ -2271,49 +2273,41 @@ module.exports = async (req, res) => {
         dayResults.push({ alertDate: alertDates[dayIdx], stocks, saveDate });
       }
 
-      // v3.70: 장중 모멘텀 분석 (오늘 추천 TOP3 대상)
+      // v3.70: 장중 모멘텀 분석 (전체 추적 종목 대상)
       // Step 2-1: 전일 동시간대 거래량 조회 + 분봉 체결강도 분석
-      const todayStocks = dayResults[0]?.stocks || [];
-      const todaySaveDate = dayResults[0]?.saveDate;
-      if (todayStocks.length > 0 && todaySaveDate) {
-        // 전일 동시간대 거래량 조회
-        // 우선순위: (1) 가장 최근 tracking_date의 같은 체크포인트 volume_tN
-        //          (2) 추천일의 종가 거래량(volume) fallback
-        const recIds = todayStocks.map(s => s.recommendation_id).filter(Boolean);
+      const allTrackedStocks = dayResults.flatMap(d => d.stocks);
+      const allRecIds = allTrackedStocks.map(s => s.recommendation_id).filter(Boolean);
+
+      if (allRecIds.length > 0) {
+        // 전일 동시간대 거래량 조회 (전체 종목)
         let prevVolumes = {};
-        if (recIds.length > 0) {
-          try {
-            // 가장 최근 tracking_date(오늘 제외)의 체크포인트 거래량 조회
-            const { data: prevData } = await supabase
-              .from('recommendation_daily_prices')
-              .select(`recommendation_id, tracking_date, ${volumeColumn}, volume`)
-              .in('recommendation_id', recIds)
-              .lt('tracking_date', today)
-              .order('tracking_date', { ascending: false });
-            if (prevData) {
-              for (const row of prevData) {
-                // 각 recommendation_id당 가장 최근 레코드만 사용
-                if (prevVolumes[row.recommendation_id]) continue;
-                // 동시간대 체크포인트 거래량 우선, 없으면 종가 거래량 fallback
-                prevVolumes[row.recommendation_id] = row[volumeColumn] || row.volume || 0;
-              }
+        try {
+          const { data: prevData } = await supabase
+            .from('recommendation_daily_prices')
+            .select(`recommendation_id, tracking_date, ${volumeColumn}, volume`)
+            .in('recommendation_id', allRecIds)
+            .lt('tracking_date', today)
+            .order('tracking_date', { ascending: false });
+          if (prevData) {
+            for (const row of prevData) {
+              if (prevVolumes[row.recommendation_id]) continue;
+              prevVolumes[row.recommendation_id] = row[volumeColumn] || row.volume || 0;
             }
-          } catch (e) {
-            console.warn('⚠️ 전일 거래량 조회 실패:', e.message);
           }
+        } catch (e) {
+          console.warn('⚠️ 전일 거래량 조회 실패:', e.message);
         }
 
-        // v3.70: 오늘 이전 체크포인트 거래량 조회 (장중 가속도 분석용)
-        // trackTime=1이면 이전 없음, trackTime=2이면 t1, trackTime=3이면 t1+t2, ...
-        let todayCheckpoints = {};  // { recommendation_id: [t1, t2, ...] }
-        if (trackTime >= 2 && recIds.length > 0) {
+        // 오늘 이전 체크포인트 거래량 조회 (장중 가속도 분석용)
+        let todayCheckpoints = {};
+        if (trackTime >= 2) {
           try {
             const cpColumns = [];
             for (let t = 1; t < trackTime; t++) cpColumns.push(`volume_t${t}`);
             const { data: cpData } = await supabase
               .from('recommendation_daily_prices')
               .select(`recommendation_id, ${cpColumns.join(', ')}`)
-              .in('recommendation_id', recIds)
+              .in('recommendation_id', allRecIds)
               .eq('tracking_date', today);
             if (cpData) {
               for (const row of cpData) {
@@ -2329,14 +2323,18 @@ module.exports = async (req, res) => {
           }
         }
 
-        // 분봉 체결강도 분석 + 6차원 모멘텀 (오늘 TOP3만, +3 API 호출)
-        for (const stock of todayStocks) {
-          let minuteData = null;
-          try {
-            minuteData = await kisApi.getMinuteChart(stock.stock_code, '1');
-            console.log(`📊 [${stock.stock_name}] 분봉 ${minuteData?.length || 0}개 조회`);
-          } catch (e) {
-            console.warn(`⚠️ [${stock.stock_name}] 분봉 조회 실패: ${e.message}`);
+        // 분봉 체결강도 분석 + 6차원 모멘텀 (전체 종목, 중복 종목은 캐시로 API 절약)
+        const minuteCache = {};  // stock_code → minuteData
+        for (const stock of allTrackedStocks) {
+          let minuteData = minuteCache[stock.stock_code] || null;
+          if (!minuteData && !(stock.stock_code in minuteCache)) {
+            try {
+              minuteData = await kisApi.getMinuteChart(stock.stock_code, '1');
+              console.log(`📊 [${stock.stock_name}] 분봉 ${minuteData?.length || 0}개 조회`);
+            } catch (e) {
+              console.warn(`⚠️ [${stock.stock_name}] 분봉 조회 실패: ${e.message}`);
+            }
+            minuteCache[stock.stock_code] = minuteData;
           }
 
           const prevVol = prevVolumes[stock.recommendation_id] || 0;
@@ -2344,8 +2342,11 @@ module.exports = async (req, res) => {
           stock.momentum = analyzeIntradayMomentum(stock, prevVol, minuteData, cpVols);
           console.log(`📊 [${stock.stock_name}] 모멘텀: ${stock.momentum.emoji} ${stock.momentum.label} (score=${stock.momentum.compositeScore}, accel=${stock.momentum.volumeAccel}, pos=${stock.momentum.pricePosition}%)`);
         }
+      }
 
-        // v3.70: 오늘 체크포인트 거래량 DB 저장 (cron만, 수동 호출 시 스킵)
+      // v3.70: 오늘 체크포인트 거래량 DB 저장 (cron만, 오늘 추천 종목만)
+      const todayStocks = dayResults[0]?.stocks || [];
+      {
         const volumeUpserts = isManualTrack ? [] : todayStocks
           .filter(s => s.recommendation_id && s.volume > 0)
           .map(s => ({
@@ -2396,7 +2397,7 @@ module.exports = async (req, res) => {
 
         // 참고: D+0(추천일)에는 SAVE 이전이라 체크포인트 거래량이 없음.
         // D+1 첫 비교 시 종가 거래량(volume)으로 fallback. D+2부터 동시간대 비교 가능.
-      }
+      }  // volume DB 저장 블록 끝
 
       // v3.32: 시장 심리 지수 조회
       let sentiment = null;
