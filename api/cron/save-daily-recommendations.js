@@ -932,20 +932,29 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
 /**
  * v3.70: 장중 모멘텀 분석 (거래량+가격+체결강도 복합 시그널)
  *
- * 복합 시그널 구성:
+ * 6차원 복합 시그널:
  *   1. 거래량 변화: 전일 동시간대 대비 거래량 증감
  *   2. 가격-거래량 관계: 거래량 방향 + 가격 방향 조합
  *   3. 체결강도: 분봉 기반 매수틱/매도틱 거래량 비율
- *   4. 가격 위치: 고가 대비 현재가 (윗꼬리 형성 여부)
+ *   4. 윗꼬리 비율: 고가 대비 현재가 괴리
+ *   5. 장중 거래량 가속도: 체크포인트 간 증분 추이 (가속/감속/고갈)
+ *   6. 장중 가격 위치: 일중 고저 범위 내 현재가 위치
+ *
+ * @param {Object} stock - { volume, current_price, return_rate, high, low }
+ * @param {number} prevVolume - 전일 동시간대(또는 종가) 거래량
+ * @param {Array} minuteData - 분봉 데이터 [{ changeRate, volume }]
+ * @param {Array} checkpointVolumes - 오늘 이전 체크포인트 누적 거래량 [t1, t2, ...] (현재 체크포인트 미포함)
  */
-function analyzeIntradayMomentum(stock, prevVolume, minuteData) {
+function analyzeIntradayMomentum(stock, prevVolume, minuteData, checkpointVolumes = []) {
   const result = {
-    volumeChange: null,    // 전일 동시간대 대비 거래량 변화율(%)
-    priceVolumeSignal: null, // 가격-거래량 관계
-    buyStrength: null,     // 체결강도 (매수틱/매도틱 비율)
-    upperShadow: null,     // 윗꼬리 비율(%)
-    composite: null,       // 종합 판정
-    compositeScore: 0,     // 종합 점수 (-2 ~ +2)
+    volumeChange: null,       // 전일 동시간대 대비 거래량 변화율(%)
+    priceVolumeSignal: null,  // 가격-거래량 관계
+    buyStrength: null,        // 체결강도 (매수틱/매도틱 비율, 100=1:1)
+    upperShadow: null,        // 윗꼬리 비율(%)
+    volumeAccel: null,        // 장중 거래량 가속도 (accelerating/decelerating/exhausting)
+    pricePosition: null,      // 장중 가격 위치 (0~100, 100=고가)
+    composite: null,          // 종합 판정
+    compositeScore: 0,        // 종합 점수
     emoji: '',
     label: ''
   };
@@ -988,31 +997,87 @@ function analyzeIntradayMomentum(stock, prevVolume, minuteData) {
       if (bar.changeRate > 0) buyVolume += bar.volume;
       else if (bar.changeRate < 0) sellVolume += bar.volume;
       else {
-        // 보합: 직전 대비 가격으로 판단 불가 → 반반 분배
         buyVolume += bar.volume * 0.5;
         sellVolume += bar.volume * 0.5;
       }
     }
     const totalVol = buyVolume + sellVolume;
     if (totalVol > 0) {
-      const ratio = sellVolume > 0 ? buyVolume / sellVolume : 2.0;  // 매도 0이면 강한 매수
-      result.buyStrength = Math.round(ratio * 100);  // 100 = 1:1, 150 = 매수우위
-      if (ratio >= 1.3) score += 0.5;      // 매수 우위
-      else if (ratio >= 0.8) score += 0;   // 균형
-      else score -= 0.5;                    // 매도 우위
+      const ratio = sellVolume > 0 ? buyVolume / sellVolume : 2.0;
+      result.buyStrength = Math.round(ratio * 100);
+      if (ratio >= 1.3) score += 0.5;
+      else if (ratio >= 0.8) score += 0;
+      else score -= 0.5;
     }
   }
 
-  // 4. 가격 위치 (윗꼬리)
+  // 4. 윗꼬리 비율
   if (stock.high > 0 && stock.current_price > 0 && stock.high > stock.current_price) {
     const shadow = ((stock.high - stock.current_price) / stock.high * 100);
     result.upperShadow = Math.round(shadow * 10) / 10;
-    if (shadow >= 3) score -= 0.5;  // 3%+ 윗꼬리 = 매도벽
+    if (shadow >= 3) score -= 0.5;
   }
 
-  // 종합 판정
-  result.compositeScore = score;
-  if (score >= 1.5) {
+  // 5. 장중 거래량 가속도 (체크포인트 간 증분 추이)
+  // checkpointVolumes = 이전 체크포인트들의 누적 거래량, 현재 거래량은 stock.volume
+  if (checkpointVolumes.length >= 1 && stock.volume > 0) {
+    const allVolumes = [...checkpointVolumes, stock.volume];
+    // 구간별 증분 계산 (누적이므로 차이가 해당 구간 거래량)
+    const deltas = [];
+    for (let i = 1; i < allVolumes.length; i++) {
+      deltas.push(Math.max(0, allVolumes[i] - allVolumes[i - 1]));
+    }
+
+    if (deltas.length >= 2) {
+      const lastDelta = deltas[deltas.length - 1];
+      const prevDelta = deltas[deltas.length - 2];
+
+      if (prevDelta > 0) {
+        const accelRatio = lastDelta / prevDelta;
+        if (accelRatio >= 1.5) {
+          result.volumeAccel = 'accelerating';  // 거래량 가속 (매수세 유입)
+          score += 0.5;
+        } else if (accelRatio >= 0.7) {
+          result.volumeAccel = 'steady';        // 안정적 유지
+        } else if (accelRatio >= 0.3) {
+          result.volumeAccel = 'decelerating';  // 거래량 감속 (관심 감소)
+          score -= 0.5;
+        } else {
+          result.volumeAccel = 'exhausting';    // 거래량 고갈 (매수세 이탈)
+          score -= 1;
+        }
+      }
+    } else if (deltas.length === 1) {
+      // 체크포인트 2개뿐 (t1→t2): 이전 체크포인트 대비 증분만 판단
+      const marginalVol = deltas[0];
+      const prevCheckVol = checkpointVolumes[0];
+      if (prevCheckVol > 0) {
+        // 첫 구간(개장~t1) 대비 두 번째 구간(t1~t2) 거래량
+        const ratio = marginalVol / prevCheckVol;
+        if (ratio >= 0.8) result.volumeAccel = 'steady';
+        else if (ratio >= 0.3) { result.volumeAccel = 'decelerating'; score -= 0.5; }
+        else { result.volumeAccel = 'exhausting'; score -= 1; }
+      }
+    }
+  }
+
+  // 6. 장중 가격 위치 (일중 범위 내 현재가 위치)
+  // 0% = 저가, 100% = 고가 — 매수자 주도권 판단
+  if (stock.high > 0 && stock.low > 0 && stock.high > stock.low) {
+    const range = stock.high - stock.low;
+    const position = ((stock.current_price - stock.low) / range * 100);
+    result.pricePosition = Math.round(Math.min(100, Math.max(0, position)));
+
+    if (result.pricePosition >= 80) {
+      score += 0.5;   // 고가 근처: 매수자 주도
+    } else if (result.pricePosition <= 20) {
+      score -= 0.5;   // 저가 근처: 매도자 주도
+    }
+  }
+
+  // 종합 판정 (6차원 합산, 범위 약 -4.5 ~ +3.5)
+  result.compositeScore = Math.round(score * 10) / 10;
+  if (score >= 2.0) {
     result.composite = 'strong'; result.emoji = '🔥'; result.label = '매수세 강력';
   } else if (score >= 0.5) {
     result.composite = 'hold'; result.emoji = '💪'; result.label = '매수세 유지';
@@ -1101,9 +1166,12 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null, expectations 
           if (stock.momentum) {
             const m = stock.momentum;
             let parts = [`${m.emoji} ${m.label}`];
-            if (m.volumeChange !== null) parts.push(`거래량 ${m.volumeChange >= 0 ? '+' : ''}${m.volumeChange}%`);
-            if (m.buyStrength !== null) parts.push(`체결강도 ${m.buyStrength}%`);
-            if (m.upperShadow !== null && m.upperShadow >= 2) parts.push(`윗꼬리 ${m.upperShadow}%`);
+            if (m.volumeChange !== null) parts.push(`거래량${m.volumeChange >= 0 ? '+' : ''}${m.volumeChange}%`);
+            if (m.buyStrength !== null) parts.push(`체결${m.buyStrength}%`);
+            if (m.pricePosition !== null) parts.push(`가격위치${m.pricePosition}%`);
+            const accelLabels = { accelerating: '▲가속', steady: '▬유지', decelerating: '▼감속', exhausting: '▼▼고갈' };
+            if (m.volumeAccel) parts.push(accelLabels[m.volumeAccel]);
+            if (m.upperShadow !== null && m.upperShadow >= 2) parts.push(`꼬리${m.upperShadow}%`);
             msg += `   ${parts.join(' | ')}\n`;
           }
         } else {
@@ -2223,7 +2291,33 @@ module.exports = async (req, res) => {
           }
         }
 
-        // 분봉 체결강도 분석 (오늘 TOP3만, +3 API 호출)
+        // v3.70: 오늘 이전 체크포인트 거래량 조회 (장중 가속도 분석용)
+        // trackTime=1이면 이전 없음, trackTime=2이면 t1, trackTime=3이면 t1+t2, ...
+        let todayCheckpoints = {};  // { recommendation_id: [t1, t2, ...] }
+        if (trackTime >= 2 && recIds.length > 0) {
+          try {
+            const cpColumns = [];
+            for (let t = 1; t < trackTime; t++) cpColumns.push(`volume_t${t}`);
+            const { data: cpData } = await supabase
+              .from('recommendation_daily_prices')
+              .select(`recommendation_id, ${cpColumns.join(', ')}`)
+              .in('recommendation_id', recIds)
+              .eq('tracking_date', today);
+            if (cpData) {
+              for (const row of cpData) {
+                const vols = [];
+                for (let t = 1; t < trackTime; t++) {
+                  vols.push(row[`volume_t${t}`] || 0);
+                }
+                todayCheckpoints[row.recommendation_id] = vols.filter(v => v > 0);
+              }
+            }
+          } catch (e) {
+            console.warn('⚠️ 이전 체크포인트 조회 실패:', e.message);
+          }
+        }
+
+        // 분봉 체결강도 분석 + 6차원 모멘텀 (오늘 TOP3만, +3 API 호출)
         for (const stock of todayStocks) {
           let minuteData = null;
           try {
@@ -2234,8 +2328,9 @@ module.exports = async (req, res) => {
           }
 
           const prevVol = prevVolumes[stock.recommendation_id] || 0;
-          stock.momentum = analyzeIntradayMomentum(stock, prevVol, minuteData);
-          console.log(`📊 [${stock.stock_name}] 모멘텀: ${stock.momentum.emoji} ${stock.momentum.label} (score=${stock.momentum.compositeScore})`);
+          const cpVols = todayCheckpoints[stock.recommendation_id] || [];
+          stock.momentum = analyzeIntradayMomentum(stock, prevVol, minuteData, cpVols);
+          console.log(`📊 [${stock.stock_name}] 모멘텀: ${stock.momentum.emoji} ${stock.momentum.label} (score=${stock.momentum.compositeScore}, accel=${stock.momentum.volumeAccel}, pos=${stock.momentum.pricePosition}%)`);
         }
 
         // v3.70: 오늘 체크포인트 거래량 DB 저장
