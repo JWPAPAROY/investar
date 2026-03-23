@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.68
+- **버전**: 3.69
 - **최종 업데이트**: 2026-03-23
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
@@ -747,6 +747,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 - `expected_return_stats`: 등급×고래별 기대수익 통계 (v3.46)
 - `stock_expected_returns`: 종목별 유사 매칭 기대수익 (v3.66)
 - `overnight_predictions`: 해외 지수 기반 시장 방향 예측 + 적중률 (v3.47)
+- `sector_outlook_stats`: 업종별 해외전망 버킷별 승률/수익률 + 모멘텀 상관계수 (v3.69)
 - `success_patterns`: +10% 달성 종목 지표 특징
 - `recommendation_statistics` (뷰): 종목별 성과 통계
 - `overall_performance` (뷰): 전체 성과 요약
@@ -852,8 +853,8 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 - **내용**: 업종 지수 대비 종목 민감도(베타)를 스크리닝/TOP3에 활용
 - **보류 사유**: API 호출 +20~40개 증가, Vercel 60초 타임아웃 리스크, 단기(1-3일) 전략에서 베타 유효성 미검증
-- **대안**: 업종 분산(같은 업종 TOP3 제한)만 가볍게 적용하는 방안 검토 가능
-- **선행 조건**: Supabase 데이터에서 "같은 업종 TOP3 동시 선정 시 성과 저하" 여부 사후 분석 필요
+- **대안**: v3.69에서 업종 전망 뱃지(sector_outlook_stats) 구현 완료. 업종 분산은 뱃지 기반으로 사용자가 판단.
+- **검증 결과**: 같은 업종 TOP3 동시 선정 시 대안 없어 전부 하락한 사례 확인 (2026-03-03). 다른 업종 대안 있을 때 TOP1 하락→대안 상승 55%.
 
 ### 3. 오늘의 동향(check-today.js) 로직 진단 결합 (진행 예정)
 
@@ -868,6 +869,13 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.69 (2026-03-23)
+- **업종 전망 시스템**: 해외 예측 스코어 버킷(상승/중립/하락)별 업종 D+1 승률·평균수익을 90일 롤링으로 동적 산출. 업종 모멘텀(전일→익일 피어슨 상관계수) 동시 계산. 데이터 축적에 따라 자동 정밀화.
+- **`sector_outlook_stats` 테이블 추가**: sector_name PK, 3개 버킷별 승률/샘플수/평균수익 + 모멘텀 r/전일수익률 + 전체 통계. post-market cron(16:20)에서 매일 UPSERT.
+- **TOP3 업종 뱃지**: "📈 업종 유리"(녹색, 해당 버킷 승률≥55% N≥10), "📉 업종 불리"(빨강, 승률<35% N≥10), "🔄 업종 모멘텀"(파랑, 상관r>0.3+전일 양봉 N≥10). 툴팁으로 업종명/버킷/승률/샘플수 표시.
+- **recommend API 확장**: `sectorOutlook` 필드를 전 종목·TOP3·방어TOP3에 부착. 현재 prediction score로 버킷 자동 결정.
+- **sector_name 백필**: 기존 319개 종목 중 317개 업종명 KIS API로 일괄 업데이트 완료.
 
 ### v3.68 (2026-03-23)
 - **월요일 현물지수 0% 버그 수정**: Yahoo Finance `range=5d`가 현물 지수/ETF(^SOX, EWY, ^VIX, ^TNX 등)에 대해 금요일 데이터를 2개 엔트리(장중+장마감후)로 반환 → 마지막 2개가 동일 날짜여서 change=0% 계산되는 문제. UTC 날짜 기준 중복 엔트리 제거(dedup) 로직 추가. 선물(ES=F, NQ=F 등)은 일요일 밤부터 거래되어 영향 없었음. ^SOX(-2.45%), ^VIX(+11.3%) 등 가중치 합 28%가 매주 월요일마다 누락되던 문제 해소.

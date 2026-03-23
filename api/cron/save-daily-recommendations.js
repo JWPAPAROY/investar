@@ -1181,7 +1181,7 @@ module.exports = async (req, res) => {
     // =============================================
     if (mode === 'post-market') {
       console.log('📦 장후 처리 통합 모드 시작 (패턴 수집 → 기대수익 산출)...');
-      const results = { patterns: null, expectations: null };
+      const results = { patterns: null, expectations: null, sectorOutlook: null };
 
       // Step A: 패턴 수집 (patterns API를 가짜 req/res로 직접 호출)
       try {
@@ -1204,7 +1204,156 @@ module.exports = async (req, res) => {
         results.patterns = { success: false, error: e.message };
       }
 
-      // Step B: 기대수익 통계 산출 — fall through to calc-expectations
+      // Step B: 업종 전망 통계 산출 (v3.69)
+      try {
+        console.log('📊 업종 전망 통계 산출 시작...');
+        const ROLLING_DAYS = 90;
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - ROLLING_DAYS);
+        const cutoffStr = cutoff.toISOString().split('T')[0];
+
+        // 1. 데이터 로드: 추천(업종 있는 것) + D+1 수익률 + 예측 스코어
+        let sectorRecs = [];
+        let from = 0;
+        while (true) {
+          const { data } = await supabase
+            .from('screening_recommendations')
+            .select('id, recommendation_date, sector_name')
+            .gte('recommendation_date', cutoffStr)
+            .not('sector_name', 'is', null)
+            .range(from, from + 999);
+          if (!data || data.length === 0) break;
+          sectorRecs = sectorRecs.concat(data);
+          if (data.length < 1000) break;
+          from += 1000;
+        }
+
+        // D+1 수익률
+        const sRecIds = sectorRecs.map(r => r.id);
+        let sD1 = [];
+        for (let i = 0; i < sRecIds.length; i += 100) {
+          const { data } = await supabase
+            .from('recommendation_daily_prices')
+            .select('recommendation_id, cumulative_return')
+            .in('recommendation_id', sRecIds.slice(i, i + 100))
+            .eq('days_since_recommendation', 1);
+          if (data) sD1 = sD1.concat(data);
+        }
+        const d1Map = {};
+        sD1.forEach(p => { d1Map[p.recommendation_id] = p.cumulative_return; });
+
+        // 예측 스코어
+        const { data: predData } = await supabase
+          .from('overnight_predictions')
+          .select('prediction_date, score')
+          .gte('prediction_date', cutoffStr);
+        const predScoreMap = {};
+        (predData || []).forEach(p => { predScoreMap[p.prediction_date] = p.score; });
+
+        // 2. 업종별 버킷별 통계 계산
+        const sectorStats = {}; // { sector: { bull: [], neutral: [], bear: [], all: [] } }
+        sectorRecs.forEach(r => {
+          const ret = d1Map[r.id];
+          if (ret === undefined) return;
+          const score = predScoreMap[r.recommendation_date];
+          if (score === undefined) return;
+
+          if (!sectorStats[r.sector_name]) {
+            sectorStats[r.sector_name] = { bull: [], neutral: [], bear: [], all: [] };
+          }
+          const s = sectorStats[r.sector_name];
+          s.all.push(ret);
+          if (score > 0.2) s.bull.push(ret);
+          else if (score < -0.8) s.bear.push(ret);
+          else s.neutral.push(ret);
+        });
+
+        // 3. 모멘텀 상관계수 (전일 업종 평균 → 다음날 업종 평균)
+        const dateSectorAvg = {};
+        sectorRecs.forEach(r => {
+          const ret = d1Map[r.id];
+          if (ret === undefined) return;
+          if (!dateSectorAvg[r.recommendation_date]) dateSectorAvg[r.recommendation_date] = {};
+          const ds = dateSectorAvg[r.recommendation_date];
+          if (!ds[r.sector_name]) ds[r.sector_name] = { sum: 0, count: 0 };
+          ds[r.sector_name].sum += ret;
+          ds[r.sector_name].count++;
+        });
+        const sortedDates = Object.keys(dateSectorAvg).sort();
+
+        const momentumStats = {}; // { sector: { r, n, prevDayAvg } }
+        const allSectorNames = Object.keys(sectorStats);
+        for (const sector of allSectorNames) {
+          const pairs = [];
+          for (let i = 0; i < sortedDates.length - 1; i++) {
+            const todayData = dateSectorAvg[sortedDates[i]]?.[sector];
+            const tmrwData = dateSectorAvg[sortedDates[i + 1]]?.[sector];
+            if (!todayData || !tmrwData) continue;
+            pairs.push({ x: todayData.sum / todayData.count, y: tmrwData.sum / tmrwData.count });
+          }
+          let r = 0;
+          if (pairs.length >= 5) {
+            const n = pairs.length;
+            const sx = pairs.reduce((s, p) => s + p.x, 0);
+            const sy = pairs.reduce((s, p) => s + p.y, 0);
+            const sxy = pairs.reduce((s, p) => s + p.x * p.y, 0);
+            const sx2 = pairs.reduce((s, p) => s + p.x * p.x, 0);
+            const sy2 = pairs.reduce((s, p) => s + p.y * p.y, 0);
+            const denom = Math.sqrt((n * sx2 - sx * sx) * (n * sy2 - sy * sy));
+            r = denom > 0 ? (n * sxy - sx * sy) / denom : 0;
+            if (isNaN(r)) r = 0;
+          }
+          // 전일 평균 수익률
+          const lastDate = sortedDates[sortedDates.length - 1];
+          const lastData = dateSectorAvg[lastDate]?.[sector];
+          const prevDayAvg = lastData ? lastData.sum / lastData.count : 0;
+
+          momentumStats[sector] = { r, n: pairs.length, prevDayAvg };
+        }
+
+        // 4. UPSERT용 데이터 생성
+        const calcBucket = (arr) => ({
+          count: arr.length,
+          winRate: arr.length > 0 ? +(arr.filter(x => x > 0).length / arr.length * 100).toFixed(2) : 0,
+          avgReturn: arr.length > 0 ? +(arr.reduce((s, x) => s + x, 0) / arr.length).toFixed(2) : 0,
+        });
+
+        const upsertData = allSectorNames.map(sector => {
+          const s = sectorStats[sector];
+          const m = momentumStats[sector] || { r: 0, n: 0, prevDayAvg: 0 };
+          const bull = calcBucket(s.bull);
+          const neutral = calcBucket(s.neutral);
+          const bear = calcBucket(s.bear);
+          const overall = calcBucket(s.all);
+          return {
+            sector_name: sector,
+            bull_sample_count: bull.count, bull_win_rate: bull.winRate, bull_avg_return: bull.avgReturn,
+            neutral_sample_count: neutral.count, neutral_win_rate: neutral.winRate, neutral_avg_return: neutral.avgReturn,
+            bear_sample_count: bear.count, bear_win_rate: bear.winRate, bear_avg_return: bear.avgReturn,
+            momentum_r: +m.r.toFixed(3), momentum_sample_count: m.n,
+            prev_day_avg_return: +m.prevDayAvg.toFixed(2),
+            overall_win_rate: overall.winRate, overall_avg_return: overall.avgReturn, overall_sample_count: overall.count,
+            updated_at: new Date().toISOString(),
+          };
+        });
+
+        const { error: upsertErr } = await supabase
+          .from('sector_outlook_stats')
+          .upsert(upsertData, { onConflict: 'sector_name' });
+
+        if (upsertErr) {
+          console.error('❌ sector_outlook_stats UPSERT 실패:', upsertErr.message);
+          results.sectorOutlook = { success: false, error: upsertErr.message };
+        } else {
+          console.log(`✅ 업종 전망 통계 UPSERT 완료: ${upsertData.length}개 업종`);
+          results.sectorOutlook = { success: true, sectors: upsertData.length };
+        }
+      } catch (e) {
+        console.error('⚠️ 업종 전망 산출 실패 (계속 진행):', e.message);
+        results.sectorOutlook = { success: false, error: e.message };
+      }
+
+      // Step C: 기대수익 통계 산출 — fall through to calc-expectations
       mode = 'calc-expectations';
       req._postMarketResults = results;
     }
