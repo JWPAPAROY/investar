@@ -3012,7 +3012,7 @@
         setMomentumLoading(true);
         setMomentumError(null);
         try {
-          const res = await fetch(`${apiBaseUrl}/recommendations/momentum`);
+          const res = await fetch(`${apiBaseUrl}/recommendations/performance?momentum=true`);
           const data = await res.json();
           if (data.success) {
             setMomentumData(data);
