@@ -3337,11 +3337,30 @@
                             thin_rise: '얇은상승',
                             quiet_decline: '조용한하락',
                           };
+                          const pvTips = {
+                            volume_confirm: '거래량↑ + 가격↑ — 상승 신뢰도 높음',
+                            sell_pressure: '거래량↑ + 가격↓ — 대량 매도 진행 중',
+                            thin_rise: '거래량↓ + 가격↑ — 거래량 뒷받침 없는 상승, 지속성 불확실',
+                            quiet_decline: '거래량↓ + 가격↓ — 관심 이탈, 점진적 하락',
+                          };
                           const accelLabels = {
                             accelerating: '▲가속',
                             steady: '▬유지',
                             decelerating: '▼감속',
                             exhausting: '▼▼고갈',
+                          };
+                          const accelTips = {
+                            accelerating: '체크포인트 간 거래량 증가 중 — 매수세 유입',
+                            steady: '체크포인트 간 거래량 안정 유지',
+                            decelerating: '체크포인트 간 거래량 감소 — 관심 감소',
+                            exhausting: '체크포인트 간 거래량 급감 — 매수세 고갈',
+                          };
+                          const compositeTips = {
+                            strong: '6차원 합산 ≥2.0 — 거래량·체결·가격 모두 양호',
+                            hold: '6차원 합산 ≥0.5 — 대체로 매수 우위',
+                            neutral: '6차원 합산 ≥-0.5 — 방향성 불명확',
+                            weak: '6차원 합산 ≥-1.5 — 매수 힘 감소',
+                            exit: '6차원 합산 <-1.5 — 매도 우위, 이탈 검토',
                           };
 
                           return (
@@ -3358,7 +3377,7 @@
                                     {stock.return_rate > 0 ? '+' : ''}{stock.return_rate.toFixed(1)}%
                                   </span>
                                   {m && (
-                                    <span className={`px-2 py-0.5 rounded border text-xs font-semibold ${compositeClass}`}>
+                                    <span title={compositeTips[m.composite]} className={`px-2 py-0.5 rounded border text-xs font-semibold cursor-help ${compositeClass}`}>
                                       {m.emoji} {m.label}
                                     </span>
                                   )}
@@ -3367,32 +3386,32 @@
                               {m && (
                                 <div className="flex flex-wrap gap-1 ml-6">
                                   {m.volumeChange !== null && (
-                                    <span className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded ${m.volumeChange >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                                    <span title="전일 동시간대 대비 거래량 변화율" className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded cursor-help ${m.volumeChange >= 0 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
                                       거래량 {m.volumeChange >= 0 ? '+' : ''}{m.volumeChange}%
                                     </span>
                                   )}
                                   {m.buyStrength !== null && (
-                                    <span className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded ${m.buyStrength >= 120 ? 'bg-green-50 text-green-700' : m.buyStrength < 80 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+                                    <span title={`매수틱/매도틱 거래량 비율 (100=1:1)\n130+: 매수 우위 / 80-: 매도 우위`} className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded cursor-help ${m.buyStrength >= 120 ? 'bg-green-50 text-green-700' : m.buyStrength < 80 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
                                       체결 {m.buyStrength}%
                                     </span>
                                   )}
                                   {m.pricePosition !== null && (
-                                    <span className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded ${m.pricePosition >= 70 ? 'bg-green-50 text-green-700' : m.pricePosition <= 30 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+                                    <span title={`장중 고저 범위 내 현재가 위치\n100%=고가(매수자 주도) / 0%=저가(매도자 주도)`} className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded cursor-help ${m.pricePosition >= 70 ? 'bg-green-50 text-green-700' : m.pricePosition <= 30 ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
                                       위치 {m.pricePosition}%
                                     </span>
                                   )}
                                   {m.volumeAccel && (
-                                    <span className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded ${m.volumeAccel === 'accelerating' ? 'bg-green-50 text-green-700' : m.volumeAccel === 'exhausting' || m.volumeAccel === 'decelerating' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+                                    <span title={accelTips[m.volumeAccel]} className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded cursor-help ${m.volumeAccel === 'accelerating' ? 'bg-green-50 text-green-700' : m.volumeAccel === 'exhausting' || m.volumeAccel === 'decelerating' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
                                       {accelLabels[m.volumeAccel]}
                                     </span>
                                   )}
                                   {m.priceVolumeSignal && (
-                                    <span className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded ${m.priceVolumeSignal === 'volume_confirm' ? 'bg-green-50 text-green-700' : m.priceVolumeSignal === 'sell_pressure' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+                                    <span title={pvTips[m.priceVolumeSignal]} className={`text-[10px] md:text-xs px-1.5 py-0.5 rounded cursor-help ${m.priceVolumeSignal === 'volume_confirm' ? 'bg-green-50 text-green-700' : m.priceVolumeSignal === 'sell_pressure' ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
                                       {pvLabels[m.priceVolumeSignal]}
                                     </span>
                                   )}
                                   {m.upperShadow !== null && m.upperShadow >= 2 && (
-                                    <span className="text-[10px] md:text-xs px-1.5 py-0.5 rounded bg-yellow-50 text-yellow-700">
+                                    <span title="장중 고가 대비 현재가 하락폭 — 고가 매도 압력 존재" className="text-[10px] md:text-xs px-1.5 py-0.5 rounded cursor-help bg-yellow-50 text-yellow-700">
                                       꼬리 {m.upperShadow}%
                                     </span>
                                   )}
