@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.69
+- **버전**: 3.70
 - **최종 업데이트**: 2026-03-23
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
@@ -743,7 +743,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 
 ### 테이블 구조
 - `screening_recommendations`: 추천 종목 이력 (20개+ 지표 포함)
-- `recommendation_daily_prices`: 일별 가격 추적
+- `recommendation_daily_prices`: 일별 가격 추적 + 체크포인트별 거래량 (volume_t1~t4)
 - `expected_return_stats`: 등급×고래별 기대수익 통계 (v3.46)
 - `stock_expected_returns`: 종목별 유사 매칭 기대수익 (v3.66)
 - `overnight_predictions`: 해외 지수 기반 시장 방향 예측 + 적중률 (v3.47)
@@ -869,6 +869,12 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.70 (2026-03-23)
+- **장중 모멘텀 분석**: track 모드(10:00/11:30/13:30/15:00)에서 4차원 복합 시그널로 매수세 유지/이탈 판단. (1) 전일 동시간대 대비 거래량 변화율, (2) 가격-거래량 관계(상승확인/매도압력/얇은상승/조용한하락), (3) 분봉 체결강도(매수틱/매도틱 거래량 비율), (4) 윗꼬리 비율. 종합 점수(-2~+2)로 5단계 판정: 🔥매수세 강력 / 💪매수세 유지 / ➖중립 / ⚠️매수세 약화 / 🚨매수세 이탈.
+- **체크포인트별 거래량 저장**: `recommendation_daily_prices`에 `volume_t1~t4` 컬럼 추가. 같은 시간대끼리 비교하여 시간대별 거래량 분포 차이로 인한 오판 방지.
+- **분봉 체결강도**: 오늘 TOP3에 `getMinuteChart()` 호출(+3 API), 양봉/음봉 분봉별 거래량으로 실제 매수/매도 비율 산출. cron 슬롯 추가 없음.
+- **텔레그램 track 메시지 확장**: 오늘 추천 종목에 모멘텀 시그널 라인 추가 (시그널 + 거래량변화% + 체결강도% + 윗꼬리%).
 
 ### v3.69 (2026-03-23)
 - **업종 전망 시스템**: 해외 예측 스코어 버킷(상승/중립/하락)별 업종 D+1 승률·평균수익을 90일 롤링으로 동적 산출. 업종 모멘텀(전일→익일 피어슨 상관계수) 동시 계산. 데이터 축적에 따라 자동 정밀화.

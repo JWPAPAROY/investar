@@ -930,6 +930,105 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
 
 
 /**
+ * v3.70: 장중 모멘텀 분석 (거래량+가격+체결강도 복합 시그널)
+ *
+ * 복합 시그널 구성:
+ *   1. 거래량 변화: 전일 동시간대 대비 거래량 증감
+ *   2. 가격-거래량 관계: 거래량 방향 + 가격 방향 조합
+ *   3. 체결강도: 분봉 기반 매수틱/매도틱 거래량 비율
+ *   4. 가격 위치: 고가 대비 현재가 (윗꼬리 형성 여부)
+ */
+function analyzeIntradayMomentum(stock, prevVolume, minuteData) {
+  const result = {
+    volumeChange: null,    // 전일 동시간대 대비 거래량 변화율(%)
+    priceVolumeSignal: null, // 가격-거래량 관계
+    buyStrength: null,     // 체결강도 (매수틱/매도틱 비율)
+    upperShadow: null,     // 윗꼬리 비율(%)
+    composite: null,       // 종합 판정
+    compositeScore: 0,     // 종합 점수 (-2 ~ +2)
+    emoji: '',
+    label: ''
+  };
+
+  let score = 0;
+
+  // 1. 거래량 변화 (전일 동시간대 대비)
+  if (prevVolume && prevVolume > 0 && stock.volume > 0) {
+    const volChange = ((stock.volume - prevVolume) / prevVolume * 100);
+    result.volumeChange = Math.round(volChange);
+    if (volChange >= 50) score += 1;       // 거래량 50%+ 증가
+    else if (volChange >= 0) score += 0.5; // 유지~소폭 증가
+    else if (volChange >= -30) score += 0; // 소폭 감소 (중립)
+    else score -= 1;                       // 30%+ 감소 (매수세 이탈)
+  }
+
+  // 2. 가격-거래량 관계
+  const returnRate = stock.return_rate || 0;
+  const volUp = result.volumeChange !== null ? result.volumeChange > 0 : null;
+  if (volUp !== null) {
+    if (volUp && returnRate > 0) {
+      result.priceVolumeSignal = 'volume_confirm';  // 거래량↑ + 가격↑ = 상승 확인
+      score += 0.5;
+    } else if (volUp && returnRate < -1) {
+      result.priceVolumeSignal = 'sell_pressure';    // 거래량↑ + 가격↓ = 매도 압력
+      score -= 1;
+    } else if (!volUp && returnRate > 0) {
+      result.priceVolumeSignal = 'thin_rise';        // 거래량↓ + 가격↑ = 얇은 상승
+      score += 0;
+    } else if (!volUp && returnRate < -1) {
+      result.priceVolumeSignal = 'quiet_decline';    // 거래량↓ + 가격↓ = 조용한 하락
+      score -= 0.5;
+    }
+  }
+
+  // 3. 체결강도 (분봉 데이터)
+  if (minuteData && minuteData.length > 0) {
+    let buyVolume = 0, sellVolume = 0;
+    for (const bar of minuteData) {
+      if (bar.changeRate > 0) buyVolume += bar.volume;
+      else if (bar.changeRate < 0) sellVolume += bar.volume;
+      else {
+        // 보합: 직전 대비 가격으로 판단 불가 → 반반 분배
+        buyVolume += bar.volume * 0.5;
+        sellVolume += bar.volume * 0.5;
+      }
+    }
+    const totalVol = buyVolume + sellVolume;
+    if (totalVol > 0) {
+      const ratio = sellVolume > 0 ? buyVolume / sellVolume : 2.0;  // 매도 0이면 강한 매수
+      result.buyStrength = Math.round(ratio * 100);  // 100 = 1:1, 150 = 매수우위
+      if (ratio >= 1.3) score += 0.5;      // 매수 우위
+      else if (ratio >= 0.8) score += 0;   // 균형
+      else score -= 0.5;                    // 매도 우위
+    }
+  }
+
+  // 4. 가격 위치 (윗꼬리)
+  if (stock.high > 0 && stock.current_price > 0 && stock.high > stock.current_price) {
+    const shadow = ((stock.high - stock.current_price) / stock.high * 100);
+    result.upperShadow = Math.round(shadow * 10) / 10;
+    if (shadow >= 3) score -= 0.5;  // 3%+ 윗꼬리 = 매도벽
+  }
+
+  // 종합 판정
+  result.compositeScore = score;
+  if (score >= 1.5) {
+    result.composite = 'strong'; result.emoji = '🔥'; result.label = '매수세 강력';
+  } else if (score >= 0.5) {
+    result.composite = 'hold'; result.emoji = '💪'; result.label = '매수세 유지';
+  } else if (score >= -0.5) {
+    result.composite = 'neutral'; result.emoji = '➖'; result.label = '중립';
+  } else if (score >= -1.5) {
+    result.composite = 'weak'; result.emoji = '⚠️'; result.label = '매수세 약화';
+  } else {
+    result.composite = 'exit'; result.emoji = '🚨'; result.label = '매수세 이탈';
+  }
+
+  return result;
+}
+
+
+/**
  * v3.30: TRACK 메시지 (장중 10:00/11:30/13:30/15:00)
  * 📊 3일치 주가 추적 + 익절/손절 시그널
  *
@@ -996,6 +1095,16 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null, expectations 
           if (er && er.median > 0) {
             const progress = Math.min(100, Math.max(0, (r / er.median * 100))).toFixed(0);
             msg += `   📈 기대수익 진행: ${progress}% (목표 +${er.median.toFixed(1)}%, ${er.days}일)\n`;
+          }
+
+          // v3.70: 장중 모멘텀 시그널
+          if (stock.momentum) {
+            const m = stock.momentum;
+            let parts = [`${m.emoji} ${m.label}`];
+            if (m.volumeChange !== null) parts.push(`거래량 ${m.volumeChange >= 0 ? '+' : ''}${m.volumeChange}%`);
+            if (m.buyStrength !== null) parts.push(`체결강도 ${m.buyStrength}%`);
+            if (m.upperShadow !== null && m.upperShadow >= 2) parts.push(`윗꼬리 ${m.upperShadow}%`);
+            msg += `   ${parts.join(' | ')}\n`;
           }
         } else {
           const marketTag = formatMarketTag(stock.market);
@@ -1944,6 +2053,7 @@ module.exports = async (req, res) => {
     // =============================================
     // 📊 TRACK 모드: 장중 주가 추적 (10:00/11:30/13:30/15:00 KST)
     // v3.30: 3일치 추적 + 익절/손절 시그널
+    // v3.70: 장중 모멘텀 분석 (거래량+가격+체결강도 복합 시그널)
     // =============================================
     if (mode === 'track') {
       const now = new Date();
@@ -1951,6 +2061,11 @@ module.exports = async (req, res) => {
       const kstNow = new Date(now.getTime() + kstOffset);
       const kstTimeStr = `${String(kstNow.getHours()).padStart(2, '0')}:${String(kstNow.getMinutes()).padStart(2, '0')}`;
       console.log(`📊 주가 추적 모드 시작 (${kstTimeStr} KST)...`);
+
+      // v3.70: 체크포인트 번호 (1=10:00, 2=11:30, 3=13:30, 4=15:00)
+      const trackTime = parseInt(req.query.time) || 1;
+      const volumeColumn = `volume_t${trackTime}`;
+      console.log(`📊 체크포인트: time=${trackTime}, column=${volumeColumn}`);
 
       // 토큰 미리 확보 (cold start 시 토큰 발급 지연 방지)
       try {
@@ -1961,9 +2076,6 @@ module.exports = async (req, res) => {
       }
 
       const today = getTodayDateKST();
-
-      // v3.32: 시장 정보 맵 로딩 로직을 전역 함수(getGlobalMarketMap)로 대체
-
 
       // Step 1: 최근 3개 SAVE 날짜 찾기
       const { data: saveDateRows } = await supabase
@@ -1985,7 +2097,7 @@ module.exports = async (req, res) => {
       // Step 2: 각 날짜별 TOP 3 선별 + 현재가 조회
       const MAX_RETRIES = 4;
       const BASE_RETRY_DELAY = 2000; // 지수 백오프 기본 2초
-      const priceCache = {}; // 중복 종목 API 호출 방지
+      const priceCache = {}; // 중복 종목 API 호출 방지 (volume, high, low 포함)
       const dayResults = []; // [{ alertDate, stocks: [...] }, ...]
 
       for (let dayIdx = 0; dayIdx < saveDates.length; dayIdx++) {
@@ -2010,6 +2122,9 @@ module.exports = async (req, res) => {
           let currentPrice = cached?.price || 0;
           let marketInfo = stock.market || cached?.market;
           let stockName = stock.stock_name;
+          let volume = cached?.volume || 0;
+          let high = cached?.high || 0;
+          let low = cached?.low || 0;
 
           // 캐시에 없으면 API 호출 (재시도 포함)
           if (!currentPrice) {
@@ -2018,15 +2133,17 @@ module.exports = async (req, res) => {
                 const priceData = await kisApi.getCurrentPrice(stock.stock_code);
                 if (priceData?.currentPrice) {
                   currentPrice = priceData.currentPrice;
+                  volume = priceData.volume || 0;
+                  high = priceData.high || 0;
+                  low = priceData.low || 0;
                   marketInfo = marketInfo || priceData.market;
-                  // v3.33: API 응답에서 종목명/시장 보완
                   if (priceData.stockName && (!stockName || stockName === stock.stock_code)) {
                     stockName = priceData.stockName;
                   }
                   if (priceData.market && !marketInfo) {
                     marketInfo = priceData.market;
                   }
-                  priceCache[stock.stock_code] = { price: currentPrice, market: marketInfo, name: stockName };
+                  priceCache[stock.stock_code] = { price: currentPrice, market: marketInfo, name: stockName, volume, high, low };
                   break;
                 }
               } catch (err) {
@@ -2063,11 +2180,113 @@ module.exports = async (req, res) => {
             current_price: currentPrice,
             return_rate: returnRate,
             grade: stock.recommendation_grade,
-            market: marketInfo // v3.32 수정
+            market: marketInfo,
+            volume: volume,
+            high: high,
+            low: low,
+            recommendation_id: stock.id  // v3.70: DB 저장용
           });
         }
 
-        dayResults.push({ alertDate: alertDates[dayIdx], stocks });
+        dayResults.push({ alertDate: alertDates[dayIdx], stocks, saveDate });
+      }
+
+      // v3.70: 장중 모멘텀 분석 (오늘 추천 TOP3 대상)
+      // Step 2-1: 전일 동시간대 거래량 조회 + 분봉 체결강도 분석
+      const todayStocks = dayResults[0]?.stocks || [];
+      const todaySaveDate = dayResults[0]?.saveDate;
+      if (todayStocks.length > 0 && todaySaveDate) {
+        // 전일 동시간대 거래량 조회
+        // 우선순위: (1) 가장 최근 tracking_date의 같은 체크포인트 volume_tN
+        //          (2) 추천일의 종가 거래량(volume) fallback
+        const recIds = todayStocks.map(s => s.recommendation_id).filter(Boolean);
+        let prevVolumes = {};
+        if (recIds.length > 0) {
+          try {
+            // 가장 최근 tracking_date(오늘 제외)의 체크포인트 거래량 조회
+            const { data: prevData } = await supabase
+              .from('recommendation_daily_prices')
+              .select(`recommendation_id, tracking_date, ${volumeColumn}, volume`)
+              .in('recommendation_id', recIds)
+              .lt('tracking_date', today)
+              .order('tracking_date', { ascending: false });
+            if (prevData) {
+              for (const row of prevData) {
+                // 각 recommendation_id당 가장 최근 레코드만 사용
+                if (prevVolumes[row.recommendation_id]) continue;
+                // 동시간대 체크포인트 거래량 우선, 없으면 종가 거래량 fallback
+                prevVolumes[row.recommendation_id] = row[volumeColumn] || row.volume || 0;
+              }
+            }
+          } catch (e) {
+            console.warn('⚠️ 전일 거래량 조회 실패:', e.message);
+          }
+        }
+
+        // 분봉 체결강도 분석 (오늘 TOP3만, +3 API 호출)
+        for (const stock of todayStocks) {
+          let minuteData = null;
+          try {
+            minuteData = await kisApi.getMinuteChart(stock.stock_code, '1');
+            console.log(`📊 [${stock.stock_name}] 분봉 ${minuteData?.length || 0}개 조회`);
+          } catch (e) {
+            console.warn(`⚠️ [${stock.stock_name}] 분봉 조회 실패: ${e.message}`);
+          }
+
+          const prevVol = prevVolumes[stock.recommendation_id] || 0;
+          stock.momentum = analyzeIntradayMomentum(stock, prevVol, minuteData);
+          console.log(`📊 [${stock.stock_name}] 모멘텀: ${stock.momentum.emoji} ${stock.momentum.label} (score=${stock.momentum.compositeScore})`);
+        }
+
+        // v3.70: 오늘 체크포인트 거래량 DB 저장
+        const volumeUpserts = todayStocks
+          .filter(s => s.recommendation_id && s.volume > 0)
+          .map(s => ({
+            recommendation_id: s.recommendation_id,
+            tracking_date: today,
+            [volumeColumn]: s.volume
+          }));
+
+        if (volumeUpserts.length > 0) {
+          try {
+            // 기존 레코드가 있으면 해당 컬럼만 업데이트, 없으면 새 레코드
+            for (const upsert of volumeUpserts) {
+              const { data: existing } = await supabase
+                .from('recommendation_daily_prices')
+                .select('recommendation_id')
+                .eq('recommendation_id', upsert.recommendation_id)
+                .eq('tracking_date', today)
+                .limit(1);
+
+              if (existing && existing.length > 0) {
+                await supabase
+                  .from('recommendation_daily_prices')
+                  .update({ [volumeColumn]: upsert[volumeColumn] })
+                  .eq('recommendation_id', upsert.recommendation_id)
+                  .eq('tracking_date', today);
+              } else {
+                await supabase
+                  .from('recommendation_daily_prices')
+                  .insert({
+                    recommendation_id: upsert.recommendation_id,
+                    tracking_date: today,
+                    closing_price: 0,
+                    change_rate: 0,
+                    volume: 0,
+                    cumulative_return: 0,
+                    days_since_recommendation: 0,
+                    [volumeColumn]: upsert[volumeColumn]
+                  });
+              }
+            }
+            console.log(`📊 거래량 저장 완료: ${volumeUpserts.length}건 (${volumeColumn})`);
+          } catch (e) {
+            console.warn('⚠️ 거래량 DB 저장 실패:', e.message);
+          }
+        }
+
+        // 참고: D+0(추천일)에는 SAVE 이전이라 체크포인트 거래량이 없음.
+        // D+1 첫 비교 시 종가 거래량(volume)으로 fallback. D+2부터 동시간대 비교 가능.
       }
 
       // v3.32: 시장 심리 지수 조회
@@ -2099,12 +2318,14 @@ module.exports = async (req, res) => {
         success: true,
         mode: 'track',
         time: kstTimeStr,
+        trackCheckpoint: trackTime,
         telegramSent: sent,
         days: dayResults.map(d => ({
           date: d.alertDate,
           stocks: d.stocks.map(s => ({
             name: s.stock_name,
-            return: s.return_rate.toFixed(1) + '%'
+            return: s.return_rate.toFixed(1) + '%',
+            momentum: s.momentum ? { signal: s.momentum.label, score: s.momentum.compositeScore } : null
           }))
         }))
       });
