@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { market = 'ALL', limit, debug } = req.query;
+    const { market = 'ALL', limit, debug, refreshPrediction } = req.query;
     const limitNum = limit ? parseInt(limit) : undefined; // limit 없으면 전체 반환
     const result = await screener.screenAllStocks(market, limitNum);
 
@@ -72,10 +72,10 @@ module.exports = async function handler(req, res) {
       if (result.defenseTop3) result.defenseTop3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
     }
 
-    // 해외 시장 기반 전망 (캐시 활용 — 같은 날짜면 Supabase에서 읽기)
+    // 해외 시장 기반 전망 (refreshPrediction=true 시 캐시 무시)
     let prediction = null;
     try {
-      prediction = await overnightPredictor.fetchAndPredict();
+      prediction = await overnightPredictor.fetchAndPredict(refreshPrediction === 'true');
     } catch (e) {
       console.warn('⚠️ 해외 전망 조회 실패:', e.message);
     }
