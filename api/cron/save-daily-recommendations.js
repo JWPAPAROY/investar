@@ -2649,17 +2649,21 @@ module.exports = async (req, res) => {
 
       // 시장 심리 지수
       let sentiment = null;
+      let sentimentDebug = '';
       try {
         const [kospiChart, kosdaqChart] = await Promise.all([
           kisApi.getIndexChart('0001', 30),
           kisApi.getIndexChart('1001', 30)
         ]);
+        sentimentDebug = `kospi:${kospiChart?.length||0},kosdaq:${kosdaqChart?.length||0}`;
         sentiment = {
           kospi: calculateMarketSentiment(kospiChart),
           kosdaq: calculateMarketSentiment(kosdaqChart)
         };
+        sentimentDebug += `,k_grade:${sentiment.kospi?.grade||'null'},q_grade:${sentiment.kosdaq?.grade||'null'}`;
         console.log(`📊 [cached] 시장 심리: KOSPI ${sentiment.kospi?.label || '?'} (${sentiment.kospi?.grade}), KOSDAQ ${sentiment.kosdaq?.label || '?'} (${sentiment.kosdaq?.grade})`);
       } catch (e) {
+        sentimentDebug = `error:${e.message}`;
         console.warn('⚠️ [cached] 시장 심리 조회 실패:', e.message);
       }
 
@@ -2759,7 +2763,9 @@ module.exports = async (req, res) => {
         date: today,
         existingCount: existingData.length,
         top3Count: top3ForAlert.length,
-        telegramSent: sent
+        telegramSent: sent,
+        sentimentDebug,
+        sentimentResult: sentiment ? { kospi: sentiment.kospi?.grade, kosdaq: sentiment.kosdaq?.grade } : null
       });
     }
 
