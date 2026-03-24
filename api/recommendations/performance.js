@@ -1011,7 +1011,8 @@ async function handleMomentum(req, res, apiStartTime) {
       if (prevData) {
         for (const row of prevData) {
           if (prevVolumes[row.recommendation_id]) continue;
-          prevVolumes[row.recommendation_id] = row[volumeColumn] || row.volume || 0;
+          // v3.72: volume_t{N}(동시간대 거래량)만 사용, 전일 총 거래량(volume)으로 fallback하면 비교 의미 없음
+          prevVolumes[row.recommendation_id] = row[volumeColumn] || 0;
         }
       }
     } catch (e) {}

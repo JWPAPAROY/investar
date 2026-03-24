@@ -379,24 +379,34 @@ class KISApi {
           'authorization': `Bearer ${token}`,
           'appkey': this.appKey,
           'appsecret': this.appSecret,
-          'tr_id': 'FHKST01010600',
+          'tr_id': 'FHKST03010200',   // v3.72: 주식당일분봉조회 정확한 TR_ID
           'custtype': 'P'
         },
         params: {
           FID_COND_MRKT_DIV_CODE: 'J',
           FID_INPUT_ISCD: stockCode,
           FID_INPUT_HOUR_1: '',          // 조회시작시각 (공백시 전체)
-          FID_PW_DATA_INCU_YN: 'Y'       // Y: 과거데이터 포함
+          FID_PW_DATA_INCU_YN: 'Y',     // Y: 과거데이터 포함
+          FID_ETC_CLS_CODE: ''           // 기타 구분 코드 (필수 파라미터)
         }
       });
 
       if (response.data.rt_cd === '0') {
-        const chartData = response.data.output2.map(item => ({
-          time: item.stck_cntg_hour,     // 시각 (HHMMSS)
-          price: parseInt(item.stck_prpr),
-          volume: parseInt(item.cntg_vol),
-          changeRate: parseFloat(item.prdy_ctrt)
-        }));
+        const chartData = response.data.output2.map(item => {
+          const close = parseInt(item.stck_prpr) || 0;
+          const open = parseInt(item.stck_oprc) || 0;
+          // 분봉 양봉/음봉: 시가 대비 종가 변화율 (prdy_ctrt는 output1에만 있음)
+          const changeRate = open > 0 ? ((close - open) / open * 100) : 0;
+          return {
+            time: item.stck_cntg_hour,     // 시각 (HHMMSS)
+            price: close,
+            open: open,
+            high: parseInt(item.stck_hgpr) || 0,
+            low: parseInt(item.stck_lwpr) || 0,
+            volume: parseInt(item.cntg_vol) || 0,
+            changeRate: changeRate          // 분봉 개별 등락률 (양봉>0, 음봉<0)
+          };
+        });
 
         return chartData;
       } else {

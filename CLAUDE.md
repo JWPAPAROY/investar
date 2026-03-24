@@ -7,7 +7,7 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.71
+- **버전**: 3.72
 - **최종 업데이트**: 2026-03-23
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
@@ -871,6 +871,12 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.72 (2026-03-24)
+- **분봉 체결강도 버그 수정 (치명)**: `getMinuteChart()` 응답의 `prdy_ctrt` 필드가 `output2`에 존재하지 않아 `changeRate`가 항상 `NaN` → 모든 분봉이 중립 처리 → 체결강도가 항상 100%로 고정되던 문제. `stck_oprc`(시가) vs `stck_prpr`(종가) 비교로 분봉별 양봉/음봉 판단하도록 수정.
+- **전일 거래량 fallback 버그 수정 (치명)**: `prevVolumes` 조회 시 `volume_t{N}`(동시간대 거래량)이 NULL이면 `volume`(전일 총 거래량)으로 fallback → 장중 일부 시점 거래량과 전일 전체 거래량을 비교하여 항상 음수(-40% 등)가 나오던 문제. 동시간대 데이터 없으면 0으로 두어 해당 차원을 건너뛰도록 수정. cron/performance.js 양쪽 모두 수정.
+- **TR_ID 수정**: `getMinuteChart()`의 TR_ID를 `FHKST01010600` → `FHKST03010200`(주식당일분봉조회 정확한 TR_ID)로 변경. 누락된 `FID_ETC_CLS_CODE` 필수 파라미터 추가.
+- **분봉 데이터 필드 확장**: `getMinuteChart()` 반환값에 `open`, `high`, `low` 필드 추가 (기존: time, price, volume, changeRate만 반환).
 
 ### v3.71 (2026-03-23)
 - **성과 검증 탭 장중 모멘텀 UI**: 성과 검증 탭 상단에 `⚡ 장중 모멘텀 분석` 섹션 추가. D-1/D-2/D-3 TOP3 종목의 6차원 모멘텀을 실시간 분석, 장중 여러 번 갱신 가능.
