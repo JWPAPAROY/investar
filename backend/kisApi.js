@@ -711,7 +711,7 @@ class KISApi {
           FID_DIV_CLS_CODE: marketCode,
           FID_BLNG_CLS_CODE: '0',
           FID_TRGT_CLS_CODE: '111111111',
-          FID_TRGT_EXLS_CLS_CODE: '000000',
+          FID_TRGT_EXLS_CLS_CODE: '0000000000',  // 10자리: 제외 없음
           FID_INPUT_PRICE_1: '',
           FID_INPUT_PRICE_2: '',
           FID_VOL_CNT: '',
