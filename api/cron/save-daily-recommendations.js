@@ -56,6 +56,14 @@ function calculateMarketSentiment(chartData) {
   else if (rsi >= 70) rsiScore = 2;
   else if (rsi >= 60) rsiScore = 1;
 
+  // 3. 추세 점수 (5일 MA vs 20일 MA)
+  const ma5 = closes.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
+  let trendScore = 0;
+  if (ma5 > ma20 * 1.02) trendScore = 2;
+  else if (ma5 > ma20) trendScore = 1;
+  else if (ma5 < ma20 * 0.98) trendScore = -2;
+  else if (ma5 < ma20) trendScore = -1;
+
   // 4. 급락 부스터 (v3.34.3)
   // 최근 3일 누적 하락률이 -5% 이상이면 추가 패널티 (후행성 극복)
   let rapidDropScore = 0;
