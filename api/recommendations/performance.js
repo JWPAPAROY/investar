@@ -987,6 +987,8 @@ async function handleMomentum(req, res, apiStartTime) {
         total_score: stock.total_score,
         recommendation_grade: stock.recommendation_grade,
         whale_detected: stock.whale_detected,
+        institution_buy_days: stock.institution_buy_days || 0,
+        foreign_buy_days: stock.foreign_buy_days || 0,
         recommendation_date: saveDate,
         day_label: `D-${dayIdx + 1}`,
       });

@@ -1800,6 +1800,12 @@
         }
       }
 
+      // v3.72: 기관/외인 연속매수 뱃지
+      const instDaysCard = stock.institutionalFlow?.institutionDays || 0;
+      const frgnDaysCard = stock.institutionalFlow?.foreignDays || 0;
+      if (instDaysCard >= 1) badges.push({ text: `기관 ${instDaysCard}일 연속매수`, color: 'bg-purple-500' });
+      if (frgnDaysCard >= 1) badges.push({ text: `외인 ${frgnDaysCard}일 연속매수`, color: 'bg-indigo-500' });
+
       return (
         <div
           className="stock-card bg-white rounded-xl shadow-lg overflow-hidden cursor-pointer slide-in"
@@ -3371,6 +3377,8 @@
                                   <span className="font-semibold text-sm truncate">{stock.stock_name}</span>
                                   <span className="text-[10px] text-gray-400">{stock.stock_code}</span>
                                   {stock.whale_detected && <span className="text-[10px]">🐋</span>}
+                                  {(stock.institution_buy_days || 0) >= 1 && <span className="text-[10px] bg-purple-100 text-purple-700 px-1 py-0.5 rounded">기관{stock.institution_buy_days}일</span>}
+                                  {(stock.foreign_buy_days || 0) >= 1 && <span className="text-[10px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded">외인{stock.foreign_buy_days}일</span>}
                                 </div>
                                 <div className="flex items-center gap-2 flex-shrink-0">
                                   <span className={`font-bold text-sm ${returnColor}`}>
