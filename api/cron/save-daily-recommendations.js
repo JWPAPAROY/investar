@@ -777,6 +777,16 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
       msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
       msg += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
 
+      // v3.72: 기관/외인 수급 표시
+      const instD = stock.institutionalFlow?.institutionDays || 0;
+      const frgnD = stock.institutionalFlow?.foreignDays || 0;
+      const supplyParts = [];
+      if (instD > 0) supplyParts.push(`기관 ${instD}일`);
+      if (frgnD > 0) supplyParts.push(`외인 ${frgnD}일`);
+      if (supplyParts.length > 0) {
+        msg += `   🏛️ 연속매수: ${supplyParts.join(' | ')}\n`;
+      }
+
       // v3.46: 기대수익 구간 + 손익비
       const er = getExpectedReturn(stock, expectations);
       if (er) {
@@ -854,6 +864,16 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       message += `   📊 ${(stock.total_score || 0).toFixed(0)}점 | ${grade}등급\n`;
       message += `   💰 현재가: ${price.toLocaleString()}원\n`;
       message += `   🛡️ 손절: ${sl5.toLocaleString()}원(-5%) / ${sl7.toLocaleString()}원(-7%)\n`;
+
+      // v3.72: 기관/외인 수급 표시
+      const instDA = stock.institution_buy_days || 0;
+      const frgnDA = stock.foreign_buy_days || 0;
+      const supplyPartsA = [];
+      if (instDA > 0) supplyPartsA.push(`기관 ${instDA}일`);
+      if (frgnDA > 0) supplyPartsA.push(`외인 ${frgnDA}일`);
+      if (supplyPartsA.length > 0) {
+        message += `   🏛️ 연속매수: ${supplyPartsA.join(' | ')}\n`;
+      }
 
       // v3.46: 기대수익 구간 + 손익비
       const er = getExpectedReturn(stock, expectations);
@@ -1010,6 +1030,16 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null, expectations 
           const displayName = getDisplayName(stock);
           msg += `${medal} <b>${displayName}</b> ${marketTag} (${gradeDisplay})\n`;
           msg += `   💰 ${recPrice} → ${stock.current_price.toLocaleString()}원 (${returnStr}) ${signal}\n`;
+
+          // v3.72: 기관/외인 수급 표시
+          const instDT = stock.institution_buy_days || 0;
+          const frgnDT = stock.foreign_buy_days || 0;
+          const supplyPartsT = [];
+          if (instDT > 0) supplyPartsT.push(`기관 ${instDT}일`);
+          if (frgnDT > 0) supplyPartsT.push(`외인 ${frgnDT}일`);
+          if (supplyPartsT.length > 0) {
+            msg += `   🏛️ 연속매수: ${supplyPartsT.join(' | ')}\n`;
+          }
 
           // v3.46: 기대 진행률
           const er = getExpectedReturn(stock, expectations);
@@ -2122,7 +2152,9 @@ module.exports = async (req, res) => {
             volume: volume,
             high: high,
             low: low,
-            recommendation_id: stock.id  // v3.70: DB 저장용
+            recommendation_id: stock.id,  // v3.70: DB 저장용
+            institution_buy_days: stock.institution_buy_days || 0,  // v3.72: 수급 표시용
+            foreign_buy_days: stock.foreign_buy_days || 0
           });
         }
 
