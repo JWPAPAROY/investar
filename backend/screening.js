@@ -1970,17 +1970,20 @@ class StockScreener {
 
     // TOP 3 선정 (전체 결과에서 선정)
     const top3 = this.selectTop3(results);
+    const sidewaysTop3 = this.selectSidewaysTop3(results);
     const defenseTop3 = this.selectDefenseTop3(results);
 
     return {
       stocks: finalResults,
       top3: top3,  // 🆕 TOP 3 추천 종목
+      sidewaysTop3: sidewaysTop3,  // v3.73: 횡보장 TOP 3
       defenseTop3: defenseTop3,  // v3.34: 방어 TOP 3
       metadata: {
         totalAnalyzed: analyzed,
         totalFound: results.length,
         returned: finalResults.length,
         top3Count: top3.length,  // 🆕 TOP 3 개수
+        sidewaysTop3Count: sidewaysTop3.length,
         defenseTop3Count: defenseTop3.length,
         poolSize: finalStockList.length,
         debug: {
@@ -2147,6 +2150,97 @@ class StockScreener {
     }
 
     return result;
+  }
+
+  /**
+   * v3.73: 횡보장 전략 TOP 3 선별
+   * 시장 중립 시 강화 필터: MFI<93, RSI<82, 등락률≥5%, 듀얼수급 우선
+   */
+  selectSidewaysTop3(allStocks) {
+    console.log(`\n⚖️ 횡보장 TOP 3 선정 시작...`);
+
+    const isEligible = (s) => {
+      const flow = s.institutionalFlow;
+      const instDays = flow?.institutionDays || 0;
+      const foreignDays = flow?.foreignDays || 0;
+      const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+      const hasSupply = hasBuyWhale || instDays >= 2 || foreignDays >= 2;
+      const isOverheated = s.recommendation?.grade === '과열';
+      const mfi = s.volumeIndicators?.mfi ?? 100;
+      const rsi = s.overheatingV2?.rsi ?? 100;
+      const changeRate = Math.abs(s.changeRate || 0);
+      return hasSupply && !isOverheated && mfi < 93 && rsi < 82 && changeRate >= 5 && changeRate < 25;
+    };
+
+    const getDualScore = (s) => {
+      const flow = s.institutionalFlow;
+      const inst = flow?.institutionDays || 0;
+      const frgn = flow?.foreignDays || 0;
+      if (inst >= 2 && frgn >= 2) return 4;  // 듀얼
+      if (inst >= 4 || frgn >= 4) return 3;  // 강한 단일
+      if (inst >= 2 || frgn >= 2) return 2;  // 약한 단일
+      return 1;
+    };
+
+    const addMeta = (stock, priority) => {
+      const currentPrice = stock.currentPrice || 0;
+      return {
+        ...stock,
+        sidewaysTop3Meta: {
+          priority,
+          stopLoss: {
+            loss5: Math.floor(currentPrice * 0.95),
+            loss7: Math.floor(currentPrice * 0.93)
+          }
+        }
+      };
+    };
+
+    // 기본 필터 통과 종목
+    const eligible = allStocks.filter(isEligible);
+    const mcCap = s => (s.marketCap || 0) / 100000000;
+
+    const top3 = [];
+
+    const addFromPool = (pool, priority) => {
+      const sorted = pool
+        .filter(s => !top3.some(t => t.stockCode === s.stockCode))
+        .sort((a, b) => {
+          // 1차: 듀얼수급 점수
+          const dualDiff = getDualScore(b) - getDualScore(a);
+          if (dualDiff !== 0) return dualDiff;
+          // 2차: sweet-spot 점수
+          return b.totalScore - a.totalScore;
+        });
+      for (const s of sorted) {
+        if (top3.length >= 3) break;
+        top3.push(addMeta(s, priority));
+      }
+    };
+
+    // 1순위: 시총 1조 이하 + 50-69점
+    const tier1 = eligible.filter(s => mcCap(s) <= 10000 && s.totalScore >= 50 && s.totalScore <= 69);
+    addFromPool(tier1, 1);
+
+    // 2순위: 시총 무관 + 50-69점
+    if (top3.length < 3) {
+      const tier2 = eligible.filter(s => s.totalScore >= 50 && s.totalScore <= 69);
+      addFromPool(tier2, 2);
+    }
+
+    // 3순위: 점수 범위 확대 (40-79)
+    if (top3.length < 3) {
+      const tier3 = eligible.filter(s => s.totalScore >= 40 && s.totalScore <= 79);
+      addFromPool(tier3, 3);
+    }
+
+    console.log(`⚖️ 횡보장 TOP 3 선정 완료: ${top3.length}개 (후보 ${eligible.length}개)`);
+    top3.forEach((s, i) => {
+      const flow = s.institutionalFlow;
+      console.log(`  ${i + 1}. ${s.stockName} (${s.totalScore}점, 기관${flow?.institutionDays || 0}일/외인${flow?.foreignDays || 0}일) P${s.sidewaysTop3Meta.priority}`);
+    });
+
+    return top3;
   }
 
   /**

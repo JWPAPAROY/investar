@@ -407,6 +407,114 @@ function selectAlertTop3(stocks) {
 }
 
 /**
+ * v3.73: 횡보장 TOP 3 선별 (ALERT용 - DB snake_case)
+ * MFI<93, RSI<82, 등락률≥5%, 듀얼수급 우선
+ */
+function selectSidewaysAlertTop3(stocks) {
+  if (!stocks || stocks.length === 0) return [];
+
+  const eligible = stocks.filter(s => {
+    const instDays = s.institution_buy_days || 0;
+    const frgnDays = s.foreign_buy_days || 0;
+    const hasSupply = s.whale_detected || instDays >= 2 || frgnDays >= 2;
+    const mfi = s.mfi ?? 100;
+    const rsi = s.rsi ?? 100;
+    const changeRate = Math.abs(s.change_rate || 0);
+    return hasSupply &&
+      s.recommendation_grade !== '과열' &&
+      mfi < 93 && rsi < 82 &&
+      changeRate >= 5 && changeRate < 25;
+  });
+
+  const getDualScore = (s) => {
+    const inst = s.institution_buy_days || 0;
+    const frgn = s.foreign_buy_days || 0;
+    if (inst >= 2 && frgn >= 2) return 4;
+    if (inst >= 4 || frgn >= 4) return 3;
+    if (inst >= 2 || frgn >= 2) return 2;
+    return 1;
+  };
+
+  const top3 = [];
+  const mcCap = s => (s.market_cap || 0) / 100000000;
+
+  const addFromPool = (pool) => {
+    const sorted = pool
+      .filter(s => !top3.some(t => t.stock_code === s.stock_code))
+      .sort((a, b) => {
+        const dualDiff = getDualScore(b) - getDualScore(a);
+        if (dualDiff !== 0) return dualDiff;
+        return b.total_score - a.total_score;
+      });
+    for (const s of sorted) {
+      if (top3.length >= 3) break;
+      top3.push(s);
+    }
+  };
+
+  // 1순위: 시총 1조 이하 + 50-69점
+  addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.total_score >= 50 && s.total_score <= 69));
+  // 2순위: 시총 무관 + 50-69점
+  if (top3.length < 3) addFromPool(eligible.filter(s => s.total_score >= 50 && s.total_score <= 69));
+  // 3순위: 점수 확대 40-79
+  if (top3.length < 3) addFromPool(eligible.filter(s => s.total_score >= 40 && s.total_score <= 79));
+
+  return top3;
+}
+
+/**
+ * v3.73: 횡보장 TOP 3 선별 (SAVE용 - 스크리닝 결과 camelCase)
+ */
+function selectSidewaysSaveTop3(stocks) {
+  if (!stocks || stocks.length === 0) return [];
+
+  const eligible = stocks.filter(s => {
+    const flow = s.institutionalFlow;
+    const instDays = flow?.institutionDays || 0;
+    const frgnDays = flow?.foreignDays || 0;
+    const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+    const hasSupply = hasBuyWhale || instDays >= 2 || frgnDays >= 2;
+    const isOverheated = s.recommendation?.grade === '과열';
+    const mfi = s.volumeIndicators?.mfi ?? 100;
+    const rsi = s.overheatingV2?.rsi ?? 100;
+    const changeRate = Math.abs(s.changeRate || 0);
+    return hasSupply && !isOverheated && mfi < 93 && rsi < 82 && changeRate >= 5 && changeRate < 25;
+  });
+
+  const getDualScore = (s) => {
+    const inst = s.institutionalFlow?.institutionDays || 0;
+    const frgn = s.institutionalFlow?.foreignDays || 0;
+    if (inst >= 2 && frgn >= 2) return 4;
+    if (inst >= 4 || frgn >= 4) return 3;
+    if (inst >= 2 || frgn >= 2) return 2;
+    return 1;
+  };
+
+  const top3 = [];
+  const mcCap = s => (s.marketCap || 0) / 100000000;
+
+  const addFromPool = (pool) => {
+    const sorted = pool
+      .filter(s => !top3.some(t => t.stockCode === s.stockCode))
+      .sort((a, b) => {
+        const dualDiff = getDualScore(b) - getDualScore(a);
+        if (dualDiff !== 0) return dualDiff;
+        return b.totalScore - a.totalScore;
+      });
+    for (const s of sorted) {
+      if (top3.length >= 3) break;
+      top3.push(s);
+    }
+  };
+
+  addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.totalScore >= 50 && s.totalScore <= 69));
+  if (top3.length < 3) addFromPool(eligible.filter(s => s.totalScore >= 50 && s.totalScore <= 69));
+  if (top3.length < 3) addFromPool(eligible.filter(s => s.totalScore >= 40 && s.totalScore <= 79));
+
+  return top3;
+}
+
+/**
  * 고래 감지 종목 선별 (TOP 3에 포함되지 않은 종목)
  * 승률 89%, 평균 +4.30% (14일 실적 기준)
  */
@@ -588,6 +696,21 @@ function isMarketDefensive(sentiment) {
   const bearish = ['fear', 'anxiety']; // 공포 + 불안
   // v3.34.2: 한쪽이라도 불안 이하면 방어 전략 표시 (공포까지 기다리면 너무 늦음)
   return bearish.includes(kGrade) || bearish.includes(qGrade);
+}
+
+/**
+ * v3.73: 시장 횡보 상태인지 확인
+ * 둘 다 중립이거나, 한쪽 중립 + 한쪽 낙관이면 횡보
+ */
+function isMarketSideways(sentiment) {
+  if (!sentiment) return false;
+  const kGrade = sentiment.kospi?.grade;
+  const qGrade = sentiment.kosdaq?.grade;
+  const sideways = ['neutral'];
+  const mild = ['neutral', 'optimism'];
+  // 둘 다 mild 범위이고 최소 하나는 neutral
+  return (sideways.includes(kGrade) || sideways.includes(qGrade)) &&
+         mild.includes(kGrade) && mild.includes(qGrade);
 }
 
 /**
@@ -815,6 +938,23 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
     });
   }
 
+  // v3.73: 횡보장 TOP 3 (시장 중립 시)
+  const showSideways = isMarketSideways(options.sentiment);
+  if (showSideways && options.sidewaysTop3 && options.sidewaysTop3.length > 0) {
+    msg += `\n⚖️ <b>횡보장 TOP 3</b> (MFI&lt;93·RSI&lt;82·등락≥5%·수급)\n`;
+    options.sidewaysTop3.forEach((stock, i) => {
+      const name = stock.stockName || stock.stock_name;
+      const code = stock.stockCode || stock.stock_code;
+      const score = (stock.totalScore || stock.total_score || 0).toFixed(0);
+      const inst = stock.institutionalFlow?.institutionDays || stock.institution_buy_days || 0;
+      const frgn = stock.institutionalFlow?.foreignDays || stock.foreign_buy_days || 0;
+      msg += `${i + 1}. <b>${name}</b> (${code}) ${score}점`;
+      if (inst >= 1 || frgn >= 1) msg += ` 🏛️기관${inst}일/외인${frgn}일`;
+      msg += `\n`;
+    });
+    console.log(`⚖️ [SAVE] 횡보장 TOP 3 표시 (${options.sidewaysTop3.length}개)`);
+  }
+
   // v3.34: 방어 TOP 3 (시장 공포 시 또는 해외 예측 강한 하락 시)
   const showDefense = isMarketDefensive(options.sentiment) || (prediction && prediction.score <= -0.5);
   if (defenseTop3 && defenseTop3.length > 0 && showDefense) {
@@ -829,7 +969,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
  * v3.27: ALERT 메시지 (아침 08:30)
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
-function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = [], prediction = null) {
+function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = [], prediction = null, sidewaysTop3 = []) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
@@ -937,6 +1077,23 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       const winRateAll = (totalWinAll / totalCountAll * 100).toFixed(0);
       message += `📊 전체: 평균 ${avgReturnAll >= 0 ? '+' : ''}${avgReturnAll.toFixed(1)}% | 승률 ${winRateAll}% (${totalWinAll}/${totalCountAll})\n`;
     }
+  }
+
+  // v3.73: 횡보장 TOP 3 (시장 중립 시)
+  const showSideways = isMarketSideways(sentiment);
+  if (showSideways && sidewaysTop3 && sidewaysTop3.length > 0) {
+    message += `\n⚖️ <b>횡보장 TOP 3</b> (MFI&lt;93·RSI&lt;82·등락≥5%·수급)\n`;
+    sidewaysTop3.forEach((stock, i) => {
+      const name = stock.stock_name;
+      const code = stock.stock_code;
+      const score = (stock.total_score || 0).toFixed(0);
+      const inst = stock.institution_buy_days || 0;
+      const frgn = stock.foreign_buy_days || 0;
+      message += `${i + 1}. <b>${name}</b> (${code}) ${score}점`;
+      if (inst >= 1 || frgn >= 1) message += ` 🏛️기관${inst}일/외인${frgn}일`;
+      message += `\n`;
+    });
+    console.log(`⚖️ [ALERT] 횡보장 TOP 3 표시 (${sidewaysTop3.length}개)`);
   }
 
   // v3.34: 방어 TOP 3 (시장 공포 시 또는 해외 예측 강한 하락 시)
@@ -1971,8 +2128,12 @@ module.exports = async (req, res) => {
         console.warn('⚠️ 해외 전망 조회 실패:', predErr.message);
       }
 
+      // v3.73: 횡보장 TOP 3
+      const sidewaysAlertTop3 = selectSidewaysAlertTop3(existingData);
+      console.log(`⚖️ 횡보장 TOP 3: ${sidewaysAlertTop3.length}개`);
+
       // Step 6: 텔레그램 알림 전송
-      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction);
+      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction, sidewaysAlertTop3);
       const sent = await sendTelegramMessage(message);
 
       // v3.66: alert 전송 완료 시각 기록 (cron 중복 방지용)
@@ -2552,7 +2713,9 @@ module.exports = async (req, res) => {
         prediction = await overnightPredictor.fetchAndPredict();
       } catch (e) { console.warn('⚠️ [cached] 해외 전망 조회 실패:', e.message); }
 
-      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, defenseAlertTop3, expectations, prediction);
+      // v3.73: 횡보장 TOP 3
+      const sidewaysAlertTop3Cached = selectSidewaysAlertTop3(existingData);
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment, sidewaysTop3: sidewaysAlertTop3Cached }, defenseAlertTop3, expectations, prediction);
       const sent = await sendTelegramMessage(message);
 
       // 해외 예측 실제 결과 업데이트
@@ -2702,6 +2865,7 @@ module.exports = async (req, res) => {
         // v3.63: B등급(45점) 이상만 성과 추적, 나머지는 기대수익 통계용으로만 저장
         is_active: (stock.totalScore || 0) >= 45,
         is_top3: false,
+        is_sideways_top3: false,
         is_defense_top3: false,
         is_top3_v2: false
       };
@@ -2709,6 +2873,7 @@ module.exports = async (req, res) => {
 
     // v3.35: TOP3 선별 후 DB 저장 전에 마킹
     const saveTop3Codes = selectSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
+    const sidewaysSaveTop3Codes = selectSidewaysSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
     const defSaveTop3Codes = selectDefenseSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
 
     // v3.37: v2 TOP3 선별 (Supply 기반 필터 — 기관/외국인 수급 + v2 총점)
@@ -2728,6 +2893,7 @@ module.exports = async (req, res) => {
 
     for (const rec of recommendations) {
       if (saveTop3Codes.includes(rec.stock_code)) rec.is_top3 = true;
+      if (sidewaysSaveTop3Codes.includes(rec.stock_code)) rec.is_sideways_top3 = true;
       if (defSaveTop3Codes.includes(rec.stock_code)) rec.is_defense_top3 = true;
       if (v2Top3Codes.includes(rec.stock_code)) rec.is_top3_v2 = true;
     }
@@ -2928,7 +3094,8 @@ module.exports = async (req, res) => {
 
       // 4. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment }, defenseTop3, expectations, prediction);
+        const sidewaysSaveTop3 = selectSidewaysSaveTop3(stocks);
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment, sidewaysTop3: sidewaysSaveTop3 }, defenseTop3, expectations, prediction);
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {

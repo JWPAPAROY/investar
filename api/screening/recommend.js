@@ -69,6 +69,7 @@ module.exports = async function handler(req, res) {
       };
       result.stocks.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
       if (result.top3) result.top3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
+      if (result.sidewaysTop3) result.sidewaysTop3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
       if (result.defenseTop3) result.defenseTop3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
     }
 
@@ -130,6 +131,7 @@ module.exports = async function handler(req, res) {
       };
       result.stocks.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
       if (result.top3) result.top3.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
+      if (result.sidewaysTop3) result.sidewaysTop3.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
       if (result.defenseTop3) result.defenseTop3.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
     }
 
@@ -138,6 +140,7 @@ module.exports = async function handler(req, res) {
       count: result.stocks.length,
       recommendations: result.stocks,
       top3: result.top3 || [],  // 🆕 TOP 3 추천 종목
+      sidewaysTop3: result.sidewaysTop3 || [],  // v3.73: 횡보장 TOP 3
       defenseTop3: result.defenseTop3 || [],  // v3.34: 방어 TOP 3
       prediction: prediction || undefined,  // 해외 시장 기반 전망
       metadata: result.metadata,

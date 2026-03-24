@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.72
-- **최종 업데이트**: 2026-03-23
+- **버전**: 3.73
+- **최종 업데이트**: 2026-03-24
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -871,6 +871,14 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.73 (2026-03-24)
+- **횡보장 전략 TOP 3 신규**: 시장 심리 중립(neutral)일 때 활성화되는 별도 선별 로직. 데이터 분석 기반 3대 필터: MFI<93(자금 포화 차단) + RSI<82(과매수 차단) + 등락률≥5%(이미 움직이는 종목만). 듀얼수급(기관+외인 동시 매수) 최우선 정렬.
+- **3단계 시장 레짐**: 기존 2단계(공격/방어) → 3단계(모멘텀/횡보/방어). `isMarketSideways()` 함수 추가. 심리 등급 neutral+optimism 조합이면 횡보장 판정.
+- **프론트엔드 횡보 탭**: 스크리닝 탭에 `⚖️ 횡보` 전략 필터 추가. 각 전략(모멘텀/횡보/방어) 제목 옆에 적합한 시장 조건 기준 명시.
+- **텔레그램 횡보장 TOP3**: SAVE/ALERT 메시지에서 시장 중립 시 `⚖️ 횡보장 TOP 3` 섹션 자동 표시.
+- **DB 플래그**: `is_sideways_top3` 컬럼 추가하여 횡보장 TOP3 종목 마킹.
+- **선별 함수 4종 추가**: `selectSidewaysTop3()` (screening.js), `selectSidewaysSaveTop3()`, `selectSidewaysAlertTop3()` (cron), 각각 camelCase/snake_case 대응.
 
 ### v3.72 (2026-03-24)
 - **분봉 체결강도 버그 수정 (치명)**: `getMinuteChart()` 응답의 `prdy_ctrt` 필드가 `output2`에 존재하지 않아 `changeRate`가 항상 `NaN` → 모든 분봉이 중립 처리 → 체결강도가 항상 100%로 고정되던 문제. `stck_oprc`(시가) vs `stck_prpr`(종가) 비교로 분봉별 양봉/음봉 판단하도록 수정.

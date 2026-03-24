@@ -554,8 +554,9 @@
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
       const [screeningDuration, setScreeningDuration] = useState(null); // 스크리닝 소요 시간(초)
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
+      const [sidewaysTop3Recommendations, setSidewaysTop3Recommendations] = useState([]); // v3.73: 횡보장 TOP 3
       const [defenseTop3Recommendations, setDefenseTop3Recommendations] = useState([]); // v3.34: 방어 TOP 3
-      const [strategyFilter, setStrategyFilter] = useState('momentum'); // v3.34: momentum, defense, all
+      const [strategyFilter, setStrategyFilter] = useState('momentum'); // v3.73: momentum, sideways, defense, all
       const [prediction, setPrediction] = useState(null); // 해외 시장 기반 전망
 
       // 데이터 캐싱
@@ -655,6 +656,7 @@
             stocks.sort((a, b) => b.totalScore - a.totalScore);
             setRecommendations(stocks);
             setTop3Recommendations(result.top3 || []); // 🆕 TOP 3 추천 종목 저장
+            setSidewaysTop3Recommendations(result.sidewaysTop3 || []); // v3.73
             setDefenseTop3Recommendations(result.defenseTop3 || []); // v3.34
             setPrediction(result.prediction || null);
             setScreeningMetadata(result.metadata || null);
@@ -665,6 +667,7 @@
             setCachedData({
               recommendations: stocks,
               top3: result.top3 || [],
+              sidewaysTop3: result.sidewaysTop3 || [],
               defenseTop3: result.defenseTop3 || [],
               metadata: result.metadata || null,
               timestamp: new Date()
@@ -995,15 +998,16 @@
                 {lastUpdate && recommendations.length > 0 && (
                   <div className="flex justify-center gap-2 mb-4">
                     {[
-                      { key: 'momentum', label: '🔴 모멘텀', desc: '상승 모멘텀' },
-                      { key: 'defense', label: '🛡️ 방어', desc: '하락 방어' },
-                      { key: 'all', label: '📊 전체', desc: '모두 표시' }
+                      { key: 'momentum', label: '🔴 모멘텀', desc: '상승 모멘텀', color: 'bg-red-500' },
+                      { key: 'sideways', label: '⚖️ 횡보', desc: '횡보장 강화필터', color: 'bg-amber-500' },
+                      { key: 'defense', label: '🛡️ 방어', desc: '하락 방어', color: 'bg-blue-500' },
+                      { key: 'all', label: '📊 전체', desc: '모두 표시', color: 'bg-gray-700' }
                     ].map(s => (
                       <button
                         key={s.key}
                         onClick={() => setStrategyFilter(s.key)}
                         className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${strategyFilter === s.key
-                          ? s.key === 'momentum' ? 'bg-red-500 text-white' : s.key === 'defense' ? 'bg-blue-500 text-white' : 'bg-gray-700 text-white'
+                          ? `${s.color} text-white`
                           : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                           }`}
                         title={s.desc}
@@ -1017,8 +1021,11 @@
                 {/* 🆕 TOP 3 추천 종목 섹션 - 전략별 분리 */}
                 {lastUpdate && (() => {
                   const showMomentum = strategyFilter === 'momentum' || strategyFilter === 'all';
+                  const showSideways = strategyFilter === 'sideways' || strategyFilter === 'all';
                   const showDefense = strategyFilter === 'defense' || strategyFilter === 'all';
-                  const activeTop3 = strategyFilter === 'defense' ? defenseTop3Recommendations : top3Recommendations;
+                  const activeTop3 = strategyFilter === 'defense' ? defenseTop3Recommendations
+                    : strategyFilter === 'sideways' ? sidewaysTop3Recommendations
+                    : top3Recommendations;
 
                   return (
                     <div className="space-y-4 mb-8">
@@ -1030,6 +1037,7 @@
                               <span className="text-2xl md:text-3xl flex-shrink-0">🏆</span>
                               <div className="min-w-0">
                                 <h3 className="text-lg md:text-2xl font-bold text-orange-800">모멘텀 TOP 3</h3>
+                                <p className="text-xs text-orange-600 mt-0.5">시장 심리 낙관/과열 시 적합</p>
                               </div>
                             </div>
                             {top3Recommendations.length > 0 && (
@@ -1099,6 +1107,74 @@
                         </div>
                       )}
 
+                      {/* v3.73: 횡보장 TOP 3 */}
+                      {showSideways && (
+                        <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border-2 border-amber-300 rounded-xl p-3 md:p-6">
+                          <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2 md:gap-3 min-w-0">
+                              <span className="text-2xl md:text-3xl flex-shrink-0">⚖️</span>
+                              <div className="min-w-0">
+                                <h3 className="text-lg md:text-2xl font-bold text-amber-800">횡보장 TOP 3</h3>
+                                <p className="text-xs text-amber-600 mt-0.5">시장 심리 중립 시 적합 · MFI{'<'}93 · RSI{'<'}82 · 등락≥5% · 수급 검증</p>
+                              </div>
+                            </div>
+                            {sidewaysTop3Recommendations.length > 0 && (
+                              <div className="bg-amber-600 text-white px-4 py-2 rounded-full font-bold text-lg">{sidewaysTop3Recommendations.length}개</div>
+                            )}
+                          </div>
+                          {sidewaysTop3Recommendations.length > 0 ? (
+                            <>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                                {sidewaysTop3Recommendations.map((stock, index) => (
+                                  <div key={stock.stockCode} className="bg-white border-2 border-amber-400 rounded-lg p-4 cursor-pointer hover:shadow-xl transition-all duration-200 transform hover:-translate-y-1" onClick={() => fetchStockDetail(stock.stockCode)}>
+                                    <div className="flex items-center justify-between mb-2">
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-2xl font-bold text-amber-600">#{index + 1}</span>
+                                        <span className="text-lg font-bold text-gray-800">{stock.stockName}</span>
+                                      </div>
+                                      <span className={`px-2 py-1 rounded text-xs font-bold ${stock.recommendation.grade === 'S+' ? 'bg-purple-100 text-purple-700' : stock.recommendation.grade === 'S' ? 'bg-red-100 text-red-700' : stock.recommendation.grade === 'A' ? 'bg-orange-100 text-orange-700' : 'bg-yellow-100 text-yellow-700'}`}>{stock.recommendation.grade}</span>
+                                    </div>
+                                    <div className="space-y-2 text-sm">
+                                      <div className="flex justify-between"><span className="text-gray-600">현재가</span><span className="font-bold">{stock.currentPrice.toLocaleString()}원</span></div>
+                                      <div className="flex justify-between"><span className="text-gray-600">종합 점수</span><span className="font-bold text-amber-600">{stock.totalScore.toFixed(1)}점</span></div>
+                                      <div className="flex justify-between"><span className="text-gray-600">MFI / RSI</span><span className="font-bold">{(stock.volumeIndicators?.mfi || 0).toFixed(0)} / {(stock.overheatingV2?.rsi || 0).toFixed(0)}</span></div>
+                                    </div>
+                                    {stock.sidewaysTop3Meta && (
+                                      <div className="mt-3">
+                                        <div className="bg-red-50 border border-red-200 rounded-lg p-2">
+                                          <div className="flex justify-between items-center text-xs">
+                                            <span className="text-red-800 font-semibold">🚨 권장 손절가</span>
+                                            <span className="font-bold text-red-600">{stock.sidewaysTop3Meta.stopLoss.loss5.toLocaleString()}원</span>
+                                          </div>
+                                          <div className="text-xs text-gray-500 mt-1">-5% 기준</div>
+                                        </div>
+                                      </div>
+                                    )}
+                                    <div className="mt-3 flex flex-wrap gap-1">
+                                      {(stock.institutionalFlow?.institutionDays || 0) >= 1 && (<span className="px-2 py-1 bg-purple-100 text-purple-700 rounded text-xs font-semibold">🏛️ 기관{stock.institutionalFlow.institutionDays}일 연속</span>)}
+                                      {(stock.institutionalFlow?.foreignDays || 0) >= 1 && (<span className="px-2 py-1 bg-indigo-100 text-indigo-700 rounded text-xs font-semibold">🌐 외인{stock.institutionalFlow.foreignDays}일 연속</span>)}
+                                      {(stock.institutionalFlow?.institutionDays || 0) >= 2 && (stock.institutionalFlow?.foreignDays || 0) >= 2 && (<span className="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-semibold">✅ 듀얼수급</span>)}
+                                      {stock.advancedAnalysis?.indicators?.whale?.some(w => w.type?.includes('매수')) && (<span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-semibold">🐋 매수고래</span>)}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="mt-4 bg-white border border-amber-300 rounded-lg p-3">
+                                <p className="text-sm text-gray-700">
+                                  <strong className="text-amber-700">💡 선정 기준:</strong> 횡보장(시장 심리 중립) 특화 필터. MFI{'<'}93(자금 포화 차단) + RSI{'<'}82(과매수 차단) + 등락률≥5%(이미 움직이는 종목만) + 수급 검증. 듀얼수급(기관+외인 동시 매수) 최우선.
+                                </p>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="bg-white border-2 border-gray-300 rounded-lg p-6 text-center">
+                              <div className="text-4xl mb-2">⚖️</div>
+                              <h4 className="text-lg font-bold text-gray-700">횡보장 필터를 통과하는 종목이 없습니다</h4>
+                              <p className="text-sm text-gray-500 mt-1">조건이 엄격하여 통과 종목이 없으면 관망을 권장합니다.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* 방어 TOP 3 */}
                       {showDefense && (
                         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-3 md:p-6">
@@ -1107,7 +1183,7 @@
                               <span className="text-2xl md:text-3xl flex-shrink-0">🛡️</span>
                               <div className="min-w-0">
                                 <h3 className="text-lg md:text-2xl font-bold text-blue-800">방어 TOP 3</h3>
-                                <p className="text-xs md:text-sm text-blue-600 mt-1">기관/외국인 수급 + 과매도 반등 선별</p>
+                                <p className="text-xs text-blue-600 mt-0.5">시장 심리 불안/공포 시 적합 · 기관/외국인 수급 + 과매도 반등</p>
                               </div>
                             </div>
                             {defenseTop3Recommendations.length > 0 && (
