@@ -2124,6 +2124,21 @@ module.exports = async (req, res) => {
         console.warn('⚠️ 해외 전망 조회 실패:', predErr.message);
       }
 
+      // v3.73: sentiment fallback — KIS API 실패 시 prediction 스코어 기반 레짐 추정
+      if (!sentiment || (!sentiment.kospi && !sentiment.kosdaq)) {
+        if (prediction) {
+          const score = prediction.score || 0;
+          let fallbackGrade, fallbackEmoji, fallbackLabel;
+          if (score <= -0.8) { fallbackGrade = 'anxiety'; fallbackEmoji = '😟'; fallbackLabel = '불안'; }
+          else if (score >= 1.4) { fallbackGrade = 'extreme'; fallbackEmoji = '🔥'; fallbackLabel = '과열'; }
+          else if (score >= 0.2) { fallbackGrade = 'optimism'; fallbackEmoji = '😊'; fallbackLabel = '낙관'; }
+          else { fallbackGrade = 'neutral'; fallbackEmoji = '😐'; fallbackLabel = '중립'; }
+          const fallbackSentiment = { grade: fallbackGrade, emoji: fallbackEmoji, label: fallbackLabel, disparity: '-', rsi: '-' };
+          sentiment = { kospi: fallbackSentiment, kosdaq: fallbackSentiment };
+          console.log(`📊 [alert] 시장 심리 fallback (prediction score ${score.toFixed(2)}): ${fallbackLabel} (${fallbackGrade})`);
+        }
+      }
+
       // v3.73: 횡보장 TOP 3
       const sidewaysAlertTop3 = selectSidewaysAlertTop3(existingData);
       console.log(`⚖️ 횡보장 TOP 3: ${sidewaysAlertTop3.length}개`);
@@ -2643,7 +2658,10 @@ module.exports = async (req, res) => {
           kospi: calculateMarketSentiment(kospiChart),
           kosdaq: calculateMarketSentiment(kosdaqChart)
         };
-      } catch (e) { }
+        console.log(`📊 [cached] 시장 심리: KOSPI ${sentiment.kospi?.label || '?'} (${sentiment.kospi?.grade}), KOSDAQ ${sentiment.kosdaq?.label || '?'} (${sentiment.kosdaq?.grade})`);
+      } catch (e) {
+        console.warn('⚠️ [cached] 시장 심리 조회 실패:', e.message);
+      }
 
       // TOP3 종목의 최근 주가 데이터 조회 (KIS 차트 API, 3건)
       const top3DailyPrices = {};
@@ -2708,6 +2726,21 @@ module.exports = async (req, res) => {
       try {
         prediction = await overnightPredictor.fetchAndPredict();
       } catch (e) { console.warn('⚠️ [cached] 해외 전망 조회 실패:', e.message); }
+
+      // v3.73: sentiment fallback — KIS API 실패 시 prediction 스코어 기반 레짐 추정
+      if (!sentiment || (!sentiment.kospi && !sentiment.kosdaq)) {
+        if (prediction) {
+          const score = prediction.score || 0;
+          let fallbackGrade, fallbackEmoji, fallbackLabel;
+          if (score <= -0.8) { fallbackGrade = 'anxiety'; fallbackEmoji = '😟'; fallbackLabel = '불안'; }
+          else if (score >= 1.4) { fallbackGrade = 'extreme'; fallbackEmoji = '🔥'; fallbackLabel = '과열'; }
+          else if (score >= 0.2) { fallbackGrade = 'optimism'; fallbackEmoji = '😊'; fallbackLabel = '낙관'; }
+          else { fallbackGrade = 'neutral'; fallbackEmoji = '😐'; fallbackLabel = '중립'; }
+          const fallbackSentiment = { grade: fallbackGrade, emoji: fallbackEmoji, label: fallbackLabel, disparity: '-', rsi: '-' };
+          sentiment = { kospi: fallbackSentiment, kosdaq: fallbackSentiment };
+          console.log(`📊 [cached] 시장 심리 fallback (prediction score ${score.toFixed(2)}): ${fallbackLabel} (${fallbackGrade})`);
+        }
+      }
 
       // v3.73: 횡보장 TOP 3
       const sidewaysAlertTop3Cached = selectSidewaysAlertTop3(existingData);
@@ -3086,6 +3119,21 @@ module.exports = async (req, res) => {
         prediction = await overnightPredictor.fetchAndPredict();
       } catch (pErr) {
         console.warn('⚠️ 해외 예측 조회 실패:', pErr.message);
+      }
+
+      // v3.73: sentiment fallback — KIS API 실패 시 prediction 스코어 기반 레짐 추정
+      if (!sentiment || (!sentiment.kospi && !sentiment.kosdaq)) {
+        if (prediction) {
+          const score = prediction.score || 0;
+          let fallbackGrade, fallbackEmoji, fallbackLabel;
+          if (score <= -0.8) { fallbackGrade = 'anxiety'; fallbackEmoji = '😟'; fallbackLabel = '불안'; }
+          else if (score >= 1.4) { fallbackGrade = 'extreme'; fallbackEmoji = '🔥'; fallbackLabel = '과열'; }
+          else if (score >= 0.2) { fallbackGrade = 'optimism'; fallbackEmoji = '😊'; fallbackLabel = '낙관'; }
+          else { fallbackGrade = 'neutral'; fallbackEmoji = '😐'; fallbackLabel = '중립'; }
+          const fallbackSentiment = { grade: fallbackGrade, emoji: fallbackEmoji, label: fallbackLabel, disparity: '-', rsi: '-' };
+          sentiment = { kospi: fallbackSentiment, kosdaq: fallbackSentiment };
+          console.log(`📊 [save] 시장 심리 fallback (prediction score ${score.toFixed(2)}): ${fallbackLabel} (${fallbackGrade})`);
+        }
       }
 
       // 4. 메시지 전송
