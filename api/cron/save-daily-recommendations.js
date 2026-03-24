@@ -2865,6 +2865,7 @@ module.exports = async (req, res) => {
         // v3.63: B등급(45점) 이상만 성과 추적, 나머지는 기대수익 통계용으로만 저장
         is_active: (stock.totalScore || 0) >= 45,
         is_top3: false,
+        is_sideways_top3: false,
         is_defense_top3: false,
         is_top3_v2: false
       };
@@ -2872,6 +2873,7 @@ module.exports = async (req, res) => {
 
     // v3.35: TOP3 선별 후 DB 저장 전에 마킹
     const saveTop3Codes = selectSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
+    const sidewaysSaveTop3Codes = selectSidewaysSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
     const defSaveTop3Codes = selectDefenseSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
 
     // v3.37: v2 TOP3 선별 (Supply 기반 필터 — 기관/외국인 수급 + v2 총점)
@@ -2891,6 +2893,7 @@ module.exports = async (req, res) => {
 
     for (const rec of recommendations) {
       if (saveTop3Codes.includes(rec.stock_code)) rec.is_top3 = true;
+      if (sidewaysSaveTop3Codes.includes(rec.stock_code)) rec.is_sideways_top3 = true;
       if (defSaveTop3Codes.includes(rec.stock_code)) rec.is_defense_top3 = true;
       if (v2Top3Codes.includes(rec.stock_code)) rec.is_top3_v2 = true;
     }
