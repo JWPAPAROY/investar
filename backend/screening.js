@@ -2159,6 +2159,11 @@ class StockScreener {
   selectSidewaysTop3(allStocks) {
     console.log(`\n⚖️ 횡보장 TOP 3 선정 시작...`);
 
+    const getMfi = (s) => {
+      // MFI는 volumeAnalysis.indicators.mfi에 위치
+      return s.volumeAnalysis?.indicators?.mfi ?? 100;
+    };
+
     const isEligible = (s) => {
       const flow = s.institutionalFlow;
       const instDays = flow?.institutionDays || 0;
@@ -2166,7 +2171,7 @@ class StockScreener {
       const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
       const hasSupply = hasBuyWhale || instDays >= 2 || foreignDays >= 2;
       const isOverheated = s.recommendation?.grade === '과열';
-      const mfi = s.volumeIndicators?.mfi ?? 100;
+      const mfi = getMfi(s);
       const rsi = s.overheatingV2?.rsi ?? 100;
       const changeRate = Math.abs(s.changeRate || 0);
       return hasSupply && !isOverheated && mfi < 93 && rsi < 82 && changeRate >= 5 && changeRate < 25;
@@ -2188,6 +2193,8 @@ class StockScreener {
         ...stock,
         sidewaysTop3Meta: {
           priority,
+          mfi: getMfi(stock),
+          rsi: stock.overheatingV2?.rsi ?? 0,
           stopLoss: {
             loss5: Math.floor(currentPrice * 0.95),
             loss7: Math.floor(currentPrice * 0.93)
@@ -2199,6 +2206,25 @@ class StockScreener {
     // 기본 필터 통과 종목
     const eligible = allStocks.filter(isEligible);
     const mcCap = s => (s.marketCap || 0) / 100000000;
+
+    // 디버그: 탈락 사유 출력
+    if (eligible.length === 0) {
+      console.log(`  ⚠️ 횡보장 필터 전원 탈락. 상위 5개 탈락 사유:`);
+      allStocks.slice(0, 5).forEach(s => {
+        const flow = s.institutionalFlow;
+        const inst = flow?.institutionDays || 0;
+        const frgn = flow?.foreignDays || 0;
+        const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+        const reasons = [];
+        if (!(hasBuyWhale || inst >= 2 || frgn >= 2)) reasons.push('수급X');
+        if (s.recommendation?.grade === '과열') reasons.push('과열');
+        if (getMfi(s) >= 93) reasons.push(`MFI=${getMfi(s).toFixed(0)}`);
+        if ((s.overheatingV2?.rsi ?? 100) >= 82) reasons.push(`RSI=${(s.overheatingV2?.rsi ?? 100).toFixed(0)}`);
+        if (Math.abs(s.changeRate || 0) < 5) reasons.push(`등락${Math.abs(s.changeRate||0).toFixed(1)}%<5`);
+        if (Math.abs(s.changeRate || 0) >= 25) reasons.push('등락≥25');
+        console.log(`    ${s.stockName}: ${reasons.join(', ')}`);
+      });
+    }
 
     const top3 = [];
 
@@ -2237,7 +2263,7 @@ class StockScreener {
     console.log(`⚖️ 횡보장 TOP 3 선정 완료: ${top3.length}개 (후보 ${eligible.length}개)`);
     top3.forEach((s, i) => {
       const flow = s.institutionalFlow;
-      console.log(`  ${i + 1}. ${s.stockName} (${s.totalScore}점, 기관${flow?.institutionDays || 0}일/외인${flow?.foreignDays || 0}일) P${s.sidewaysTop3Meta.priority}`);
+      console.log(`  ${i + 1}. ${s.stockName} (${s.totalScore}점, MFI=${getMfi(s).toFixed(0)}, RSI=${(s.overheatingV2?.rsi||0).toFixed(0)}, 기관${flow?.institutionDays || 0}일/외인${flow?.foreignDays || 0}일) P${s.sidewaysTop3Meta.priority}`);
     });
 
     return top3;

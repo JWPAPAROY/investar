@@ -1137,7 +1137,7 @@
                                     <div className="space-y-2 text-sm">
                                       <div className="flex justify-between"><span className="text-gray-600">현재가</span><span className="font-bold">{stock.currentPrice.toLocaleString()}원</span></div>
                                       <div className="flex justify-between"><span className="text-gray-600">종합 점수</span><span className="font-bold text-amber-600">{stock.totalScore.toFixed(1)}점</span></div>
-                                      <div className="flex justify-between"><span className="text-gray-600">MFI / RSI</span><span className="font-bold">{(stock.volumeIndicators?.mfi || 0).toFixed(0)} / {(stock.overheatingV2?.rsi || 0).toFixed(0)}</span></div>
+                                      <div className="flex justify-between"><span className="text-gray-600">MFI / RSI</span><span className="font-bold">{(stock.sidewaysTop3Meta?.mfi || stock.volumeAnalysis?.indicators?.mfi || 0).toFixed(0)} / {(stock.sidewaysTop3Meta?.rsi || stock.overheatingV2?.rsi || 0).toFixed(0)}</span></div>
                                     </div>
                                     {stock.sidewaysTop3Meta && (
                                       <div className="mt-3">
