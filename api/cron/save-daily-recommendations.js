@@ -2345,9 +2345,11 @@ module.exports = async (req, res) => {
       // try-catch로 감싸서 모멘텀 실패 시에도 기본 메시지는 전송
       const allTrackedStocks = dayResults.flatMap(d => d.stocks);
       const allRecIds = allTrackedStocks.map(s => s.recommendation_id).filter(Boolean);
+      let momentumDebug = { entered: false, stocksAnalyzed: 0, error: null };
 
       try {
         if (allRecIds.length > 0) {
+          momentumDebug.entered = true;
           // 전일 동시간대 거래량 조회 (전체 종목)
           let prevVolumes = {};
           try {
@@ -2409,10 +2411,12 @@ module.exports = async (req, res) => {
             const prevVol = prevVolumes[stock.recommendation_id] || 0;
             const cpVols = todayCheckpoints[stock.recommendation_id] || [];
             stock.momentum = analyzeIntradayMomentum(stock, prevVol, minuteData, cpVols);
+            momentumDebug.stocksAnalyzed++;
             console.log(`📊 [${stock.stock_name}] 모멘텀: ${stock.momentum.emoji} ${stock.momentum.label} (score=${stock.momentum.compositeScore}, accel=${stock.momentum.volumeAccel}, pos=${stock.momentum.pricePosition}%)`);
           }
         }
       } catch (momentumErr) {
+        momentumDebug.error = momentumErr.message;
         console.warn('⚠️ 모멘텀 분석 전체 실패 (기본 메시지로 전송):', momentumErr.message);
       }
 
@@ -2504,6 +2508,9 @@ module.exports = async (req, res) => {
         time: kstTimeStr,
         trackCheckpoint: trackTime,
         telegramSent: sent,
+        momentumDebug,
+        allRecIdsCount: allRecIds.length,
+        hasMomentum: allTrackedStocks.some(s => !!s.momentum),
         days: dayResults.map(d => ({
           date: d.alertDate,
           stocks: d.stocks.map(s => ({
