@@ -2280,7 +2280,7 @@ class StockScreener {
       const flow = s.institutionalFlow;
       const instDays = flow?.institutionDays || 0;
       const foreignDays = flow?.foreignDays || 0;
-      const hasSmartMoney = instDays >= 3 || foreignDays >= 3;
+      const hasSmartMoney = instDays >= 2 || foreignDays >= 2;  // v3.74: cron과 동기화 (v3.55에서 완화)
       const isNotCrashing = !s.crashCheck?.isCrashing;
       const isNotOverheated = s.recommendation?.grade !== '과열';
       const mcBillion = s.marketCap ? s.marketCap / 100000000 : 0;

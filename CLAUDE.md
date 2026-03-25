@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.73
-- **최종 업데이트**: 2026-03-24
+- **버전**: 3.74
+- **최종 업데이트**: 2026-03-25
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -871,6 +871,13 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.74 (2026-03-25)
+- **레짐 기반 메인 TOP3 전환**: 하락장→방어 TOP3, 횡보장→횡보 TOP3, 상승장→모멘텀 TOP3가 결산/알림 메시지의 메인 섹션으로 표시. 기존 모멘텀 TOP3는 참고용으로 하단에 표시. `determineMarketRegime()` 함수 추가.
+- **Track 레짐 연동**: D-1/D-2/D-3 추적 시 해당 날짜의 저장된 `market_regime`에 따라 올바른 TOP3를 추적. `getRegimeTop3FromDb()` 헬퍼 추가. 추적 메시지에 레짐 태그(🛡️방어/⚖️횡보) 표시.
+- **`market_regime` DB 컬럼**: `screening_recommendations` 테이블에 추가. SAVE 시 sentiment+prediction 기반으로 'momentum'/'defense'/'sideways' 저장. 이전 데이터는 'momentum' 기본값.
+- **방어 필터 동기화**: screening.js `selectDefenseTop3()`의 기관/외인 조건을 ≥3일 → ≥2일로 완화 (v3.55 cron 측 완화와 동기화).
+- **Fallback 처리**: 레짐별 TOP3가 비어있으면 모멘텀 TOP3로 자동 fallback + 경고 표시.
 
 ### v3.73 (2026-03-24)
 - **횡보장 전략 TOP 3 신규**: 시장 심리 중립(neutral)일 때 활성화되는 별도 선별 로직. 데이터 분석 기반 3대 필터: MFI<93(자금 포화 차단) + RSI<82(과매수 차단) + 등락률≥5%(이미 움직이는 종목만). 듀얼수급(기관+외인 동시 매수) 최우선 정렬.
