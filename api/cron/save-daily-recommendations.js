@@ -2148,8 +2148,8 @@ module.exports = async (req, res) => {
       }
 
       // v3.73: 횡보장 TOP 3
-      const sidewaysAlertTop3 = selectSidewaysAlertTop3(existingData);
-      console.log(`⚖️ 횡보장 TOP 3: ${sidewaysAlertTop3.length}개`);
+      const sidewaysAlertTop3 = selectSidewaysAlertTop3(savedStocks);
+      console.log(`⚖️ [alert] 횡보장 TOP 3: ${sidewaysAlertTop3.length}개`);
 
       // Step 6: 텔레그램 알림 전송
       const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction, sidewaysAlertTop3);
