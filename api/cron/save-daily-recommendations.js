@@ -2342,75 +2342,78 @@ module.exports = async (req, res) => {
       }
 
       // v3.70: 장중 모멘텀 분석 (전체 추적 종목 대상)
-      // Step 2-1: 전일 동시간대 거래량 조회 + 분봉 체결강도 분석
+      // try-catch로 감싸서 모멘텀 실패 시에도 기본 메시지는 전송
       const allTrackedStocks = dayResults.flatMap(d => d.stocks);
       const allRecIds = allTrackedStocks.map(s => s.recommendation_id).filter(Boolean);
 
-      if (allRecIds.length > 0) {
-        // 전일 동시간대 거래량 조회 (전체 종목)
-        let prevVolumes = {};
-        try {
-          const { data: prevData } = await supabase
-            .from('recommendation_daily_prices')
-            .select(`recommendation_id, tracking_date, ${volumeColumn}, volume`)
-            .in('recommendation_id', allRecIds)
-            .lt('tracking_date', today)
-            .order('tracking_date', { ascending: false });
-          if (prevData) {
-            for (const row of prevData) {
-              if (prevVolumes[row.recommendation_id]) continue;
-              // v3.72: volume_t{N}(동시간대 거래량)만 사용, 전일 총 거래량(volume)으로 fallback하면 비교 의미 없음
-              prevVolumes[row.recommendation_id] = row[volumeColumn] || 0;
-            }
-          }
-        } catch (e) {
-          console.warn('⚠️ 전일 거래량 조회 실패:', e.message);
-        }
-
-        // 오늘 이전 체크포인트 거래량 조회 (장중 가속도 분석용)
-        let todayCheckpoints = {};
-        if (trackTime >= 2) {
+      try {
+        if (allRecIds.length > 0) {
+          // 전일 동시간대 거래량 조회 (전체 종목)
+          let prevVolumes = {};
           try {
-            const cpColumns = [];
-            for (let t = 1; t < trackTime; t++) cpColumns.push(`volume_t${t}`);
-            const { data: cpData } = await supabase
+            const { data: prevData } = await supabase
               .from('recommendation_daily_prices')
-              .select(`recommendation_id, ${cpColumns.join(', ')}`)
+              .select(`recommendation_id, tracking_date, ${volumeColumn}, volume`)
               .in('recommendation_id', allRecIds)
-              .eq('tracking_date', today);
-            if (cpData) {
-              for (const row of cpData) {
-                const vols = [];
-                for (let t = 1; t < trackTime; t++) {
-                  vols.push(row[`volume_t${t}`] || 0);
-                }
-                todayCheckpoints[row.recommendation_id] = vols.filter(v => v > 0);
+              .lt('tracking_date', today)
+              .order('tracking_date', { ascending: false });
+            if (prevData) {
+              for (const row of prevData) {
+                if (prevVolumes[row.recommendation_id]) continue;
+                prevVolumes[row.recommendation_id] = row[volumeColumn] || 0;
               }
             }
           } catch (e) {
-            console.warn('⚠️ 이전 체크포인트 조회 실패:', e.message);
+            console.warn('⚠️ 전일 거래량 조회 실패:', e.message);
           }
-        }
 
-        // 분봉 체결강도 분석 + 6차원 모멘텀 (전체 종목, 중복 종목은 캐시로 API 절약)
-        const minuteCache = {};  // stock_code → minuteData
-        for (const stock of allTrackedStocks) {
-          let minuteData = minuteCache[stock.stock_code] || null;
-          if (!minuteData && !(stock.stock_code in minuteCache)) {
+          // 오늘 이전 체크포인트 거래량 조회 (장중 가속도 분석용)
+          let todayCheckpoints = {};
+          if (trackTime >= 2) {
             try {
-              minuteData = await kisApi.getMinuteChart(stock.stock_code, '1');
-              console.log(`📊 [${stock.stock_name}] 분봉 ${minuteData?.length || 0}개 조회`);
+              const cpColumns = [];
+              for (let t = 1; t < trackTime; t++) cpColumns.push(`volume_t${t}`);
+              const { data: cpData } = await supabase
+                .from('recommendation_daily_prices')
+                .select(`recommendation_id, ${cpColumns.join(', ')}`)
+                .in('recommendation_id', allRecIds)
+                .eq('tracking_date', today);
+              if (cpData) {
+                for (const row of cpData) {
+                  const vols = [];
+                  for (let t = 1; t < trackTime; t++) {
+                    vols.push(row[`volume_t${t}`] || 0);
+                  }
+                  todayCheckpoints[row.recommendation_id] = vols.filter(v => v > 0);
+                }
+              }
             } catch (e) {
-              console.warn(`⚠️ [${stock.stock_name}] 분봉 조회 실패: ${e.message}`);
+              console.warn('⚠️ 이전 체크포인트 조회 실패:', e.message);
             }
-            minuteCache[stock.stock_code] = minuteData;
           }
 
-          const prevVol = prevVolumes[stock.recommendation_id] || 0;
-          const cpVols = todayCheckpoints[stock.recommendation_id] || [];
-          stock.momentum = analyzeIntradayMomentum(stock, prevVol, minuteData, cpVols);
-          console.log(`📊 [${stock.stock_name}] 모멘텀: ${stock.momentum.emoji} ${stock.momentum.label} (score=${stock.momentum.compositeScore}, accel=${stock.momentum.volumeAccel}, pos=${stock.momentum.pricePosition}%)`);
+          // 분봉 체결강도 분석 + 6차원 모멘텀 (전체 종목, 중복 종목은 캐시로 API 절약)
+          const minuteCache = {};  // stock_code → minuteData
+          for (const stock of allTrackedStocks) {
+            let minuteData = minuteCache[stock.stock_code] || null;
+            if (!minuteData && !(stock.stock_code in minuteCache)) {
+              try {
+                minuteData = await kisApi.getMinuteChart(stock.stock_code, '1');
+                console.log(`📊 [${stock.stock_name}] 분봉 ${minuteData?.length || 0}개 조회`);
+              } catch (e) {
+                console.warn(`⚠️ [${stock.stock_name}] 분봉 조회 실패: ${e.message}`);
+              }
+              minuteCache[stock.stock_code] = minuteData;
+            }
+
+            const prevVol = prevVolumes[stock.recommendation_id] || 0;
+            const cpVols = todayCheckpoints[stock.recommendation_id] || [];
+            stock.momentum = analyzeIntradayMomentum(stock, prevVol, minuteData, cpVols);
+            console.log(`📊 [${stock.stock_name}] 모멘텀: ${stock.momentum.emoji} ${stock.momentum.label} (score=${stock.momentum.compositeScore}, accel=${stock.momentum.volumeAccel}, pos=${stock.momentum.pricePosition}%)`);
+          }
         }
+      } catch (momentumErr) {
+        console.warn('⚠️ 모멘텀 분석 전체 실패 (기본 메시지로 전송):', momentumErr.message);
       }
 
       // v3.70: 오늘 체크포인트 거래량 DB 저장 (cron만, 오늘 추천 종목만)
