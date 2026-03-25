@@ -2394,16 +2394,21 @@ module.exports = async (req, res) => {
             }
           }
 
-          // 분봉 체결강도 분석 + 6차원 모멘텀 (전체 종목, 중복 종목은 캐시로 API 절약)
+          // 분봉 체결강도 분석 + 6차원 모멘텀
+          // Vercel Hobby 플랜 10초 제한 대응: 오늘(D-0) 종목만 분봉 API 호출, D-1/D-2는 분봉 없이 분석
+          const todayStockCodes = new Set((dayResults[0]?.stocks || []).map(s => s.stock_code));
           const minuteCache = {};  // stock_code → minuteData
           for (const stock of allTrackedStocks) {
             let minuteData = minuteCache[stock.stock_code] || null;
             if (!minuteData && !(stock.stock_code in minuteCache)) {
-              try {
-                minuteData = await kisApi.getMinuteChart(stock.stock_code, '1');
-                console.log(`📊 [${stock.stock_name}] 분봉 ${minuteData?.length || 0}개 조회`);
-              } catch (e) {
-                console.warn(`⚠️ [${stock.stock_name}] 분봉 조회 실패: ${e.message}`);
+              // D-0 종목만 분봉 API 호출 (API 3건), D-1/D-2는 스킵
+              if (todayStockCodes.has(stock.stock_code)) {
+                try {
+                  minuteData = await kisApi.getMinuteChart(stock.stock_code, '1');
+                  console.log(`📊 [${stock.stock_name}] 분봉 ${minuteData?.length || 0}개 조회`);
+                } catch (e) {
+                  console.warn(`⚠️ [${stock.stock_name}] 분봉 조회 실패: ${e.message}`);
+                }
               }
               minuteCache[stock.stock_code] = minuteData;
             }
