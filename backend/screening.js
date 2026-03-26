@@ -774,25 +774,36 @@ class StockScreener {
     let penalty = 0;
     let message = 'normal';
 
-    // v3.10.0: 급등 페널티 강화 (Radar Scoring 기준)
-    if (highChange >= 20) {
-      // 장중 고가 +20% 이상 (상한가 포함) → -30점
-      penalty = -30;
+    // v3.76: 급등 패널티 구간 재설계 (90일 성과 데이터 기반)
+    // +10-15% 종가: 72%승률/+11.9%max → 완화 (-15→-5)
+    // +15-20% 종가: 56%승률/+2.7%final → 가장 위험 (-15 유지)
+    // +20%+ 종가: 73%승률/+29.5%max → 상한가 모멘텀 (-30→-10)
+    if (closeChange >= 20) {
+      // 상한가급 종가: 강한 모멘텀 유지 경향 (73% 승률, +29.5% max)
+      penalty = -10;
+      message = `⚠️ 당일 급등 (종가 +${closeChange.toFixed(1)}%)`;
+    } else if (highChange >= 20) {
+      // 장중 상한가 but 종가 미달: 매도 압력 존재
+      penalty = -20;
       message = `⚠️ 당일 급등 (고가 +${highChange.toFixed(1)}%)`;
+    } else if (closeChange >= 15) {
+      // 종가 +15-20%: 가장 위험한 구간 (56% 승률, +2.7% final)
+      penalty = -15;
+      message = `⚠️ 당일 급등 (종가 +${closeChange.toFixed(1)}%)`;
     } else if (highChange >= 15) {
-      // 장중 고가 +15% 이상 → -30점
-      penalty = -30;
+      // 장중 +15% but 종가 미달: 위험 구간
+      penalty = -15;
       message = `⚠️ 당일 급등 (고가 +${highChange.toFixed(1)}%)`;
     } else if (closeChange >= 10) {
-      // 종가 +10% 이상 → -15점
-      penalty = -15;
+      // 종가 +10-15%: 양호한 구간 (72% 승률, +11.9% max) → 대폭 완화
+      penalty = -5;
       message = `당일 상승 (종가 +${closeChange.toFixed(1)}%)`;
     } else if (closeChange <= -10) {
-      // 🆕 종가 -10% 이하 급락 → -20점
+      // 종가 -10% 이하 급락 → -20점
       penalty = -20;
       message = `⚠️ 당일 급락 (종가 ${closeChange.toFixed(1)}%)`;
     } else if (closeChange <= -5) {
-      // 🆕 종가 -5% 이하 하락 → -10점
+      // 종가 -5% 이하 하락 → -10점
       penalty = -10;
       message = `당일 하락 (종가 ${closeChange.toFixed(1)}%)`;
     }
