@@ -2196,9 +2196,10 @@ class StockScreener {
       const flow = s.institutionalFlow;
       const inst = flow?.institutionDays || 0;
       const frgn = flow?.foreignDays || 0;
-      if (inst >= 2 && frgn >= 2) return 4;  // 듀얼
-      if (inst >= 4 || frgn >= 4) return 3;  // 강한 단일
-      if (inst >= 2 || frgn >= 2) return 2;  // 약한 단일
+      if (frgn >= 2 && inst < 2) return 5;  // v3.76: 외인 단독 최우선
+      if (inst >= 2 && frgn >= 2) return 4;  // 쌍방
+      if (inst >= 2) return 3;                // 기관
+      if (frgn >= 1) return 2;                // 외인 1일
       return 1;
     };
 

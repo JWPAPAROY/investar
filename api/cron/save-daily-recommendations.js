@@ -443,9 +443,10 @@ function selectSidewaysAlertTop3(stocks) {
   const getDualScore = (s) => {
     const inst = s.institution_buy_days || 0;
     const frgn = s.foreign_buy_days || 0;
+    if (frgn >= 2 && inst < 2) return 5;  // v3.76: 외인 단독 최우선
     if (inst >= 2 && frgn >= 2) return 4;
-    if (inst >= 4 || frgn >= 4) return 3;
-    if (inst >= 2 || frgn >= 2) return 2;
+    if (inst >= 2) return 3;
+    if (frgn >= 1) return 2;
     return 1;
   };
 
@@ -500,9 +501,10 @@ function selectSidewaysSaveTop3(stocks) {
   const getDualScore = (s) => {
     const inst = s.institutionalFlow?.institutionDays || 0;
     const frgn = s.institutionalFlow?.foreignDays || 0;
+    if (frgn >= 2 && inst < 2) return 5;  // v3.76: 외인 단독 최우선
     if (inst >= 2 && frgn >= 2) return 4;
-    if (inst >= 4 || frgn >= 4) return 3;
-    if (inst >= 2 || frgn >= 2) return 2;
+    if (inst >= 2) return 3;
+    if (frgn >= 1) return 2;
     return 1;
   };
 
