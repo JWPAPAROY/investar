@@ -402,10 +402,11 @@ function selectAlertTop3(stocks) {
         top3.push(s);
       }
     };
-    addFromRange(50, 69);
-    addFromRange(80, 89);
-    addFromRange(90, 100);
-    addFromRange(70, 79);
+    addFromRange(50, 59);   // 1순위: 스윗스팟
+    addFromRange(60, 69);   // 2순위
+    addFromRange(80, 89);   // 3순위
+    addFromRange(90, 100);  // 4순위
+    addFromRange(70, 79);   // 5순위: 최후 보충
   };
 
   // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
@@ -463,11 +464,13 @@ function selectSidewaysAlertTop3(stocks) {
     }
   };
 
-  // 1순위: 시총 1조 이하 + 50-69점
-  addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.total_score >= 50 && s.total_score <= 69));
-  // 2순위: 시총 무관 + 50-69점
+  // 1순위: 시총 1조 이하 + 50-59점 (스윗스팟)
+  addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.total_score >= 50 && s.total_score <= 59));
+  // 2순위: 시총 1조 이하 + 60-69점
+  if (top3.length < 3) addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.total_score >= 60 && s.total_score <= 69));
+  // 3순위: 시총 무관 + 50-69점
   if (top3.length < 3) addFromPool(eligible.filter(s => s.total_score >= 50 && s.total_score <= 69));
-  // 3순위: 점수 확대 40-79
+  // 4순위: 점수 확대 40-79
   if (top3.length < 3) addFromPool(eligible.filter(s => s.total_score >= 40 && s.total_score <= 79));
 
   return top3;
@@ -518,7 +521,8 @@ function selectSidewaysSaveTop3(stocks) {
     }
   };
 
-  addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.totalScore >= 50 && s.totalScore <= 69));
+  addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.totalScore >= 50 && s.totalScore <= 59));
+  if (top3.length < 3) addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.totalScore >= 60 && s.totalScore <= 69));
   if (top3.length < 3) addFromPool(eligible.filter(s => s.totalScore >= 50 && s.totalScore <= 69));
   if (top3.length < 3) addFromPool(eligible.filter(s => s.totalScore >= 40 && s.totalScore <= 79));
 
@@ -586,10 +590,11 @@ function selectSaveTop3(stocks) {
         top3.push(s);
       }
     };
-    addFromRange(50, 69);
-    addFromRange(80, 89);
-    addFromRange(90, 100);
-    addFromRange(70, 79);
+    addFromRange(50, 59);   // 1순위: 스윗스팟
+    addFromRange(60, 69);   // 2순위
+    addFromRange(80, 89);   // 3순위
+    addFromRange(90, 100);  // 4순위
+    addFromRange(70, 79);   // 5순위: 최후 보충
   };
 
   // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
