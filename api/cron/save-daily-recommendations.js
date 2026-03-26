@@ -385,17 +385,19 @@ function selectAlertTop3(stocks) {
       const candidates = pool
         .filter(s => s.total_score >= lo && s.total_score <= hi && !top3.some(t => t.stock_code === s.stock_code))
         .sort((a, b) => {
-          // v3.69: 같은 점수대에서 수급 tiebreak
-          if (b.total_score !== a.total_score) return b.total_score - a.total_score;
+          // v3.76: 수급 1차 정렬 (외인2d+ 최강, 점수는 2차)
           const supplyRank = (s) => {
             const inst = s.institution_buy_days || 0;
             const frgn = s.foreign_buy_days || 0;
+            if (frgn >= 2 && inst < 2) return 5;
             if (inst >= 2 && frgn >= 2) return 4;
-            if (inst >= 3) return 3;
-            if (frgn >= 3) return 2;
+            if (inst >= 2) return 3;
+            if (frgn >= 1) return 2;
             return 1;
           };
-          return supplyRank(b) - supplyRank(a);
+          const supplyDiff = supplyRank(b) - supplyRank(a);
+          if (supplyDiff !== 0) return supplyDiff;
+          return b.total_score - a.total_score;
         });
       for (const s of candidates) {
         if (top3.length >= 3) break;
@@ -573,17 +575,19 @@ function selectSaveTop3(stocks) {
       const candidates = pool
         .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
         .sort((a, b) => {
-          // v3.69: 같은 점수대에서 수급 tiebreak
-          if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+          // v3.76: 수급 1차 정렬 (외인2d+ 최강, 점수는 2차)
           const supplyRank = (s) => {
             const inst = s.institutionalFlow?.institutionDays || 0;
             const frgn = s.institutionalFlow?.foreignDays || 0;
+            if (frgn >= 2 && inst < 2) return 5;
             if (inst >= 2 && frgn >= 2) return 4;
-            if (inst >= 3) return 3;
-            if (frgn >= 3) return 2;
+            if (inst >= 2) return 3;
+            if (frgn >= 1) return 2;
             return 1;
           };
-          return supplyRank(b) - supplyRank(a);
+          const supplyDiff = supplyRank(b) - supplyRank(a);
+          if (supplyDiff !== 0) return supplyDiff;
+          return b.totalScore - a.totalScore;
         });
       for (const s of candidates) {
         if (top3.length >= 3) break;
