@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.74
-- **최종 업데이트**: 2026-03-25
+- **버전**: 3.75
+- **최종 업데이트**: 2026-03-26
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -872,7 +872,11 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ## 📝 변경 이력
 
-### v3.74 (2026-03-25)
+### v3.75 (2026-03-26)
+- **신호 합의(Agreement) 기반 시장 심리 판정**: `calculateMarketSentiment()` 전면 개편. 기존 합산 점수(-8~+6) → 4개 지표의 방향 합의(bearish/neutral/bullish) 기반. 데드존 도입으로 노이즈 제거 (이격도 97~103, RSI 35~65, 추세 99.5~100.5%, 3일변동 ±3%). 3개 동의=강한확신(fear/extreme), 2개 동의+반대0=중간확신(anxiety/optimism), 그 외=neutral.
+- **레짐 결정 로직 정밀화**: `determineMarketRegime()` 개편. 양쪽 시장 조합을 5단계로 분류: 양쪽 하락→defense, 한쪽 하락+중립→prediction 보조 판단, 상충→sideways, neutral+neutral→sideways(pred≤-0.8이면 defense), bullish 포함→momentum. 기존 "한쪽만 불안이면 무조건 defense" 문제 해결.
+
+### v3.74 (2026-03-26)
 - **레짐 기반 메인 TOP3 전환**: 하락장→방어 TOP3, 횡보장→횡보 TOP3, 상승장→모멘텀 TOP3가 결산/알림 메시지의 메인 섹션으로 표시. 기존 모멘텀 TOP3는 참고용으로 하단에 표시. `determineMarketRegime()` 함수 추가.
 - **Track 레짐 연동**: D-1/D-2/D-3 추적 시 해당 날짜의 저장된 `market_regime`에 따라 올바른 TOP3를 추적. `getRegimeTop3FromDb()` 헬퍼 추가. 추적 메시지에 레짐 태그(🛡️방어/⚖️횡보) 표시.
 - **`market_regime` DB 컬럼**: `screening_recommendations` 테이블에 추가. SAVE 시 sentiment+prediction 기반으로 'momentum'/'defense'/'sideways' 저장. 이전 데이터는 'momentum' 기본값.

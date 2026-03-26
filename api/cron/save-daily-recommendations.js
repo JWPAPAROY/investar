@@ -26,6 +26,12 @@ const { analyzeIntradayMomentum } = require('../../backend/momentumAnalyzer');
  * @param {Array} chartData - 지수 일봉 [{date, close, ...}] 내림차순
  * @returns {Object|null} - {score, grade, emoji, label, disparity, rsi}
  */
+/**
+ * v3.75: 신호 합의(Agreement) 기반 시장 심리 판정
+ * 합산 점수 대신 "몇 개의 지표가 같은 방향을 가리키는가"로 판단
+ * - 데드존: 노이즈 구간을 무시하여 오판 방지
+ * - 합의 기반: 3개 이상 동의 = 강한 확신, 2개 동의+반대 없음 = 중간 확신
+ */
 function calculateMarketSentiment(chartData) {
   if (!chartData || chartData.length < 20) return null;
 
@@ -35,11 +41,6 @@ function calculateMarketSentiment(chartData) {
   // 1. 20일 이격도
   const ma20 = closes.slice(0, 20).reduce((a, b) => a + b, 0) / 20;
   const disparity = (current / ma20) * 100;
-  let disparityScore = 0;
-  if (disparity <= 95) disparityScore = -2;
-  else if (disparity <= 98) disparityScore = -1;
-  else if (disparity >= 105) disparityScore = 2;
-  else if (disparity >= 102) disparityScore = 1;
 
   // 2. RSI(14)
   let gains = 0, losses = 0;
@@ -50,44 +51,50 @@ function calculateMarketSentiment(chartData) {
   }
   const rs = losses === 0 ? 100 : gains / losses;
   const rsi = 100 - (100 / (1 + rs));
-  let rsiScore = 0;
-  if (rsi <= 30) rsiScore = -2;
-  else if (rsi <= 40) rsiScore = -1;
-  else if (rsi >= 70) rsiScore = 2;
-  else if (rsi >= 60) rsiScore = 1;
 
-  // 3. 추세 점수 (5일 MA vs 20일 MA)
+  // 3. 추세 (MA5/MA20 비율)
   const ma5 = closes.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
-  let trendScore = 0;
-  if (ma5 > ma20 * 1.02) trendScore = 2;
-  else if (ma5 > ma20) trendScore = 1;
-  else if (ma5 < ma20 * 0.98) trendScore = -2;
-  else if (ma5 < ma20) trendScore = -1;
+  const trendRatio = (ma5 / ma20) * 100; // 100% = 동일
 
-  // 4. 급락 부스터 (v3.34.3)
-  // 최근 3일 누적 하락률이 -5% 이상이면 추가 패널티 (후행성 극복)
-  let rapidDropScore = 0;
+  // 4. 3일 변동률
+  let change3d = 0;
   if (closes.length >= 3) {
-    const drop3Days = ((closes[0] - closes[2]) / closes[2]) * 100;
-    if (drop3Days <= -5) rapidDropScore = -2;
-    else if (drop3Days <= -3) rapidDropScore = -1;
+    change3d = ((closes[0] - closes[2]) / closes[2]) * 100;
   }
 
-  const totalScore = disparityScore + rsiScore + trendScore + rapidDropScore;
+  // ── 방향 분류 (bearish / neutral / bullish) with 데드존 ──
+  const disparityDir = disparity <= 97 ? 'bearish' : disparity >= 103 ? 'bullish' : 'neutral';
+  const rsiDir = rsi <= 35 ? 'bearish' : rsi >= 65 ? 'bullish' : 'neutral';
+  const trendDir = trendRatio < 99.5 ? 'bearish' : trendRatio > 100.5 ? 'bullish' : 'neutral';
+  const change3dDir = change3d <= -3 ? 'bearish' : change3d >= 3 ? 'bullish' : 'neutral';
 
-  // 등급 판정
+  const bearishCount = [disparityDir, rsiDir, trendDir, change3dDir].filter(d => d === 'bearish').length;
+  const bullishCount = [disparityDir, rsiDir, trendDir, change3dDir].filter(d => d === 'bullish').length;
+
+  // ── 신호 합의 기반 등급 판정 ──
   let grade, emoji, label;
-  if (totalScore <= -3) { grade = 'fear'; emoji = '😱'; label = '공포'; }
-  else if (totalScore <= -1) { grade = 'anxiety'; emoji = '😟'; label = '불안'; }
-  else if (totalScore <= 1) { grade = 'neutral'; emoji = '😐'; label = '중립'; }
-  else if (totalScore <= 3) { grade = 'optimism'; emoji = '😊'; label = '낙관'; }
-  else { grade = 'extreme'; emoji = '🔥'; label = '과열'; }
+  if (bearishCount >= 3) {
+    grade = 'fear'; emoji = '😱'; label = '공포';
+  } else if (bearishCount >= 2 && bullishCount === 0) {
+    grade = 'anxiety'; emoji = '😟'; label = '불안';
+  } else if (bullishCount >= 3) {
+    grade = 'extreme'; emoji = '🔥'; label = '과열';
+  } else if (bullishCount >= 2 && bearishCount === 0) {
+    grade = 'optimism'; emoji = '😊'; label = '낙관';
+  } else {
+    grade = 'neutral'; emoji = '😐'; label = '중립';
+  }
+
+  // 레거시 호환: totalScore 유지 (표시용)
+  const totalScore = (bearishCount * -1) + (bullishCount * 1);
 
   return {
     score: totalScore,
     grade, emoji, label,
     disparity: disparity.toFixed(1),
-    rsi: rsi.toFixed(0)
+    rsi: rsi.toFixed(0),
+    // v3.75: 디버그용 신호 상세
+    _signals: { disparityDir, rsiDir, trendDir, change3dDir, bearishCount, bullishCount }
   };
 }
 
@@ -691,44 +698,68 @@ function selectDefenseAlertTop3(stocks) {
 }
 
 /**
- * v3.34: 시장 공포 상태인지 확인 (KOSPI + KOSDAQ 모두 fear)
+ * v3.34: 시장 공포 상태인지 확인
  */
 function isMarketDefensive(sentiment) {
   if (!sentiment) return false;
   const kGrade = sentiment.kospi?.grade;
   const qGrade = sentiment.kosdaq?.grade;
-  const bearish = ['fear', 'anxiety']; // 공포 + 불안
-  // v3.34.2: 한쪽이라도 불안 이하면 방어 전략 표시 (공포까지 기다리면 너무 늦음)
+  const bearish = ['fear', 'anxiety'];
   return bearish.includes(kGrade) || bearish.includes(qGrade);
 }
 
 /**
  * v3.73: 시장 횡보 상태인지 확인
- * 둘 다 중립이거나, 한쪽 중립 + 한쪽 낙관이면 횡보
  */
 function isMarketSideways(sentiment) {
   if (!sentiment) return false;
   const kGrade = sentiment.kospi?.grade;
   const qGrade = sentiment.kosdaq?.grade;
-  const sideways = ['neutral'];
   const mild = ['neutral', 'optimism'];
-  // 둘 다 mild 범위이고 최소 하나는 neutral
-  return (sideways.includes(kGrade) || sideways.includes(qGrade)) &&
-         mild.includes(kGrade) && mild.includes(qGrade);
+  return mild.includes(kGrade) && mild.includes(qGrade) &&
+         (kGrade === 'neutral' || qGrade === 'neutral');
 }
 
 /**
- * v3.74: 시장 레짐 결정 (sentiment + prediction 기반)
- * @returns {'defense'|'sideways'|'momentum'}
+ * v3.75: 시장 레짐 결정 — 양쪽 시장 조합 + prediction 보조
+ *
+ * 양쪽 모두 하락(anxiety/fear) → defense
+ * 한쪽 하락 + 다른쪽 neutral → prediction 부정적이면 defense, 아니면 sideways
+ * 한쪽 하락 + 다른쪽 bullish → 상충 → sideways
+ * 양쪽 모두 neutral 범위 → sideways
+ * 한쪽이라도 optimism/extreme + 반대쪽 하락 아님 → momentum
  */
 function determineMarketRegime(sentiment, prediction) {
-  if (isMarketDefensive(sentiment) || (prediction && prediction.score <= -0.5)) {
-    return 'defense';
+  if (!sentiment) return 'momentum';
+
+  const kGrade = sentiment.kospi?.grade || 'neutral';
+  const qGrade = sentiment.kosdaq?.grade || 'neutral';
+  const bearish = ['fear', 'anxiety'];
+  const bullish = ['optimism', 'extreme'];
+  const predScore = prediction?.score ?? 0;
+
+  const kBearish = bearish.includes(kGrade);
+  const qBearish = bearish.includes(qGrade);
+  const kBullish = bullish.includes(kGrade);
+  const qBullish = bullish.includes(qGrade);
+
+  // 1. 양쪽 모두 하락 → defense
+  if (kBearish && qBearish) return 'defense';
+
+  // 2. 한쪽 하락 + 다른쪽 neutral → prediction 따라 결정
+  if ((kBearish && !qBullish) || (qBearish && !kBullish)) {
+    return predScore <= -0.8 ? 'defense' : 'sideways';
   }
-  if (isMarketSideways(sentiment)) {
-    return 'sideways';
-  }
-  return 'momentum';
+
+  // 3. 한쪽 하락 + 다른쪽 bullish → 상충 → sideways
+  if ((kBearish && qBullish) || (qBearish && kBullish)) return 'sideways';
+
+  // 4. 양쪽 중 하나라도 bullish + 반대쪽 하락 아님 → momentum
+  if (kBullish || qBullish) return 'momentum';
+
+  // 5. 양쪽 모두 neutral → sideways (prediction 매우 부정적이면 defense)
+  if (predScore <= -0.8) return 'defense';
+  return 'sideways';
 }
 
 /**
