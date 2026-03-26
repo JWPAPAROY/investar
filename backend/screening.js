@@ -2302,19 +2302,30 @@ class StockScreener {
       const flow = s.institutionalFlow;
       const instDays = flow?.institutionDays || 0;
       const foreignDays = flow?.foreignDays || 0;
-      const hasSmartMoney = instDays >= 2 || foreignDays >= 2;  // v3.74: cron과 동기화 (v3.55에서 완화)
+      const hasSmartMoney = instDays >= 2 || foreignDays >= 2;
       const isNotCrashing = !s.crashCheck?.isCrashing;
       const isNotOverheated = s.recommendation?.grade !== '과열';
       const mcBillion = s.marketCap ? s.marketCap / 100000000 : 0;
-      const hasMinMarketCap = mcBillion >= 5000;
+      const hasMinMarketCap = mcBillion >= 1000; // v3.77: 5000억→1000억 완화
       return hasSmartMoney && isNotCrashing && isNotOverheated && hasMinMarketCap;
     };
 
-    const getDualBonus = (s) => {
+    // v3.77: 수급 1차 정렬
+    const supplyRank = (s) => {
       const flow = s.institutionalFlow;
-      const instDays = flow?.institutionDays || 0;
-      const foreignDays = flow?.foreignDays || 0;
-      return instDays >= 2 && foreignDays >= 2;
+      const inst = flow?.institutionDays || 0;
+      const frgn = flow?.foreignDays || 0;
+      if (frgn >= 2 && inst < 2) return 5;
+      if (inst >= 2 && frgn >= 2) return 4;
+      if (inst >= 2) return 3;
+      if (frgn >= 1) return 2;
+      return 1;
+    };
+
+    const sortFn = (a, b) => {
+      const sd = supplyRank(b) - supplyRank(a);
+      if (sd !== 0) return sd;
+      return b.defenseScore - a.defenseScore;
     };
 
     const addMeta = (stock, priority) => {
@@ -2334,24 +2345,28 @@ class StockScreener {
     };
 
     const top3 = [];
+    const used = new Set();
+    const addFromPool = (pool, priority) => {
+      for (const s of pool) {
+        if (top3.length >= 3) break;
+        if (used.has(s.stockCode)) continue;
+        top3.push(addMeta(s, priority));
+        used.add(s.stockCode);
+      }
+    };
 
-    // 1순위: 쌍방수급 + 55-84점
-    const p1 = allStocks.filter(s => isEligible(s) && s.defenseScore >= 55 && s.defenseScore < 85 && getDualBonus(s))
-      .sort((a, b) => b.defenseScore - a.defenseScore).map(s => addMeta(s, 1));
-    top3.push(...p1.slice(0, 3));
+    // v3.77: 시총 1조 이하 우선 → fallback 무제한
+    const eligible = allStocks.filter(isEligible);
+    const smallCap = eligible.filter(s => (s.marketCap || 0) / 100000000 <= 10000);
+    const allCap = eligible;
 
-    // 2순위: 55점+
+    addFromPool(smallCap.filter(s => s.defenseScore >= 55 && s.defenseScore < 85).sort(sortFn), 1);
+    addFromPool(smallCap.filter(s => s.defenseScore >= 55).sort(sortFn), 2);
+    addFromPool(smallCap.filter(s => s.defenseScore >= 40).sort(sortFn), 3);
+
     if (top3.length < 3) {
-      const p2 = allStocks.filter(s => isEligible(s) && s.defenseScore >= 55 && !top3.some(t => t.stockCode === s.stockCode))
-        .sort((a, b) => b.defenseScore - a.defenseScore).map(s => addMeta(s, 2));
-      top3.push(...p2.slice(0, 3 - top3.length));
-    }
-
-    // 3순위: 40점+
-    if (top3.length < 3) {
-      const p3 = allStocks.filter(s => isEligible(s) && s.defenseScore >= 40 && !top3.some(t => t.stockCode === s.stockCode))
-        .sort((a, b) => b.defenseScore - a.defenseScore).map(s => addMeta(s, 3));
-      top3.push(...p3.slice(0, 3 - top3.length));
+      addFromPool(allCap.filter(s => s.defenseScore >= 55).sort(sortFn), 2);
+      addFromPool(allCap.filter(s => s.defenseScore >= 40).sort(sortFn), 3);
     }
 
     console.log(`🛡️ 방어 TOP 3 선정 완료: ${top3.length}개`);

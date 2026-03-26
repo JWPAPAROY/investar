@@ -56,17 +56,25 @@ function calculateMarketSentiment(chartData) {
   const ma5 = closes.slice(0, 5).reduce((a, b) => a + b, 0) / 5;
   const trendRatio = (ma5 / ma20) * 100; // 100% = 동일
 
-  // 4. 3일 변동률
-  let change3d = 0;
+  // 4. 3일 변동률 + 1일 변동률 오버라이드
+  let change3d = 0, change1d = 0;
   if (closes.length >= 3) {
     change3d = ((closes[0] - closes[2]) / closes[2]) * 100;
+  }
+  if (closes.length >= 2) {
+    change1d = ((closes[0] - closes[1]) / closes[1]) * 100;
   }
 
   // ── 방향 분류 (bearish / neutral / bullish) with 데드존 ──
   const disparityDir = disparity <= 97 ? 'bearish' : disparity >= 103 ? 'bullish' : 'neutral';
   const rsiDir = rsi <= 35 ? 'bearish' : rsi >= 65 ? 'bullish' : 'neutral';
   const trendDir = trendRatio < 99.5 ? 'bearish' : trendRatio > 100.5 ? 'bullish' : 'neutral';
-  const change3dDir = change3d <= -3 ? 'bearish' : change3d >= 3 ? 'bullish' : 'neutral';
+  // v3.77: 3일 데드존 ±3% 유지 + 당일 급변(±2%) & 3일 방향 일치 시 오버라이드
+  let change3dDir = change3d <= -3 ? 'bearish' : change3d >= 3 ? 'bullish' : 'neutral';
+  if (change3dDir === 'neutral') {
+    if (change1d <= -2 && change3d < 0) change3dDir = 'bearish';
+    else if (change1d >= 2 && change3d > 0) change3dDir = 'bullish';
+  }
 
   const bearishCount = [disparityDir, rsiDir, trendDir, change3dDir].filter(d => d === 'bearish').length;
   const bullishCount = [disparityDir, rsiDir, trendDir, change3dDir].filter(d => d === 'bullish').length;
@@ -620,48 +628,63 @@ function selectDefenseSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
   const isEligible = (s) => {
-    // 기관 연속 매수일 계산
     let instDays = 0, foreignDays = 0;
     const flow = s.institutionalFlow;
     if (flow) {
       instDays = flow.institution?.consecutiveBuyDays || flow.institutionDays || 0;
       foreignDays = flow.foreign?.consecutiveBuyDays || flow.foreignDays || 0;
     }
-    const hasSmartMoney = instDays >= 2 || foreignDays >= 2;  // v3.55: 3일→2일 완화
+    const hasSmartMoney = instDays >= 2 || foreignDays >= 2;
     const isNotCrashing = !s.crashCheck?.isCrashing;
     const isNotOverheated = s.recommendation?.grade !== '과열';
     const mcBillion = s.marketCap ? s.marketCap / 100000000 : 0;
-    const hasMinMarketCap = mcBillion >= 5000; // 5000억+
+    const hasMinMarketCap = mcBillion >= 1000; // v3.77: 5000억→1000억 완화
     return hasSmartMoney && isNotCrashing && isNotOverheated && hasMinMarketCap;
   };
 
-  const getDualBonus = (s) => {
+  // v3.77: 수급 1차 정렬 (모멘텀 TOP3와 동일)
+  const supplyRank = (s) => {
     const flow = s.institutionalFlow;
-    const instDays = flow?.institution?.consecutiveBuyDays || flow?.institutionDays || 0;
-    const foreignDays = flow?.foreign?.consecutiveBuyDays || flow?.foreignDays || 0;
-    if (instDays >= 2 && foreignDays >= 2) return true;
-    return false;
+    const inst = flow?.institution?.consecutiveBuyDays || flow?.institutionDays || 0;
+    const frgn = flow?.foreign?.consecutiveBuyDays || flow?.foreignDays || 0;
+    if (frgn >= 2 && inst < 2) return 5;  // 외인 단독 최우선
+    if (inst >= 2 && frgn >= 2) return 4;  // 쌍방
+    if (inst >= 2) return 3;                // 기관만
+    if (frgn >= 1) return 2;
+    return 1;
+  };
+
+  const sortFn = (a, b) => {
+    const sd = supplyRank(b) - supplyRank(a);
+    if (sd !== 0) return sd;
+    return b.defenseScore - a.defenseScore;
   };
 
   const top3 = [];
+  const used = new Set();
+  const addFromPool = (pool) => {
+    for (const s of pool) {
+      if (top3.length >= 3) break;
+      if (used.has(s.stockCode)) continue;
+      top3.push(s);
+      used.add(s.stockCode);
+    }
+  };
 
-  // 1순위: 쌍방수급 + 55-84점
-  const p1 = stocks.filter(s => isEligible(s) && s.defenseScore >= 55 && s.defenseScore < 85 && getDualBonus(s))
-    .sort((a, b) => b.defenseScore - a.defenseScore);
-  top3.push(...p1.slice(0, 3));
+  // v3.77: 시총 1조 이하 우선 → fallback 무제한
+  const eligible = stocks.filter(isEligible);
+  const smallCap = eligible.filter(s => (s.marketCap || 0) / 100000000 <= 10000);
+  const allCap = eligible;
 
-  // 2순위: 55점+
+  // 1조 이하에서 점수 구간별 선별
+  addFromPool(smallCap.filter(s => s.defenseScore >= 55 && s.defenseScore < 85).sort(sortFn));
+  addFromPool(smallCap.filter(s => s.defenseScore >= 55).sort(sortFn));
+  addFromPool(smallCap.filter(s => s.defenseScore >= 40).sort(sortFn));
+
+  // 시총 무제한 fallback
   if (top3.length < 3) {
-    const p2 = stocks.filter(s => isEligible(s) && s.defenseScore >= 55 && !top3.some(t => t.stockCode === s.stockCode))
-      .sort((a, b) => b.defenseScore - a.defenseScore);
-    top3.push(...p2.slice(0, 3 - top3.length));
-  }
-
-  // 3순위: 40점+
-  if (top3.length < 3) {
-    const p3 = stocks.filter(s => isEligible(s) && s.defenseScore >= 40 && !top3.some(t => t.stockCode === s.stockCode))
-      .sort((a, b) => b.defenseScore - a.defenseScore);
-    top3.push(...p3.slice(0, 3 - top3.length));
+    addFromPool(allCap.filter(s => s.defenseScore >= 55).sort(sortFn));
+    addFromPool(allCap.filter(s => s.defenseScore >= 40).sort(sortFn));
   }
 
   return top3;
@@ -676,33 +699,53 @@ function selectDefenseAlertTop3(stocks) {
   const isEligible = (s) => {
     const instDays = s.institution_buy_days || 0;
     const foreignDays = s.foreign_buy_days || 0;
-    const hasSmartMoney = instDays >= 2 || foreignDays >= 2;  // v3.55: 3일→2일 완화
+    const hasSmartMoney = instDays >= 2 || foreignDays >= 2;
     const isNotOverheated = s.recommendation_grade !== '과열';
     const mcBillion = s.market_cap ? s.market_cap / 100000000 : 0;
-    const hasMinMarketCap = mcBillion >= 5000;
+    const hasMinMarketCap = mcBillion >= 1000; // v3.77: 5000억→1000억 완화
     return hasSmartMoney && isNotOverheated && hasMinMarketCap;
   };
 
+  // v3.77: 수급 1차 정렬
+  const supplyRank = (s) => {
+    const inst = s.institution_buy_days || 0;
+    const frgn = s.foreign_buy_days || 0;
+    if (frgn >= 2 && inst < 2) return 5;
+    if (inst >= 2 && frgn >= 2) return 4;
+    if (inst >= 2) return 3;
+    if (frgn >= 1) return 2;
+    return 1;
+  };
+
+  const sortFn = (a, b) => {
+    const sd = supplyRank(b) - supplyRank(a);
+    if (sd !== 0) return sd;
+    return b.defense_score - a.defense_score;
+  };
+
   const top3 = [];
+  const used = new Set();
+  const addFromPool = (pool) => {
+    for (const s of pool) {
+      if (top3.length >= 3) break;
+      if (used.has(s.stock_code)) continue;
+      top3.push(s);
+      used.add(s.stock_code);
+    }
+  };
 
-  // 1순위: 쌍방수급 + 55-84점
-  const p1 = stocks.filter(s => {
-    const instDays = s.institution_buy_days || 0;
-    const foreignDays = s.foreign_buy_days || 0;
-    return isEligible(s) && s.defense_score >= 55 && s.defense_score < 85 && instDays >= 2 && foreignDays >= 2;
-  }).sort((a, b) => b.defense_score - a.defense_score);
-  top3.push(...p1.slice(0, 3));
+  const eligible = stocks.filter(isEligible);
+  const smallCap = eligible.filter(s => (s.market_cap || 0) / 100000000 <= 10000);
+  const allCap = eligible;
+
+  // v3.77: 시총 1조 이하 우선 → fallback 무제한
+  addFromPool(smallCap.filter(s => s.defense_score >= 55 && s.defense_score < 85).sort(sortFn));
+  addFromPool(smallCap.filter(s => s.defense_score >= 55).sort(sortFn));
+  addFromPool(smallCap.filter(s => s.defense_score >= 40).sort(sortFn));
 
   if (top3.length < 3) {
-    const p2 = stocks.filter(s => isEligible(s) && s.defense_score >= 55 && !top3.some(t => t.stock_code === s.stock_code))
-      .sort((a, b) => b.defense_score - a.defense_score);
-    top3.push(...p2.slice(0, 3 - top3.length));
-  }
-
-  if (top3.length < 3) {
-    const p3 = stocks.filter(s => isEligible(s) && s.defense_score >= 40 && !top3.some(t => t.stock_code === s.stock_code))
-      .sort((a, b) => b.defense_score - a.defense_score);
-    top3.push(...p3.slice(0, 3 - top3.length));
+    addFromPool(allCap.filter(s => s.defense_score >= 55).sort(sortFn));
+    addFromPool(allCap.filter(s => s.defense_score >= 40).sort(sortFn));
   }
 
   return top3;
@@ -757,7 +800,12 @@ function determineMarketRegime(sentiment, prediction) {
   // 1. 양쪽 모두 하락 → defense
   if (kBearish && qBearish) return 'defense';
 
-  // 2. 한쪽 하락 + 다른쪽 neutral → prediction 따라 결정
+  // v3.77: 한쪽이 fear(3개 bearish 합의) → defense (anxiety보다 강한 확신)
+  const kFear = kGrade === 'fear';
+  const qFear = qGrade === 'fear';
+  if ((kFear && !qBullish) || (qFear && !kBullish)) return 'defense';
+
+  // 2. 한쪽 anxiety + 다른쪽 neutral → prediction 따라 결정
   if ((kBearish && !qBullish) || (qBearish && !kBullish)) {
     return predScore <= -0.8 ? 'defense' : 'sideways';
   }
