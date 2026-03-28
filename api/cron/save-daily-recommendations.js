@@ -621,44 +621,22 @@ function selectSaveTop3(stocks) {
 }
 
 /**
- * v3.34: 방어 전략 TOP 3 선별 (SAVE용 - 스크리닝 결과 camelCase)
- * 기관/외국인 수급 기반, 과매도 반등 종목
+ * v3.78: 방어 전략 TOP 3 선별 (SAVE용 - 스크리닝 결과 camelCase)
+ * 과매도 반등 종목 중심, 수급은 점수 보너스로만 반영
  */
 function selectDefenseSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
+  // v3.78: SmartMoney/과열 자격 필터 제거 — 시총+비폭락만 체크
   const isEligible = (s) => {
-    let instDays = 0, foreignDays = 0;
-    const flow = s.institutionalFlow;
-    if (flow) {
-      instDays = flow.institution?.consecutiveBuyDays || flow.institutionDays || 0;
-      foreignDays = flow.foreign?.consecutiveBuyDays || flow.foreignDays || 0;
-    }
-    const hasSmartMoney = instDays >= 2 || foreignDays >= 2;
     const isNotCrashing = !s.crashCheck?.isCrashing;
-    const isNotOverheated = s.recommendation?.grade !== '과열';
     const mcBillion = s.marketCap ? s.marketCap / 100000000 : 0;
-    const hasMinMarketCap = mcBillion >= 1000; // v3.77: 5000억→1000억 완화
-    return hasSmartMoney && isNotCrashing && isNotOverheated && hasMinMarketCap;
+    const hasMinMarketCap = mcBillion >= 1000;
+    return isNotCrashing && hasMinMarketCap;
   };
 
-  // v3.77: 수급 1차 정렬 (모멘텀 TOP3와 동일)
-  const supplyRank = (s) => {
-    const flow = s.institutionalFlow;
-    const inst = flow?.institution?.consecutiveBuyDays || flow?.institutionDays || 0;
-    const frgn = flow?.foreign?.consecutiveBuyDays || flow?.foreignDays || 0;
-    if (frgn >= 2 && inst < 2) return 5;  // 외인 단독 최우선
-    if (inst >= 2 && frgn >= 2) return 4;  // 쌍방
-    if (inst >= 2) return 3;                // 기관만
-    if (frgn >= 1) return 2;
-    return 1;
-  };
-
-  const sortFn = (a, b) => {
-    const sd = supplyRank(b) - supplyRank(a);
-    if (sd !== 0) return sd;
-    return b.defenseScore - a.defenseScore;
-  };
+  // v3.78: 방어점수 1차 정렬 (수급은 점수에 이미 반영됨)
+  const sortFn = (a, b) => b.defenseScore - a.defenseScore;
 
   const top3 = [];
   const used = new Set();
@@ -671,57 +649,28 @@ function selectDefenseSaveTop3(stocks) {
     }
   };
 
-  // v3.77: 시총 1조 이하 우선 → fallback 무제한
+  // v3.78: 점수 하한 없이 방어점수 내림차순 top3 (데이터 검증: 하락일 87.5% 선방)
   const eligible = stocks.filter(isEligible);
-  const smallCap = eligible.filter(s => (s.marketCap || 0) / 100000000 <= 10000);
-  const allCap = eligible;
-
-  // 1조 이하에서 점수 구간별 선별
-  addFromPool(smallCap.filter(s => s.defenseScore >= 55 && s.defenseScore < 85).sort(sortFn));
-  addFromPool(smallCap.filter(s => s.defenseScore >= 55).sort(sortFn));
-  addFromPool(smallCap.filter(s => s.defenseScore >= 40).sort(sortFn));
-
-  // 시총 무제한 fallback
-  if (top3.length < 3) {
-    addFromPool(allCap.filter(s => s.defenseScore >= 55).sort(sortFn));
-    addFromPool(allCap.filter(s => s.defenseScore >= 40).sort(sortFn));
-  }
+  addFromPool(eligible.sort(sortFn));
 
   return top3;
 }
 
 /**
- * v3.34: 방어 전략 TOP 3 선별 (ALERT용 - DB snake_case)
+ * v3.78: 방어 전략 TOP 3 선별 (ALERT용 - DB snake_case)
  */
 function selectDefenseAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
+  // v3.78: SmartMoney/과열 자격 필터 제거 — 시총만 체크
   const isEligible = (s) => {
-    const instDays = s.institution_buy_days || 0;
-    const foreignDays = s.foreign_buy_days || 0;
-    const hasSmartMoney = instDays >= 2 || foreignDays >= 2;
-    const isNotOverheated = s.recommendation_grade !== '과열';
     const mcBillion = s.market_cap ? s.market_cap / 100000000 : 0;
-    const hasMinMarketCap = mcBillion >= 1000; // v3.77: 5000억→1000억 완화
-    return hasSmartMoney && isNotOverheated && hasMinMarketCap;
+    const hasMinMarketCap = mcBillion >= 1000;
+    return hasMinMarketCap;
   };
 
-  // v3.77: 수급 1차 정렬
-  const supplyRank = (s) => {
-    const inst = s.institution_buy_days || 0;
-    const frgn = s.foreign_buy_days || 0;
-    if (frgn >= 2 && inst < 2) return 5;
-    if (inst >= 2 && frgn >= 2) return 4;
-    if (inst >= 2) return 3;
-    if (frgn >= 1) return 2;
-    return 1;
-  };
-
-  const sortFn = (a, b) => {
-    const sd = supplyRank(b) - supplyRank(a);
-    if (sd !== 0) return sd;
-    return b.defense_score - a.defense_score;
-  };
+  // v3.78: 방어점수 1차 정렬
+  const sortFn = (a, b) => b.defense_score - a.defense_score;
 
   const top3 = [];
   const used = new Set();
@@ -734,19 +683,9 @@ function selectDefenseAlertTop3(stocks) {
     }
   };
 
+  // v3.78: 점수 하한 없이 방어점수 내림차순 top3
   const eligible = stocks.filter(isEligible);
-  const smallCap = eligible.filter(s => (s.market_cap || 0) / 100000000 <= 10000);
-  const allCap = eligible;
-
-  // v3.77: 시총 1조 이하 우선 → fallback 무제한
-  addFromPool(smallCap.filter(s => s.defense_score >= 55 && s.defense_score < 85).sort(sortFn));
-  addFromPool(smallCap.filter(s => s.defense_score >= 55).sort(sortFn));
-  addFromPool(smallCap.filter(s => s.defense_score >= 40).sort(sortFn));
-
-  if (top3.length < 3) {
-    addFromPool(allCap.filter(s => s.defense_score >= 55).sort(sortFn));
-    addFromPool(allCap.filter(s => s.defense_score >= 40).sort(sortFn));
-  }
+  addFromPool(eligible.sort(sortFn));
 
   return top3;
 }
