@@ -1146,7 +1146,7 @@ async function fetchAndPredict(bypassCache = false) {
                 ? (existing.kospi_close_change >= expChg.min && existing.kospi_close_change <= expChg.max) : null,
               actualDirection: existing.actual_direction,
               hit: existing.hit,
-            } : null,
+            } : await getLatestTodayResult(),
             timestamp: existing.created_at,
           };
         } // end else (factors not all zero)
@@ -1182,8 +1182,12 @@ async function fetchAndPredict(bypassCache = false) {
   // 저장
   await savePrediction(prediction, weights, source, previousKospi, regression, expChg, aiInterpretation, previousKospiDate, usMarketDate);
 
-  // 적중률 + 히스토리 조회
-  const [accuracy, history] = await Promise.all([getAccuracy(), getRecentHistory(previousKospi, regression)]);
+  // 적중률 + 히스토리 + 최신 적중결과 조회
+  const [accuracy, history, latestResult] = await Promise.all([
+    getAccuracy(),
+    getRecentHistory(previousKospi, regression),
+    getLatestTodayResult(),
+  ]);
 
   return {
     ...prediction,
@@ -1199,12 +1203,48 @@ async function fetchAndPredict(bypassCache = false) {
     } : null,
     accuracy,
     history,
-    todayResult: null,
+    date: today,
+    isWeekendCache: isWeekend || undefined,
+    todayResult: latestResult,
     timestamp: new Date().toISOString(),
   };
 }
 
 // ─── 유틸리티 ───
+
+/**
+ * DB에서 가장 최근 적중 결과(hit != null)를 조회하여 todayResult 객체 생성
+ * 주말 캐시 실패, 평일 16:10 이전 등 todayResult가 없는 모든 경로에서 fallback으로 사용
+ */
+async function getLatestTodayResult() {
+  if (!supabase) return null;
+  try {
+    const { data } = await supabase
+      .from('overnight_predictions')
+      .select('prediction_date, score, signal, hit, kospi_close_change, kosdaq_close_change, kospi_close, kosdaq_close, actual_direction, previous_kospi, expected_change, created_at')
+      .not('hit', 'is', null)
+      .order('prediction_date', { ascending: false })
+      .limit(1)
+      .single();
+    if (!data) return null;
+    const expChg = data.expected_change;
+    return {
+      predictionDate: data.prediction_date,
+      kospiCloseChange: data.kospi_close_change != null ? +data.kospi_close_change : null,
+      kosdaqCloseChange: data.kosdaq_close_change != null ? +data.kosdaq_close_change : null,
+      kospiClose: data.kospi_close != null ? +data.kospi_close
+        : (data.kospi_close_change != null && data.previous_kospi)
+          ? Math.round(data.previous_kospi * (1 + data.kospi_close_change / 100)) : null,
+      kosdaqClose: data.kosdaq_close != null ? +data.kosdaq_close : null,
+      bandHit: (data.kospi_close_change != null && expChg)
+        ? (data.kospi_close_change >= expChg.min && data.kospi_close_change <= expChg.max) : null,
+      actualDirection: data.actual_direction,
+      hit: data.hit,
+    };
+  } catch (e) {
+    return null;
+  }
+}
 
 function getTodayKST() {
   const now = new Date();
