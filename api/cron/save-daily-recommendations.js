@@ -768,7 +768,21 @@ function determineMarketRegime(sentiment, prediction) {
 function getTop3FromDb(stocks, field = 'is_top3') {
   const dbTop3 = (stocks || [])
     .filter(s => s[field])
-    .sort((a, b) => (b.total_score || 0) - (a.total_score || 0));
+    .sort((a, b) => {
+      // v3.79: 수급 1차 → 점수 2차 정렬 (selectSaveTop3/selectAlertTop3과 동일)
+      const supplyRank = (s) => {
+        const inst = s.institution_buy_days || 0;
+        const frgn = s.foreign_buy_days || 0;
+        if (frgn >= 2 && inst < 2) return 5;
+        if (inst >= 2 && frgn >= 2) return 4;
+        if (inst >= 2) return 3;
+        if (frgn >= 1) return 2;
+        return 1;
+      };
+      const supplyDiff = supplyRank(b) - supplyRank(a);
+      if (supplyDiff !== 0) return supplyDiff;
+      return (b.total_score || 0) - (a.total_score || 0);
+    });
   if (dbTop3.length > 0) return dbTop3.slice(0, 3);
   // fallback: is_top3 미저장 시 기존 로직
   return field === 'is_defense_top3'
@@ -974,7 +988,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
   } else {
     msg += `${primaryTitle}\n\n`;
 
-    nextTop3.forEach((stock, i) => {
+    primaryTop3.forEach((stock, i) => {
       const medal = ['🥇', '🥈', '🥉'][i];
       const price = stock.currentPrice || 0;
       const sl5 = Math.floor(price * 0.95);
@@ -1088,7 +1102,7 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
   } else {
     message += `${alertPrimaryTitle}\n\n`;
 
-    top3.forEach((stock, i) => {
+    alertPrimaryTop3.forEach((stock, i) => {
       const medal = ['🥇', '🥈', '🥉'][i];
       const price = stock.recommended_price || 0;
       const sl5 = Math.floor(price * 0.95);
@@ -2084,17 +2098,20 @@ module.exports = async (req, res) => {
         .eq('is_active', true)
         .order('total_score', { ascending: false });
 
-      // Step 2: TOP 3 선별 — DB 플래그 기반 (v3.74: 레짐 기반)
+      // Step 2: TOP 3 선별 — DB 플래그 기반 (v3.79: 결산/알림/추적 레짐 통일)
       const alertRegime = savedStocks?.[0]?.market_regime || 'momentum';
       const top3 = getTop3FromDb(savedStocks, 'is_top3');
       const defenseAlertTop3 = getTop3FromDb(savedStocks, 'is_defense_top3');
       const sidewaysAlertTop3 = getTop3FromDb(savedStocks, 'is_sideways_top3');
       console.log(`✅ TOP 3 선정: ${top3.length}개, 방어: ${defenseAlertTop3.length}개, 횡보: ${sidewaysAlertTop3?.length || 0}개, 레짐: ${alertRegime}`);
 
-      // v3.33: 종목 정보 보완 (통합 함수)
+      // v3.33: 종목 정보 보완 (통합 함수) — v3.79: 레짐별 primary top3도 보완
       await supplementStockInfo(top3);
+      if (alertRegime === 'defense' && defenseAlertTop3.length > 0) await supplementStockInfo(defenseAlertTop3);
+      if (alertRegime === 'sideways' && sidewaysAlertTop3.length > 0) await supplementStockInfo(sidewaysAlertTop3);
 
-      top3.forEach((s, i) => {
+      const primaryAlertTop3 = alertRegime === 'defense' ? defenseAlertTop3 : alertRegime === 'sideways' ? sidewaysAlertTop3 : top3;
+      primaryAlertTop3.forEach((s, i) => {
         console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
       });
 
@@ -2695,7 +2712,7 @@ module.exports = async (req, res) => {
             .eq('is_active', true)
             .order('total_score', { ascending: false });
 
-          const prevTop3 = getTop3FromDb(prevStocks, 'is_top3');
+          const { top3: prevTop3 } = getRegimeTop3FromDb(prevStocks);
           await supplementStockInfo(prevTop3);
 
           for (const s of prevTop3) {
