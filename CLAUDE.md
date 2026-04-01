@@ -7,8 +7,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.78
-- **최종 업데이트**: 2026-03-27
+- **버전**: 3.80
+- **최종 업데이트**: 2026-04-01
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -874,6 +874,11 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.80 (2026-04-01)
+- **방어/횡보 TOP3 is_active 버그 수정**: 방어/횡보 TOP3 종목의 모멘텀 점수가 45점 미만이면 `is_active=false`로 저장 → ALERT/TRACK에서 `.eq('is_active', true)` 필터에 의해 방어/횡보 TOP3가 통째로 누락 → 모멘텀 fallback되던 치명적 버그 수정. TOP3로 마킹된 종목은 `is_active=true` 보장. 기존 데이터도 백필 완료.
+- **ALERT 레짐 아침 재판정**: 기존에는 전날 SAVE(15:35) 시점 레짐을 DB에서 그대로 읽었으나, 야간 미국장 급등/급락을 반영하지 못하는 문제. ALERT(08:00)에서 최신 해외 전망(`fetchAndPredict`) + 시장 심리로 `determineMarketRegime()` 재호출하여 레짐 재판정. 변경 시 DB도 갱신하여 TRACK이 올바른 TOP3 추적.
+- **ALERT TOP3 풀 전체 보완**: 기존에는 저장 레짐에 해당하는 TOP3만 `supplementStockInfo` 호출 → 레짐 변경 시 새 primary TOP3에 종목명/시장 정보 누락. 모든 TOP3 풀(모멘텀/방어/횡보)을 사전 보완하도록 변경.
 
 ### v3.78 (2026-03-27)
 - **방어 전략 탈수급 재설계**: 하락장에서 기관/외인이 매도 우위라 SmartMoney 자격 조건(연속매수≥2일)이 충족 불가 → 방어 TOP3가 거의 발동하지 않던 구조적 문제 해결. (1) SmartMoney를 자격 조건에서 **점수 보너스로 전환** (25→10점), (2) Recovery 배점 확대 (30→35점, 과매도 반등이 방어의 핵심), (3) 과열 자격 필터 제거 (방어점수 자체가 과열종목에 0점 부여하므로 이중 필터 불필요), (4) 등급 하한 비례 조정 (만점 90점 기준).

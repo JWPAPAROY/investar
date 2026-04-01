@@ -2098,22 +2098,17 @@ module.exports = async (req, res) => {
         .eq('is_active', true)
         .order('total_score', { ascending: false });
 
-      // Step 2: TOP 3 선별 — DB 플래그 기반 (v3.79: 결산/알림/추적 레짐 통일)
-      const alertRegime = savedStocks?.[0]?.market_regime || 'momentum';
+      // Step 2: TOP 3 풀 조회 — DB 플래그 기반 (레짐은 Step 5에서 최신 데이터로 재판정)
+      const savedRegime = savedStocks?.[0]?.market_regime || 'momentum';
       const top3 = getTop3FromDb(savedStocks, 'is_top3');
       const defenseAlertTop3 = getTop3FromDb(savedStocks, 'is_defense_top3');
       const sidewaysAlertTop3 = getTop3FromDb(savedStocks, 'is_sideways_top3');
-      console.log(`✅ TOP 3 선정: ${top3.length}개, 방어: ${defenseAlertTop3.length}개, 횡보: ${sidewaysAlertTop3?.length || 0}개, 레짐: ${alertRegime}`);
+      console.log(`📦 TOP 3 풀: 모멘텀 ${top3.length}개, 방어 ${defenseAlertTop3.length}개, 횡보 ${sidewaysAlertTop3?.length || 0}개 (저장 레짐: ${savedRegime})`);
 
-      // v3.33: 종목 정보 보완 (통합 함수) — v3.79: 레짐별 primary top3도 보완
+      // v3.80: 모든 TOP3 풀 보완 (레짐 재판정 전이므로 전부 보완)
       await supplementStockInfo(top3);
-      if (alertRegime === 'defense' && defenseAlertTop3.length > 0) await supplementStockInfo(defenseAlertTop3);
-      if (alertRegime === 'sideways' && sidewaysAlertTop3.length > 0) await supplementStockInfo(sidewaysAlertTop3);
-
-      const primaryAlertTop3 = alertRegime === 'defense' ? defenseAlertTop3 : alertRegime === 'sideways' ? sidewaysAlertTop3 : top3;
-      primaryAlertTop3.forEach((s, i) => {
-        console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
-      });
+      if (defenseAlertTop3.length > 0) await supplementStockInfo(defenseAlertTop3);
+      if (sidewaysAlertTop3.length > 0) await supplementStockInfo(sidewaysAlertTop3);
 
       // Step 3: 과거 추천 종목 성과 조회 (D-1의 SAVE 데이터부터)
       // SAVE날짜 → ALERT 전달일 매핑: SAVE 2/4 → ALERT 2/5, SAVE 2/3 → ALERT 2/4, ...
@@ -2249,7 +2244,30 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Step 6: 텔레그램 알림 전송
+      // Step 6: v3.80 레짐 재판정 — 최신 해외 전망 + 시장 심리 기반
+      const alertRegime = determineMarketRegime(sentiment, prediction);
+      if (alertRegime !== savedRegime) {
+        console.log(`📊 레짐 변경: ${savedRegime} → ${alertRegime} (최신 해외 전망 반영)`);
+        try {
+          await supabase
+            .from('screening_recommendations')
+            .update({ market_regime: alertRegime })
+            .eq('recommendation_date', latestSaveDate);
+          console.log(`✅ market_regime '${alertRegime}' DB 업데이트 완료`);
+        } catch (e) {
+          console.warn('⚠️ market_regime 업데이트 실패:', e.message);
+        }
+      } else {
+        console.log(`📊 레짐 유지: ${alertRegime}`);
+      }
+
+      const primaryAlertTop3 = alertRegime === 'defense' ? defenseAlertTop3 : alertRegime === 'sideways' ? sidewaysAlertTop3 : top3;
+      console.log(`✅ 최종 TOP 3 (${alertRegime}): ${primaryAlertTop3.length}개`);
+      primaryAlertTop3.forEach((s, i) => {
+        console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
+      });
+
+      // Step 7: 텔레그램 알림 전송
       const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction, sidewaysAlertTop3, alertRegime);
       const sent = await sendTelegramMessage(message);
 
@@ -3048,6 +3066,8 @@ module.exports = async (req, res) => {
       if (sidewaysSaveTop3Codes.includes(rec.stock_code)) rec.is_sideways_top3 = true;
       if (defSaveTop3Codes.includes(rec.stock_code)) rec.is_defense_top3 = true;
       if (v2Top3Codes.includes(rec.stock_code)) rec.is_top3_v2 = true;
+      // v3.80: TOP3 종목은 is_active 보장 (방어/횡보 TOP3가 낮은 모멘텀 점수로 누락되는 버그 수정)
+      if (rec.is_top3 || rec.is_defense_top3 || rec.is_sideways_top3) rec.is_active = true;
     }
 
     // 장중 수동 결산 시 DB 저장 건너뜀
