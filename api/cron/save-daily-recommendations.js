@@ -417,6 +417,7 @@ function selectAlertTop3(stocks) {
     addFromRange(80, 89);   // 3순위
     addFromRange(90, 100);  // 4순위
     addFromRange(70, 79);   // 5순위: 최후 보충
+    addFromRange(45, 49);   // 6순위: v3.81 B등급 하단 최후 보충
   };
 
   // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
@@ -609,6 +610,7 @@ function selectSaveTop3(stocks) {
     addFromRange(80, 89);   // 3순위
     addFromRange(90, 100);  // 4순위
     addFromRange(70, 79);   // 5순위: 최후 보충
+    addFromRange(45, 49);   // 6순위: v3.81 B등급 하단 최후 보충
   };
 
   // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
