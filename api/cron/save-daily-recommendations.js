@@ -714,6 +714,18 @@ function isMarketSideways(sentiment) {
 }
 
 /**
+ * v3.81: ALERT 레짐 변경 시 DB 데이터로 전체 TOP3 재선별
+ * 스크리닝 재실행 없이 저장된 지표(change_rate, mfi, rsi, market_cap 등)로 선별
+ */
+function reselectAlertTop3ForRegime(allStocks, newRegime) {
+  const momentum = selectAlertTop3(allStocks);
+  const defense = selectDefenseAlertTop3(allStocks);
+  const sideways = selectSidewaysAlertTop3(allStocks);
+  console.log(`  📊 재선별 (${newRegime}): 모멘텀 ${momentum.length}, 방어 ${defense.length}, 횡보 ${sideways.length}`);
+  return { momentum, defense, sideways };
+}
+
+/**
  * v3.75: 시장 레짐 결정 — 양쪽 시장 조합 + prediction 보조
  *
  * 양쪽 모두 하락(anxiety/fear) → defense
@@ -2091,18 +2103,20 @@ module.exports = async (req, res) => {
       }
       console.log(`📅 최근 SAVE 날짜 (거래일): ${latestSaveDate}`);
 
-      const { data: savedStocks } = await supabase
+      // v3.81: 전체 풀 조회 (is_active 필터 없음 — 레짐 변경 시 재선별에 필요)
+      const { data: allSavedStocks } = await supabase
         .from('screening_recommendations')
         .select('*')
         .eq('recommendation_date', latestSaveDate)
-        .eq('is_active', true)
         .order('total_score', { ascending: false });
 
+      const savedStocks = (allSavedStocks || []).filter(s => s.is_active);
+
       // Step 2: TOP 3 풀 조회 — DB 플래그 기반 (레짐은 Step 5에서 최신 데이터로 재판정)
-      const savedRegime = savedStocks?.[0]?.market_regime || 'momentum';
-      const top3 = getTop3FromDb(savedStocks, 'is_top3');
-      const defenseAlertTop3 = getTop3FromDb(savedStocks, 'is_defense_top3');
-      const sidewaysAlertTop3 = getTop3FromDb(savedStocks, 'is_sideways_top3');
+      const savedRegime = allSavedStocks?.[0]?.market_regime || 'momentum';
+      let top3 = getTop3FromDb(savedStocks, 'is_top3');
+      let defenseAlertTop3 = getTop3FromDb(savedStocks, 'is_defense_top3');
+      let sidewaysAlertTop3 = getTop3FromDb(savedStocks, 'is_sideways_top3');
       console.log(`📦 TOP 3 풀: 모멘텀 ${top3.length}개, 방어 ${defenseAlertTop3.length}개, 횡보 ${sidewaysAlertTop3?.length || 0}개 (저장 레짐: ${savedRegime})`);
 
       // v3.80: 모든 TOP3 풀 보완 (레짐 재판정 전이므로 전부 보완)
@@ -2244,18 +2258,59 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Step 6: v3.80 레짐 재판정 — 최신 해외 전망 + 시장 심리 기반
+      // Step 6: v3.81 레짐 재판정 + TOP3 재선별 — 최신 해외 전망 + 시장 심리 기반
       const alertRegime = determineMarketRegime(sentiment, prediction);
       if (alertRegime !== savedRegime) {
         console.log(`📊 레짐 변경: ${savedRegime} → ${alertRegime} (최신 해외 전망 반영)`);
+
+        // v3.81: 레짐 변경 시 전체 풀에서 새 레짐의 TOP3 재선별
+        console.log(`🔄 레짐 변경 → 전체 풀(${allSavedStocks.length}개)에서 ${alertRegime} TOP3 재선별...`);
+        const reselected = reselectAlertTop3ForRegime(allSavedStocks, alertRegime);
+        top3 = reselected.momentum;
+        defenseAlertTop3 = reselected.defense;
+        sidewaysAlertTop3 = reselected.sideways;
+        console.log(`✅ 재선별 결과: 모멘텀 ${top3.length}개, 방어 ${defenseAlertTop3.length}개, 횡보 ${sidewaysAlertTop3.length}개`);
+
+        // 재선별된 TOP3 종목 정보 보완
+        await supplementStockInfo(top3);
+        if (defenseAlertTop3.length > 0) await supplementStockInfo(defenseAlertTop3);
+        if (sidewaysAlertTop3.length > 0) await supplementStockInfo(sidewaysAlertTop3);
+
+        // DB 플래그 업데이트: 기존 TOP3 플래그 초기화 → 새 TOP3 마킹
         try {
+          // 전체 초기화
           await supabase
             .from('screening_recommendations')
-            .update({ market_regime: alertRegime })
+            .update({ is_top3: false, is_defense_top3: false, is_sideways_top3: false, market_regime: alertRegime })
             .eq('recommendation_date', latestSaveDate);
-          console.log(`✅ market_regime '${alertRegime}' DB 업데이트 완료`);
+
+          // 새 모멘텀 TOP3 마킹
+          for (const s of top3) {
+            await supabase
+              .from('screening_recommendations')
+              .update({ is_top3: true, is_active: true })
+              .eq('recommendation_date', latestSaveDate)
+              .eq('stock_code', s.stock_code);
+          }
+          // 새 방어 TOP3 마킹
+          for (const s of defenseAlertTop3) {
+            await supabase
+              .from('screening_recommendations')
+              .update({ is_defense_top3: true, is_active: true })
+              .eq('recommendation_date', latestSaveDate)
+              .eq('stock_code', s.stock_code);
+          }
+          // 새 횡보 TOP3 마킹
+          for (const s of sidewaysAlertTop3) {
+            await supabase
+              .from('screening_recommendations')
+              .update({ is_sideways_top3: true, is_active: true })
+              .eq('recommendation_date', latestSaveDate)
+              .eq('stock_code', s.stock_code);
+          }
+          console.log(`✅ DB 플래그 업데이트 완료 (market_regime: ${alertRegime})`);
         } catch (e) {
-          console.warn('⚠️ market_regime 업데이트 실패:', e.message);
+          console.warn('⚠️ DB 플래그 업데이트 실패:', e.message);
         }
       } else {
         console.log(`📊 레짐 유지: ${alertRegime}`);
