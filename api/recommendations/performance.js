@@ -176,10 +176,6 @@ module.exports = async (req, res) => {
       if (needsRealTimePrice) {
         recsNeedingRealtime.push(rec);
       }
-      // DEBUG: D+0 종목 실시간 조회 판정 로그
-      if (daysSince === 0) {
-        console.log(`📊 [D+0 ${rec.stock_name}] hasTodayPrice=${hasTodayPrice}, stale=${todayPriceIsStale}, needsRT=${needsRealTimePrice}, priceLen=${priceData.length}, closePrice=${priceData[0]?.closing_price}, recPrice=${rec.recommended_price}`);
-      }
     }
 
     // === Phase 2.5: 종목명 누락 종목도 실시간 조회 대상에 추가 ===
@@ -854,13 +850,6 @@ module.exports = async (req, res) => {
       recommendationDates, // 추천일자별 그룹화 추가
       commonStocks, // 공통 추천 종목 추가
       risingStocks, // 연속 급등주 추가 (기존 로직 유지)
-      _debug: {
-        realtimeQueried: uniqueCodes.length,
-        realtimeSuccess: Object.keys(realtimePrices).length,
-        realtimeFailed: remainingCodes.length,
-        recsNeedingRealtime: recsNeedingRealtime.length,
-        elapsed: Date.now() - apiStartTime
-      },
       statistics: {
         totalRecommendations: stocksWithPerformance.length,
         winningCount: winningStocks.length,
