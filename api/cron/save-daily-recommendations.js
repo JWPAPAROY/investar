@@ -150,9 +150,10 @@ function formatSentimentLine(kospiSentiment, kosdaqSentiment) {
 function formatPredictionLine(prediction) {
   if (!prediction) return '';
 
-  const sign = prediction.score >= 0 ? '+' : '';
+  const scoreFixed = Math.abs(prediction.score) < 0.005 ? '0.00' : prediction.score.toFixed(2);
+  const sign = scoreFixed !== '0.00' && prediction.score >= 0 ? '+' : '';
   let msg = `🌏 <b>해외 시장 기반 전망</b>\n`;
-  msg += `  ${prediction.emoji} ${prediction.label} (스코어: ${sign}${prediction.score.toFixed(2)})\n`;
+  msg += `  ${prediction.emoji} ${prediction.label} (스코어: ${sign}${scoreFixed})\n`;
   msg += `  ${prediction.summary}\n`;
 
   if (prediction.vixAlert) {
