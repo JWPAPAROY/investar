@@ -446,7 +446,7 @@ function selectSidewaysAlertTop3(stocks) {
     return hasSupply &&
       s.recommendation_grade !== '과열' &&
       mfi < 93 && rsi < 82 &&
-      changeRate >= 5 && changeRate < 25;
+      changeRate < 25;  // v3.81: changeRate >= 5 제거 (풀 고갈 방지)
   });
 
   const getDualScore = (s) => {
@@ -504,7 +504,7 @@ function selectSidewaysSaveTop3(stocks) {
     const mfi = s.volumeIndicators?.mfi ?? 100;
     const rsi = s.overheatingV2?.rsi ?? 100;
     const changeRate = Math.abs(s.changeRate || 0);
-    return hasSupply && !isOverheated && mfi < 93 && rsi < 82 && changeRate >= 5 && changeRate < 25;
+    return hasSupply && !isOverheated && mfi < 93 && rsi < 82 && changeRate < 25;  // v3.81: changeRate >= 5 제거
   });
 
   const getDualScore = (s) => {

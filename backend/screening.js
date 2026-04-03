@@ -2188,7 +2188,7 @@ class StockScreener {
       const mfi = getMfi(s);
       const rsi = s.overheatingV2?.rsi ?? 100;
       const changeRate = Math.abs(s.changeRate || 0);
-      return hasSupply && !isOverheated && mfi < 93 && rsi < 82 && changeRate >= 5 && changeRate < 25;
+      return hasSupply && !isOverheated && mfi < 93 && rsi < 82 && changeRate < 25;  // v3.81: changeRate >= 5 제거
     };
 
     const getDualScore = (s) => {

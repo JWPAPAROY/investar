@@ -881,6 +881,7 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 - **`reselectAlertTop3ForRegime()` 함수 추가**: ALERT 전체 풀로 3개 레짐 TOP3를 동시 재선별하는 헬퍼.
 - **ALERT 전체 풀 조회**: `is_active=true` 필터 제거 → 전체 종목 로드 후 active 필터는 메모리에서 적용. 재선별 시 비활성 종목도 새 레짐 필터로 재평가.
 - **모멘텀 TOP3 45-49점 최후 보충 (6순위)**: 기존 50점 이상만 선정 대상 → 45-49점(B등급 하단)을 6순위 최후 보충으로 추가. 급등장에서 당일급등 페널티로 50점 미만으로 밀린 수급 좋은 종목(예: 대우건설 46점 기관3d+외인2d)이 선정 가능. 90일 데이터: 45-49점 승률 53%/+10%도달 21%로 50-59점(70%/45%)보다 열등하므로 최후 보충으로만 사용. SAVE/ALERT 양쪽 동기화.
+- **횡보 TOP3 `changeRate >= 5%` 필터 제거**: 최근 7일간 횡보 TOP3가 한 번도 채워지지 않은 원인. 대부분 정상 종목의 일일 등락률이 5% 미만이라 풀이 극단적으로 줄어듦. 제거 후에도 수급≥2일/MFI<93/RSI<82 필터가 모멘텀과 독립적 차별성 유지. screening.js/cron SAVE/ALERT 3곳 동기화.
 
 ### v3.80 (2026-04-01)
 - **방어/횡보 TOP3 is_active 버그 수정**: 방어/횡보 TOP3 종목의 모멘텀 점수가 45점 미만이면 `is_active=false`로 저장 → ALERT/TRACK에서 `.eq('is_active', true)` 필터에 의해 방어/횡보 TOP3가 통째로 누락 → 모멘텀 fallback되던 치명적 버그 수정. TOP3로 마킹된 종목은 `is_active=true` 보장. 기존 데이터도 백필 완료.
