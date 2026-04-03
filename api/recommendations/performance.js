@@ -176,6 +176,10 @@ module.exports = async (req, res) => {
       if (needsRealTimePrice) {
         recsNeedingRealtime.push(rec);
       }
+      // DEBUG: D+0 종목 실시간 조회 판정 로그
+      if (daysSince === 0) {
+        console.log(`📊 [D+0 ${rec.stock_name}] hasTodayPrice=${hasTodayPrice}, stale=${todayPriceIsStale}, needsRT=${needsRealTimePrice}, priceLen=${priceData.length}, closePrice=${priceData[0]?.closing_price}, recPrice=${rec.recommended_price}`);
+      }
     }
 
     // === Phase 2.5: 종목명 누락 종목도 실시간 조회 대상에 추가 ===
