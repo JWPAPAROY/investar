@@ -165,10 +165,13 @@ module.exports = async (req, res) => {
 
       // daily_prices에 오늘 데이터가 이미 있으면 실시간 조회 불필요
       const hasTodayPrice = latestPriceDate === todayDateString;
-      const needsRealTimePrice = !hasTodayPrice && (
+      // D+0 레코드가 closing_price=추천가인 경우(SAVE 직후, update-prices 전) 실시간 조회 필요
+      const todayPriceIsStale = hasTodayPrice && daysSince === 0 &&
+        priceData.length === 1 && priceData[0].closing_price === rec.recommended_price;
+      const needsRealTimePrice = todayPriceIsStale || (!hasTodayPrice && (
         daysSince === 0 ||
         priceData.length === 0
-      );
+      ));
 
       if (needsRealTimePrice) {
         recsNeedingRealtime.push(rec);
