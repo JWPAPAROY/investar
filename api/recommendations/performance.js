@@ -854,6 +854,13 @@ module.exports = async (req, res) => {
       recommendationDates, // 추천일자별 그룹화 추가
       commonStocks, // 공통 추천 종목 추가
       risingStocks, // 연속 급등주 추가 (기존 로직 유지)
+      _debug: {
+        realtimeQueried: uniqueCodes.length,
+        realtimeSuccess: Object.keys(realtimePrices).length,
+        realtimeFailed: remainingCodes.length,
+        recsNeedingRealtime: recsNeedingRealtime.length,
+        elapsed: Date.now() - apiStartTime
+      },
       statistics: {
         totalRecommendations: stocksWithPerformance.length,
         winningCount: winningStocks.length,
