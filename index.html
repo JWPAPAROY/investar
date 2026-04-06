@@ -658,7 +658,6 @@
             setTop3Recommendations(result.top3 || []); // 🆕 TOP 3 추천 종목 저장
             setSidewaysTop3Recommendations(result.sidewaysTop3 || []); // v3.73
             setDefenseTop3Recommendations(result.defenseTop3 || []); // v3.34
-            setPrediction(result.prediction || null);
             setScreeningMetadata(result.metadata || null);
             setScreeningDuration(((Date.now() - startTime) / 1000).toFixed(1));
             setLastUpdate(new Date());

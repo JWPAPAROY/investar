@@ -4,7 +4,6 @@
 
 const screener = require('../../backend/screening');
 const supabase = require('../../backend/supabaseClient');
-const overnightPredictor = require('../../backend/overnightPredictor');
 
 module.exports = async function handler(req, res) {
   // CORS 헤더
@@ -23,7 +22,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { market = 'ALL', limit, debug, refreshPrediction } = req.query;
+    const { market = 'ALL', limit, debug } = req.query;
     const limitNum = limit ? parseInt(limit) : undefined; // limit 없으면 전체 반환
     const result = await screener.screenAllStocks(market, limitNum);
 
@@ -73,13 +72,19 @@ module.exports = async function handler(req, res) {
       if (result.defenseTop3) result.defenseTop3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
     }
 
-    // 해외 시장 기반 전망 (refreshPrediction=true 시 캐시 무시)
+    // 당일 prediction score를 Supabase 캐시에서 조회 (08:00 alert cron이 저장한 데이터)
     let prediction = null;
     try {
-      prediction = await overnightPredictor.fetchAndPredict(refreshPrediction === 'true');
-    } catch (e) {
-      console.warn('⚠️ 해외 전망 조회 실패:', e.message);
-    }
+      if (supabase) {
+        const today = new Date(Date.now() + 9 * 3600000).toISOString().split('T')[0]; // KST 기준
+        const { data } = await supabase
+          .from('overnight_predictions')
+          .select('score, signal')
+          .eq('prediction_date', today)
+          .single();
+        if (data) prediction = data;
+      }
+    } catch (e) {}
 
     // v3.69: 업종 전망 매칭
     let sectorOutlookData = [];
@@ -142,7 +147,7 @@ module.exports = async function handler(req, res) {
       top3: result.top3 || [],  // 🆕 TOP 3 추천 종목
       sidewaysTop3: result.sidewaysTop3 || [],  // v3.73: 횡보장 TOP 3
       defenseTop3: result.defenseTop3 || [],  // v3.34: 방어 TOP 3
-      prediction: prediction || undefined,  // 해외 시장 기반 전망
+      predictionScore: prediction?.score ?? null,  // 업종 뱃지 버킷 결정에 사용된 score
       metadata: result.metadata,
       timestamp: new Date().toISOString()
     };
