@@ -761,7 +761,7 @@ function determineMarketRegime(sentiment, prediction) {
 
   // 2. 한쪽 anxiety + 다른쪽 neutral → prediction 따라 결정
   if ((kBearish && !qBullish) || (qBearish && !kBullish)) {
-    return predScore <= -0.8 ? 'defense' : 'sideways';
+    return predScore <= -0.4 ? 'defense' : 'sideways';
   }
 
   // 3. 한쪽 하락 + 다른쪽 bullish → 상충 → sideways
@@ -770,8 +770,8 @@ function determineMarketRegime(sentiment, prediction) {
   // 4. 양쪽 중 하나라도 bullish + 반대쪽 하락 아님 → momentum
   if (kBullish || qBullish) return 'momentum';
 
-  // 5. 양쪽 모두 neutral → sideways (prediction 매우 부정적이면 defense)
-  if (predScore <= -0.8) return 'defense';
+  // 5. 양쪽 모두 neutral → sideways (prediction 부정적이면 defense)
+  if (predScore <= -0.4) return 'defense';
   return 'sideways';
 }
 
@@ -1625,8 +1625,8 @@ module.exports = async (req, res) => {
           }
           const s = sectorStats[r.sector_name];
           s.all.push(ret);
-          if (score > 0.2) s.bull.push(ret);
-          else if (score < -0.8) s.bear.push(ret);
+          if (score >= 0.15) s.bull.push(ret);
+          else if (score < -0.4) s.bear.push(ret);
           else s.neutral.push(ret);
         });
 
@@ -2251,9 +2251,9 @@ module.exports = async (req, res) => {
         if (prediction) {
           const score = prediction.score || 0;
           let fallbackGrade, fallbackEmoji, fallbackLabel;
-          if (score <= -0.8) { fallbackGrade = 'anxiety'; fallbackEmoji = '😟'; fallbackLabel = '불안'; }
+          if (score <= -0.4) { fallbackGrade = 'anxiety'; fallbackEmoji = '😟'; fallbackLabel = '불안'; }
           else if (score >= 1.4) { fallbackGrade = 'extreme'; fallbackEmoji = '🔥'; fallbackLabel = '과열'; }
-          else if (score >= 0.2) { fallbackGrade = 'optimism'; fallbackEmoji = '😊'; fallbackLabel = '낙관'; }
+          else if (score >= 0.15) { fallbackGrade = 'optimism'; fallbackEmoji = '😊'; fallbackLabel = '낙관'; }
           else { fallbackGrade = 'neutral'; fallbackEmoji = '😐'; fallbackLabel = '중립'; }
           const fallbackSentiment = { grade: fallbackGrade, emoji: fallbackEmoji, label: fallbackLabel, disparity: '-', rsi: '-' };
           sentiment = { kospi: fallbackSentiment, kosdaq: fallbackSentiment };
@@ -2930,9 +2930,9 @@ module.exports = async (req, res) => {
         if (prediction) {
           const score = prediction.score || 0;
           let fallbackGrade, fallbackEmoji, fallbackLabel;
-          if (score <= -0.8) { fallbackGrade = 'anxiety'; fallbackEmoji = '😟'; fallbackLabel = '불안'; }
+          if (score <= -0.4) { fallbackGrade = 'anxiety'; fallbackEmoji = '😟'; fallbackLabel = '불안'; }
           else if (score >= 1.4) { fallbackGrade = 'extreme'; fallbackEmoji = '🔥'; fallbackLabel = '과열'; }
-          else if (score >= 0.2) { fallbackGrade = 'optimism'; fallbackEmoji = '😊'; fallbackLabel = '낙관'; }
+          else if (score >= 0.15) { fallbackGrade = 'optimism'; fallbackEmoji = '😊'; fallbackLabel = '낙관'; }
           else { fallbackGrade = 'neutral'; fallbackEmoji = '😐'; fallbackLabel = '중립'; }
           const fallbackSentiment = { grade: fallbackGrade, emoji: fallbackEmoji, label: fallbackLabel, disparity: '-', rsi: '-' };
           sentiment = { kospi: fallbackSentiment, kosdaq: fallbackSentiment };
@@ -3328,9 +3328,9 @@ module.exports = async (req, res) => {
         if (prediction) {
           const score = prediction.score || 0;
           let fallbackGrade, fallbackEmoji, fallbackLabel;
-          if (score <= -0.8) { fallbackGrade = 'anxiety'; fallbackEmoji = '😟'; fallbackLabel = '불안'; }
+          if (score <= -0.4) { fallbackGrade = 'anxiety'; fallbackEmoji = '😟'; fallbackLabel = '불안'; }
           else if (score >= 1.4) { fallbackGrade = 'extreme'; fallbackEmoji = '🔥'; fallbackLabel = '과열'; }
-          else if (score >= 0.2) { fallbackGrade = 'optimism'; fallbackEmoji = '😊'; fallbackLabel = '낙관'; }
+          else if (score >= 0.15) { fallbackGrade = 'optimism'; fallbackEmoji = '😊'; fallbackLabel = '낙관'; }
           else { fallbackGrade = 'neutral'; fallbackEmoji = '😐'; fallbackLabel = '중립'; }
           const fallbackSentiment = { grade: fallbackGrade, emoji: fallbackEmoji, label: fallbackLabel, disparity: '-', rsi: '-' };
           sentiment = { kospi: fallbackSentiment, kosdaq: fallbackSentiment };

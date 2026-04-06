@@ -99,10 +99,10 @@ module.exports = async function handler(req, res) {
         if (!stats) return null;
 
         let bucket, sampleCount, winRate, avgReturn;
-        if (predScore > 0.2) {
+        if (predScore >= 0.15) {
           bucket = 'bull'; sampleCount = stats.bull_sample_count;
           winRate = +stats.bull_win_rate; avgReturn = +stats.bull_avg_return;
-        } else if (predScore < -0.8) {
+        } else if (predScore < -0.4) {
           bucket = 'bear'; sampleCount = stats.bear_sample_count;
           winRate = +stats.bear_win_rate; avgReturn = +stats.bear_avg_return;
         } else {

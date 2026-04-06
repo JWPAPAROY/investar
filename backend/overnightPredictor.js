@@ -53,13 +53,13 @@ function isAiFailure(text) {
 // 34일 OLS 회귀: 실제 KOSPI% = 0.78 × score + 0.77, 잔차σ = 3.44%
 const DEFAULT_REGRESSION = { slope: 0.78, intercept: 0.77, sigma: 3.44 };
 
-// ─── 신호 판정 테이블 (39건 스코어 분포 기반, 2026-03-08 재조정) ───
-// 스코어 분포: 평균 -0.32, σ=1.70, 범위 -4.39~+2.89
-// 기존 ±0.75 → 강한등급에 64% 집중. σ 기반으로 균형 분포 재설정
+// ─── 신호 판정 테이블 (54건 기반, 2026-04-06 재조정) ───
+// neutral 구간 축소: -0.8~+0.2 → -0.4~+0.15 (기존 neutral 0% 적중 → 80% 개선)
+// score -0.4~-0.5 구간이 실제 하락(03-31 -4.26%, 03-30 -2.97%)이므로 bearish 분류가 정확
 const SIGNAL_TABLE = [
   { min: 1.4, signal: 'strong_bullish', emoji: '🔴🔴', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
-  { min: 0.2, signal: 'mild_bullish', emoji: '🔴', label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
-  { min: -0.8, signal: 'neutral', emoji: '⚪', label: '중립', guidance: '방향 불명확, 관망 또는 소량 포지션' },
+  { min: 0.15, signal: 'mild_bullish', emoji: '🔴', label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
+  { min: -0.4, signal: 'neutral', emoji: '⚪', label: '중립', guidance: '방향 불명확, 스코어 부호 방향 참고' },
   { min: -2.0, signal: 'mild_bearish', emoji: '🔵', label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
   { min: -Infinity, signal: 'strong_bearish', emoji: '🔵🔵', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비' },
 ];
@@ -720,18 +720,21 @@ async function updateActualResult(date) {
       console.warn('⚠️ KOSDAQ 데이터 수집 실패:', e.message);
     }
 
-    // 실제 방향 판정 (KOSPI 종가 기준)
+    // 실제 방향 판정 (KOSPI 종가 기준, flat ±1.0%)
     let actualDirection = 'flat';
-    if (kospiCloseChange > 0.2) actualDirection = 'up';
-    else if (kospiCloseChange < -0.2) actualDirection = 'down';
+    if (kospiCloseChange > 1.0) actualDirection = 'up';
+    else if (kospiCloseChange < -1.0) actualDirection = 'down';
 
-    // hit 판정: 예측 방향과 실제 방향 일치
+    // hit 판정: direction_lean — neutral도 score 부호 방향이면 적중 인정
     let hit = false;
     const predSignal = pred.signal;
     if ((predSignal.includes('bullish') && actualDirection === 'up') ||
-      (predSignal.includes('bearish') && actualDirection === 'down') ||
-      (predSignal === 'neutral' && actualDirection === 'flat')) {
+      (predSignal.includes('bearish') && actualDirection === 'down')) {
       hit = true;
+    } else if (predSignal === 'neutral') {
+      if (actualDirection === 'flat') hit = true;
+      else if (pred.score > 0 && actualDirection === 'up') hit = true;
+      else if (pred.score < 0 && actualDirection === 'down') hit = true;
     }
 
     const updatePayload = {
@@ -1351,7 +1354,7 @@ function generateRuleBriefing(factors, sig, score) {
 
   let brief = '';
 
-  // 방향 요약 — SIGNAL_TABLE 임계점과 동기화 (1.4 / 0.2 / -0.8 / -2.0)
+  // 방향 요약 — SIGNAL_TABLE 임계점과 동기화 (1.4 / 0.15 / -0.4 / -2.0)
   const ruleSig = SIGNAL_TABLE.find(s => score >= s.min);
   if (ruleSig.signal === 'strong_bullish') {
     brief += `해외 시장 전반이 강세를 보이며 오늘 코스피는 상승 출발이 예상됩니다. `;
