@@ -1980,20 +1980,18 @@ class StockScreener {
 
     // TOP 3 선정 (전체 결과에서 선정)
     const top3 = this.selectTop3(results);
-    const sidewaysTop3 = this.selectSidewaysTop3(results);
+    // v3.82: 횡보 TOP3 제거 (2단계 레짐 전환)
     const defenseTop3 = this.selectDefenseTop3(results);
 
     return {
       stocks: finalResults,
-      top3: top3,  // 🆕 TOP 3 추천 종목
-      sidewaysTop3: sidewaysTop3,  // v3.73: 횡보장 TOP 3
-      defenseTop3: defenseTop3,  // v3.34: 방어 TOP 3
+      top3: top3,
+      defenseTop3: defenseTop3,
       metadata: {
         totalAnalyzed: analyzed,
         totalFound: results.length,
         returned: finalResults.length,
-        top3Count: top3.length,  // 🆕 TOP 3 개수
-        sidewaysTop3Count: sidewaysTop3.length,
+        top3Count: top3.length,
         defenseTop3Count: defenseTop3.length,
         poolSize: finalStockList.length,
         debug: {

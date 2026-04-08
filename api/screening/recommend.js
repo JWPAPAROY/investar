@@ -68,7 +68,7 @@ module.exports = async function handler(req, res) {
       };
       result.stocks.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
       if (result.top3) result.top3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
-      if (result.sidewaysTop3) result.sidewaysTop3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
+      // v3.82: sidewaysTop3 제거
       if (result.defenseTop3) result.defenseTop3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
     }
 
@@ -136,7 +136,7 @@ module.exports = async function handler(req, res) {
       };
       result.stocks.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
       if (result.top3) result.top3.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
-      if (result.sidewaysTop3) result.sidewaysTop3.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
+      // v3.82: sidewaysTop3 제거
       if (result.defenseTop3) result.defenseTop3.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
     }
 
@@ -145,7 +145,7 @@ module.exports = async function handler(req, res) {
       count: result.stocks.length,
       recommendations: result.stocks,
       top3: result.top3 || [],  // 🆕 TOP 3 추천 종목
-      sidewaysTop3: result.sidewaysTop3 || [],  // v3.73: 횡보장 TOP 3
+      // v3.82: sidewaysTop3 제거 (2단계 레짐 전환)
       defenseTop3: result.defenseTop3 || [],  // v3.34: 방어 TOP 3
       predictionScore: prediction?.score ?? null,  // 업종 뱃지 버킷 결정에 사용된 score
       metadata: result.metadata,
