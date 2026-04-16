@@ -369,69 +369,41 @@ async function sendTelegramMessage(message) {
 
 /**
  * TOP 3 선별 (screening.js selectTop3와 동일한 전략)
- * v3.24: 매수고래만 대상 (매도고래 제외)
- *
- * 1순위: 매수고래 + 황금구간(50-79점)
- * 2순위: 매수고래 + 70점+
- * 3순위: 매수고래 + 40점+
+ * v3.84: 점수 내림차순 단순 정렬 — 스윗스팟 구간 우선순위 및 tier1 시총 우선 제거
+ *   근거: v3.76~v3.83 POST 기간 백테스트(15일)에서 구간 우선순위가 낮은 점수 소형주를
+ *         금메달로 올려 -28% 등 참사 유발. 전체 풀 점수 내림차순이 합산 +2.68%, 승률 50%,
+ *         -5% 손실 29%로 모든 변형 중 최고 안정성.
  */
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.63: 기본 필터 (시총 제외)
   const baseEligible = stocks.filter(s => {
     const hasSupply = s.whale_detected || (s.institution_buy_days || 0) >= 3 || (s.foreign_buy_days || 0) >= 3;
     return hasSupply &&
       s.recommendation_grade !== '과열' &&
       Math.abs(s.change_rate || 0) < 25 &&
-      (s.disparity || 100) < 150;
+      (s.disparity || 100) < 150 &&
+      (s.total_score || 0) >= 45;
   });
 
-  const top3 = [];
-
-  const addFromPool = (pool) => {
-    const addFromRange = (lo, hi) => {
-      const candidates = pool
-        .filter(s => s.total_score >= lo && s.total_score <= hi && !top3.some(t => t.stock_code === s.stock_code))
-        .sort((a, b) => {
-          // v3.76: 수급 1차 정렬 (외인2d+ 최강, 점수는 2차)
-          const supplyRank = (s) => {
-            const inst = s.institution_buy_days || 0;
-            const frgn = s.foreign_buy_days || 0;
-            if (frgn >= 2 && inst < 2) return 5;
-            if (inst >= 2 && frgn >= 2) return 4;
-            if (inst >= 2) return 3;
-            if (frgn >= 1) return 2;
-            return 1;
-          };
-          const supplyDiff = supplyRank(b) - supplyRank(a);
-          if (supplyDiff !== 0) return supplyDiff;
-          // v3.82: 업종 주도도 2차 (주도 업종 우선)
-          const aLeading = getSectorLeadingScore(a.sector_name) > 0.5 ? 1 : 0;
-          const bLeading = getSectorLeadingScore(b.sector_name) > 0.5 ? 1 : 0;
-          if (bLeading !== aLeading) return bLeading - aLeading;
-          return b.total_score - a.total_score;
-        });
-      for (const s of candidates) {
-        if (top3.length >= 3) break;
-        top3.push(s);
-      }
+  return [...baseEligible].sort((a, b) => {
+    const scoreDiff = (b.total_score || 0) - (a.total_score || 0);
+    if (scoreDiff !== 0) return scoreDiff;
+    const supplyRank = (s) => {
+      const inst = s.institution_buy_days || 0;
+      const frgn = s.foreign_buy_days || 0;
+      if (frgn >= 2 && inst < 2) return 5;
+      if (inst >= 2 && frgn >= 2) return 4;
+      if (inst >= 2) return 3;
+      if (frgn >= 1) return 2;
+      return 1;
     };
-    addFromRange(50, 59);   // 1순위: 스윗스팟
-    addFromRange(60, 69);   // 2순위
-    addFromRange(80, 89);   // 3순위
-    addFromRange(90, 100);  // 4순위
-    addFromRange(70, 79);   // 5순위: 최후 보충
-    addFromRange(45, 49);   // 6순위: v3.81 B등급 하단 최후 보충
-  };
-
-  // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
-  const mcCap = s => (s.market_cap || 0) / 100000000;
-  const tier1 = baseEligible.filter(s => mcCap(s) <= 10000);
-  addFromPool(tier1);
-  if (top3.length < 3) addFromPool(baseEligible);
-
-  return top3;
+    const supplyDiff = supplyRank(b) - supplyRank(a);
+    if (supplyDiff !== 0) return supplyDiff;
+    const aLeading = getSectorLeadingScore(a.sector_name) > 0.5 ? 1 : 0;
+    const bLeading = getSectorLeadingScore(b.sector_name) > 0.5 ? 1 : 0;
+    return bLeading - aLeading;
+  }).slice(0, 3);
 }
 
 /**
@@ -566,13 +538,12 @@ function selectWhaleStocks(stocks, top3) {
 }
 
 /**
- * v3.25: save 모드용 TOP 3 선별 (스크리닝 결과 객체 사용)
- * 고래 상세 정보를 포함한 실시간 데이터 기반
+ * v3.84: save 모드용 TOP 3 선별 — 점수 내림차순 단순 정렬
+ * 스윗스팟 구간 우선순위 및 tier1 시총 우선 제거 (selectAlertTop3과 동일 로직)
  */
 function selectSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.63: 기본 필터 (시총 제외)
   const baseEligible = stocks.filter(s => {
     const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
     const flow = s.institutionalFlow;
@@ -582,53 +553,27 @@ function selectSaveTop3(stocks) {
     const isOverheated = s.recommendation?.grade === '과열';
     const disparity = s.overheatingV2?.disparity || 100;
     const changeRate = Math.abs(s.changeRate || 0);
-    return hasSupply && !isOverheated && changeRate < 25 && disparity < 150;
+    return hasSupply && !isOverheated && changeRate < 25 && disparity < 150 && (s.totalScore || 0) >= 45;
   });
-  const top3 = [];
 
-  const addFromPool = (pool) => {
-    const addFromRange = (lo, hi) => {
-      const candidates = pool
-        .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
-        .sort((a, b) => {
-          // v3.76: 수급 1차 정렬 (외인2d+ 최강, 점수는 2차)
-          const supplyRank = (s) => {
-            const inst = s.institutionalFlow?.institutionDays || 0;
-            const frgn = s.institutionalFlow?.foreignDays || 0;
-            if (frgn >= 2 && inst < 2) return 5;
-            if (inst >= 2 && frgn >= 2) return 4;
-            if (inst >= 2) return 3;
-            if (frgn >= 1) return 2;
-            return 1;
-          };
-          const supplyDiff = supplyRank(b) - supplyRank(a);
-          if (supplyDiff !== 0) return supplyDiff;
-          // v3.82: 업종 주도도 2차 (주도 업종 우선)
-          const aLeading = getSectorLeadingScore(a.sectorName) > 0.5 ? 1 : 0;
-          const bLeading = getSectorLeadingScore(b.sectorName) > 0.5 ? 1 : 0;
-          if (bLeading !== aLeading) return bLeading - aLeading;
-          return b.totalScore - a.totalScore;
-        });
-      for (const s of candidates) {
-        if (top3.length >= 3) break;
-        top3.push(s);
-      }
+  return [...baseEligible].sort((a, b) => {
+    const scoreDiff = (b.totalScore || 0) - (a.totalScore || 0);
+    if (scoreDiff !== 0) return scoreDiff;
+    const supplyRank = (s) => {
+      const inst = s.institutionalFlow?.institutionDays || 0;
+      const frgn = s.institutionalFlow?.foreignDays || 0;
+      if (frgn >= 2 && inst < 2) return 5;
+      if (inst >= 2 && frgn >= 2) return 4;
+      if (inst >= 2) return 3;
+      if (frgn >= 1) return 2;
+      return 1;
     };
-    addFromRange(50, 59);   // 1순위: 스윗스팟
-    addFromRange(60, 69);   // 2순위
-    addFromRange(80, 89);   // 3순위
-    addFromRange(90, 100);  // 4순위
-    addFromRange(70, 79);   // 5순위: 최후 보충
-    addFromRange(45, 49);   // 6순위: v3.81 B등급 하단 최후 보충
-  };
-
-  // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
-  const mcCap = s => (s.marketCap || 0) / 100000000;
-  const tier1 = baseEligible.filter(s => mcCap(s) <= 10000);
-  addFromPool(tier1);
-  if (top3.length < 3) addFromPool(baseEligible);
-
-  return top3;
+    const supplyDiff = supplyRank(b) - supplyRank(a);
+    if (supplyDiff !== 0) return supplyDiff;
+    const aLeading = getSectorLeadingScore(a.sectorName) > 0.5 ? 1 : 0;
+    const bLeading = getSectorLeadingScore(b.sectorName) > 0.5 ? 1 : 0;
+    return bLeading - aLeading;
+  }).slice(0, 3);
 }
 
 /**
@@ -781,7 +726,9 @@ function getTop3FromDb(stocks, field = 'is_top3') {
   const dbTop3 = (stocks || [])
     .filter(s => s[field])
     .sort((a, b) => {
-      // v3.79: 수급 1차 → 점수 2차 정렬 (selectSaveTop3/selectAlertTop3과 동일)
+      // v3.83: 점수 1차 → 수급 2차 (selectSaveTop3/selectAlertTop3과 동일, 수급1차 롤백)
+      const scoreDiff = (b.total_score || 0) - (a.total_score || 0);
+      if (scoreDiff !== 0) return scoreDiff;
       const supplyRank = (s) => {
         const inst = s.institution_buy_days || 0;
         const frgn = s.foreign_buy_days || 0;
@@ -791,9 +738,7 @@ function getTop3FromDb(stocks, field = 'is_top3') {
         if (frgn >= 1) return 2;
         return 1;
       };
-      const supplyDiff = supplyRank(b) - supplyRank(a);
-      if (supplyDiff !== 0) return supplyDiff;
-      return (b.total_score || 0) - (a.total_score || 0);
+      return supplyRank(b) - supplyRank(a);
     });
   if (dbTop3.length > 0) return dbTop3.slice(0, 3);
   // fallback: is_top3 미저장 시 기존 로직

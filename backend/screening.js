@@ -2067,13 +2067,10 @@ class StockScreener {
   /**
    * TOP 3 추천 종목 선정 (v3.38 스윗스팟 우선순위)
    *
-   * 텔레그램 selectSaveTop3와 동일한 전략:
-   * - 필수: 매수고래 + 비과열 + 이격도<150 + 등락률<25%
-   * - 1순위: 50-59점 (스윗스팟, 90일 +31%/+10%도달 61%)
-   * - 2순위: 60-69점 (90일 +21%/+10%도달 59%)
-   * - 3순위: 80-89점
-   * - 4순위: 90-100점
-   * - 5순위: 70-79점 (최후 보충)
+   * v3.84: 점수 내림차순 단순 정렬 — 스윗스팟 구간 우선순위 및 tier1 시총 우선 제거.
+   *   근거: POST(2026-03-26~) 15일 백테스트에서 구간 우선순위 제거 시 금메달 승률 36→57%,
+   *         합산 성과 -1.35% → +2.68%, -5% 손실률 48→29%로 개선.
+   * 필수 필터: 매수고래/기관≥3일/외인≥3일 + 비과열 + |등락률|<25 + 이격도<150 + 점수≥45
    *
    * @param {Array} allStocks - 전체 종목 배열
    * @returns {Array} - TOP 3 종목 (최대 3개)
@@ -2082,7 +2079,6 @@ class StockScreener {
     console.log(`\n🔍 TOP 3 선정 시작...`);
     console.log(`  전체 종목: ${allStocks.length}개`);
 
-    // v3.63: 기본 필터 (시총 제외)
     const baseEligible = allStocks.filter(stock => {
       const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
       const flow = stock.institutionalFlow;
@@ -2092,49 +2088,25 @@ class StockScreener {
       const isOverheated = stock.recommendation?.grade === '과열';
       const disparity = stock.overheatingV2?.disparity || 100;
       const changeRate = Math.abs(stock.changeRate || 0);
-      return hasSupply && !isOverheated && changeRate < 25 && disparity < 150;
+      return hasSupply && !isOverheated && changeRate < 25 && disparity < 150 && (stock.totalScore || 0) >= 45;
     });
 
-    const top3 = [];
+    console.log(`  └─ TOP 3 후보: ${baseEligible.length}개`);
 
-    const addFromPool = (pool) => {
-      const addFromRange = (lo, hi) => {
-        const candidates = pool
-          .filter(s => s.totalScore >= lo && s.totalScore <= hi && !top3.some(t => t.stockCode === s.stockCode))
-          .sort((a, b) => {
-            // v3.76: 수급 1차 정렬 (외인2d+ +40.6%/72% > 쌍방 > 기관 > 고래만)
-            const supplyRank = (s) => {
-              const inst = s.institutionalFlow?.institutionDays || 0;
-              const frgn = s.institutionalFlow?.foreignDays || 0;
-              if (frgn >= 2 && inst < 2) return 5;  // 외인만: 최강 (+40.6%, 72%)
-              if (inst >= 2 && frgn >= 2) return 4;  // 쌍방
-              if (inst >= 2) return 3;                // 기관만
-              if (frgn >= 1) return 2;                // 외인 1일
-              return 1;                               // 고래만
-            };
-            const supplyDiff = supplyRank(b) - supplyRank(a);
-            if (supplyDiff !== 0) return supplyDiff;
-            return b.totalScore - a.totalScore;
-          });
-        for (const s of candidates) {
-          if (top3.length >= 3) break;
-          top3.push(s);
-        }
+    const top3 = [...baseEligible].sort((a, b) => {
+      const scoreDiff = (b.totalScore || 0) - (a.totalScore || 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      const supplyRank = (s) => {
+        const inst = s.institutionalFlow?.institutionDays || 0;
+        const frgn = s.institutionalFlow?.foreignDays || 0;
+        if (frgn >= 2 && inst < 2) return 5;
+        if (inst >= 2 && frgn >= 2) return 4;
+        if (inst >= 2) return 3;
+        if (frgn >= 1) return 2;
+        return 1;
       };
-      addFromRange(50, 59);   // 1순위: 스윗스팟 (90일 +31%, +10%도달 61%)
-      addFromRange(60, 69);   // 2순위 (90일 +21%, +10%도달 59%)
-      addFromRange(80, 89);   // 3순위
-      addFromRange(90, 100);  // 4순위
-      addFromRange(70, 79);   // 5순위: 최후 보충
-    };
-
-    // v3.63: 시총 단계적 확대 — 1조 이하 우선, 부족하면 전체
-    const mcCap = s => (s.marketCap || 0) / 100000000; // 억 단위
-    const tier1 = baseEligible.filter(s => mcCap(s) <= 10000); // ≤1조
-    console.log(`  └─ TOP 3 후보: 1조이하 ${tier1.length}개 / 전체 ${baseEligible.length}개`);
-
-    addFromPool(tier1);
-    if (top3.length < 3) addFromPool(baseEligible); // 시총 무제한 fallback
+      return supplyRank(b) - supplyRank(a);
+    }).slice(0, 3);
 
     // top3Meta 추가
     const result = top3.map((stock, i) => {
