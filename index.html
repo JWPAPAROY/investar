@@ -1090,7 +1090,7 @@
                               </div>
                               <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                                 <p className="text-sm text-gray-700">
-                                  <strong className="text-orange-700">💡 선정 기준:</strong> (매수고래 or 기관≥3일 or 외국인≥3일) + 비과열 + 이격도{'<'}150 + |등락률|{'<'}25% + 시총≤1조 우선. 1순위: 50-69점(스윗스팟), 2순위: 80-89점, 3순위: 90점+, 4순위: 70-79점.
+                                  <strong className="text-orange-700">💡 선정 기준:</strong> (매수고래 or 기관≥3일 or 외국인≥3일) + 비과열 + 총점≥45 + 이격도{'<'}150 + |등락률|{'<'}25%. 점수 내림차순 정렬 (동점 시 수급 우선).
                                 </p>
                               </div>
                             </>
@@ -1105,7 +1105,6 @@
                       )}
 
                       {/* v3.82: 횡보장 TOP 3 제거 (2단계 레짐 전환) */}
-                      )}
 
                       {/* 방어 TOP 3 */}
                       {showDefense && (
@@ -1162,7 +1161,7 @@
                               </div>
                               <div className="mt-4 bg-white border border-blue-300 rounded-lg p-3">
                                 <p className="text-sm text-gray-700">
-                                  <strong className="text-blue-700">💡 선정 기준:</strong> 기관/외국인 3일+ 연속 매수 + 과매도 반등 신호. 1순위: 쌍방수급+55-84점, 2순위: 55점+, 3순위: 40점+.
+                                  <strong className="text-blue-700">💡 선정 기준:</strong> 비폭락 + 시총≥1000억. 방어점수 내림차순 (Recovery + Supply보너스 + Stability + Safety). 시총≤1조 우선 선별 후 미달 시 무제한 확대.
                                 </p>
                               </div>
                             </>

@@ -377,16 +377,40 @@ async function sendTelegramMessage(message) {
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  const baseEligible = stocks.filter(s => {
+  // v3.85: 공통 자격 (80-89 + 이격도 ≥120 결합 패널티)
+  const isCommonEligible = (s) => {
     const hasSupply = s.whale_detected || (s.institution_buy_days || 0) >= 3 || (s.foreign_buy_days || 0) >= 3;
+    const score = s.total_score || 0;
+    const disparity = s.disparity || 100;
+    const isS89Trap = score >= 80 && score <= 89 && disparity >= 120;
     return hasSupply &&
       s.recommendation_grade !== '과열' &&
       Math.abs(s.change_rate || 0) < 25 &&
-      (s.disparity || 100) < 150 &&
-      (s.total_score || 0) >= 45;
-  });
+      score >= 45 &&
+      !isS89Trap;
+  };
 
+  // v3.85: 이격도 단계적 컷 (130 → 140 → 150)
+  const tiers = [130, 140, 150];
+  let baseEligible = [];
+  for (const tier of tiers) {
+    const filtered = stocks.filter(s => isCommonEligible(s) && (s.disparity || 100) < tier);
+    if (filtered.length >= 3) { baseEligible = filtered; break; }
+    baseEligible = filtered;
+  }
+
+  // v3.85: V2 정렬 — 50-69 고래단독 1순위 → 점수 → 수급 tiebreak
+  const isV2Priority = (s) => {
+    const score = s.total_score || 0;
+    const inRange = score >= 50 && score <= 69;
+    const inst = s.institution_buy_days || 0;
+    const frgn = s.foreign_buy_days || 0;
+    const isSolo = s.whale_detected && inst < 2 && frgn < 2;
+    return inRange && isSolo ? 1 : 0;
+  };
   return [...baseEligible].sort((a, b) => {
+    const v2Diff = isV2Priority(b) - isV2Priority(a);
+    if (v2Diff !== 0) return v2Diff;
     const scoreDiff = (b.total_score || 0) - (a.total_score || 0);
     if (scoreDiff !== 0) return scoreDiff;
     const supplyRank = (s) => {
@@ -398,11 +422,7 @@ function selectAlertTop3(stocks) {
       if (frgn >= 1) return 2;
       return 1;
     };
-    const supplyDiff = supplyRank(b) - supplyRank(a);
-    if (supplyDiff !== 0) return supplyDiff;
-    const aLeading = getSectorLeadingScore(a.sector_name) > 0.5 ? 1 : 0;
-    const bLeading = getSectorLeadingScore(b.sector_name) > 0.5 ? 1 : 0;
-    return bLeading - aLeading;
+    return supplyRank(b) - supplyRank(a);
   }).slice(0, 3);
 }
 
@@ -538,25 +558,50 @@ function selectWhaleStocks(stocks, top3) {
 }
 
 /**
- * v3.84: save 모드용 TOP 3 선별 — 점수 내림차순 단순 정렬
- * 스윗스팟 구간 우선순위 및 tier1 시총 우선 제거 (selectAlertTop3과 동일 로직)
+ * v3.85: SAVE 모드 TOP 3 선별 (selectAlertTop3과 동일 로직, camelCase)
+ *  - V2 정렬: 50-69 + 고래단독 1순위 → 점수 내림차순
+ *  - 이격도 단계적 컷 130 → 140 → 150
+ *  - 80-89 + 이격도 ≥120 결합 패널티 (90+은 그대로)
  */
 function selectSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  const baseEligible = stocks.filter(s => {
-    const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+  const dispOf = (s) => s.overheatingV2?.disparity || 100;
+  const hasBuyWhaleOf = (s) => (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+
+  const isCommonEligible = (s) => {
     const flow = s.institutionalFlow;
     const instDays = flow?.institutionDays || 0;
     const foreignDays = flow?.foreignDays || 0;
-    const hasSupply = hasBuyWhale || instDays >= 3 || foreignDays >= 3;
+    const hasSupply = hasBuyWhaleOf(s) || instDays >= 3 || foreignDays >= 3;
     const isOverheated = s.recommendation?.grade === '과열';
-    const disparity = s.overheatingV2?.disparity || 100;
     const changeRate = Math.abs(s.changeRate || 0);
-    return hasSupply && !isOverheated && changeRate < 25 && disparity < 150 && (s.totalScore || 0) >= 45;
-  });
+    const score = s.totalScore || 0;
+    const isS89Trap = score >= 80 && score <= 89 && dispOf(s) >= 120;
+    return hasSupply && !isOverheated && changeRate < 25 && score >= 45 && !isS89Trap;
+  };
 
+  // v3.85: 이격도 단계적 컷
+  const tiers = [130, 140, 150];
+  let baseEligible = [];
+  for (const tier of tiers) {
+    const filtered = stocks.filter(s => isCommonEligible(s) && dispOf(s) < tier);
+    if (filtered.length >= 3) { baseEligible = filtered; break; }
+    baseEligible = filtered;
+  }
+
+  // v3.85: V2 정렬
+  const isV2Priority = (s) => {
+    const score = s.totalScore || 0;
+    const inRange = score >= 50 && score <= 69;
+    const inst = s.institutionalFlow?.institutionDays || 0;
+    const frgn = s.institutionalFlow?.foreignDays || 0;
+    const isSolo = hasBuyWhaleOf(s) && inst < 2 && frgn < 2;
+    return inRange && isSolo ? 1 : 0;
+  };
   return [...baseEligible].sort((a, b) => {
+    const v2Diff = isV2Priority(b) - isV2Priority(a);
+    if (v2Diff !== 0) return v2Diff;
     const scoreDiff = (b.totalScore || 0) - (a.totalScore || 0);
     if (scoreDiff !== 0) return scoreDiff;
     const supplyRank = (s) => {
@@ -568,11 +613,7 @@ function selectSaveTop3(stocks) {
       if (frgn >= 1) return 2;
       return 1;
     };
-    const supplyDiff = supplyRank(b) - supplyRank(a);
-    if (supplyDiff !== 0) return supplyDiff;
-    const aLeading = getSectorLeadingScore(a.sectorName) > 0.5 ? 1 : 0;
-    const bLeading = getSectorLeadingScore(b.sectorName) > 0.5 ? 1 : 0;
-    return bLeading - aLeading;
+    return supplyRank(b) - supplyRank(a);
   }).slice(0, 3);
 }
 
@@ -1045,6 +1086,11 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
     });
   }
 
+  // v3.85: 매매 룰 (백테스트 검증)
+  if (primaryTop3 && primaryTop3.length > 0 && (regime === 'momentum' || !regime)) {
+    msg += `\n💡 <b>매매 룰</b>: D+1 −3% 손절 / +3% 익절 / 미도달 시 D+3 종료 매도 (백테 승률 71%, 손절 21%)\n`;
+  }
+
   return msg;
 }
 
@@ -1138,6 +1184,11 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       }
       message += `\n`;
     });
+
+    // v3.85: 매매 룰 (모멘텀 레짐만)
+    if (regime === 'momentum' || !regime) {
+      message += `💡 <b>매매 룰</b>: D+1 −3% 손절 / +3% 익절 / 미도달 시 D+3 종료 매도 (백테 승률 71%, 손절 21%)\n\n`;
+    }
   }
 
   // ── 과거 추천 성과 ──

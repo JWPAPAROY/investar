@@ -2076,24 +2076,55 @@ class StockScreener {
    * @returns {Array} - TOP 3 종목 (최대 3개)
    */
   selectTop3(allStocks) {
-    console.log(`\n🔍 TOP 3 선정 시작...`);
+    console.log(`\n🔍 TOP 3 선정 시작 (v3.85)...`);
     console.log(`  전체 종목: ${allStocks.length}개`);
 
-    const baseEligible = allStocks.filter(stock => {
+    // v3.85: 공통 자격 — 80-89 + 이격도 ≥120 결합 패널티 (16건 손절률 50% 데이터 기반)
+    const isCommonEligible = (stock) => {
       const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
       const flow = stock.institutionalFlow;
       const instDays = flow?.institutionDays || 0;
       const foreignDays = flow?.foreignDays || 0;
       const hasSupply = hasBuyWhale || instDays >= 3 || foreignDays >= 3;
       const isOverheated = stock.recommendation?.grade === '과열';
-      const disparity = stock.overheatingV2?.disparity || 100;
       const changeRate = Math.abs(stock.changeRate || 0);
-      return hasSupply && !isOverheated && changeRate < 25 && disparity < 150 && (stock.totalScore || 0) >= 45;
-    });
+      const score = stock.totalScore || 0;
+      const disparity = stock.overheatingV2?.disparity || 100;
+      const isS89Trap = score >= 80 && score <= 89 && disparity >= 120;
+      return hasSupply && !isOverheated && changeRate < 25 && score >= 45 && !isS89Trap;
+    };
 
-    console.log(`  └─ TOP 3 후보: ${baseEligible.length}개`);
+    // v3.85: 이격도 단계적 컷 (130 → 140 → 150)
+    const dispOf = (s) => s.overheatingV2?.disparity || 100;
+    const tiers = [130, 140, 150];
+    let baseEligible = [];
+    let usedTier = 150;
+    for (const tier of tiers) {
+      const filtered = allStocks.filter(s => isCommonEligible(s) && dispOf(s) < tier);
+      if (filtered.length >= 3) {
+        baseEligible = filtered;
+        usedTier = tier;
+        break;
+      }
+      baseEligible = filtered;
+      usedTier = tier;
+    }
+    console.log(`  └─ TOP 3 후보: ${baseEligible.length}개 (이격도 < ${usedTier})`);
 
+    // v3.85: V2 정렬 — 50-69점 고래단독 1순위 → 점수 → 수급 tiebreak
+    // 데이터 검증: 발동일(37.5%) +8.32%p 알파, 미발동일은 V0와 동일
+    const isV2Priority = (s) => {
+      const score = s.totalScore || 0;
+      const inRange = score >= 50 && score <= 69;
+      const hasWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
+      const inst = s.institutionalFlow?.institutionDays || 0;
+      const frgn = s.institutionalFlow?.foreignDays || 0;
+      const isSolo = hasWhale && inst < 2 && frgn < 2;
+      return inRange && isSolo ? 1 : 0;
+    };
     const top3 = [...baseEligible].sort((a, b) => {
+      const v2Diff = isV2Priority(b) - isV2Priority(a);
+      if (v2Diff !== 0) return v2Diff;
       const scoreDiff = (b.totalScore || 0) - (a.totalScore || 0);
       if (scoreDiff !== 0) return scoreDiff;
       const supplyRank = (s) => {
