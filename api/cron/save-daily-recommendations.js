@@ -2838,17 +2838,35 @@ module.exports = async (req, res) => {
     let today = new Date().toISOString().slice(0, 10);
     const isBeforeMarketOpen = saveKstHour < 9; // 09:00 KST 이전
 
+    const forceRescreen = req.query.force === 'true' || req.query.force === '1';
     let existingData = null;
-    const { data: todayData } = await supabase
-      .from('screening_recommendations')
-      .select('*')
-      .eq('recommendation_date', today)
-      .eq('is_active', true)
-      .order('total_score', { ascending: false });
+    if (forceRescreen) {
+      console.log('🔄 force=true — 기존 데이터 삭제 후 재스크리닝');
+      const { data: oldRows } = await supabase
+        .from('screening_recommendations')
+        .select('id')
+        .eq('recommendation_date', today);
+      const oldIds = (oldRows || []).map(r => r.id);
+      if (oldIds.length > 0) {
+        await supabase.from('recommendation_daily_prices').delete().in('recommendation_id', oldIds);
+        await supabase.from('screening_recommendations').delete().eq('recommendation_date', today);
+        console.log(`🗑️ 기존 ${oldIds.length}건 삭제 완료`);
+      }
+    }
+    let todayData = null;
+    if (!forceRescreen) {
+      const { data } = await supabase
+        .from('screening_recommendations')
+        .select('*')
+        .eq('recommendation_date', today)
+        .eq('is_active', true)
+        .order('total_score', { ascending: false });
+      todayData = data;
+    }
 
     if (todayData && todayData.length > 0) {
       existingData = todayData;
-    } else if (isBeforeMarketOpen) {
+    } else if (isBeforeMarketOpen && !forceRescreen) {
       // 장 시작 전이고 오늘 데이터가 없으면 전날 데이터 조회
       console.log('🌙 장 시작 전 - 전날 데이터 조회 시도...');
       const { data: prevDateRows } = await supabase
