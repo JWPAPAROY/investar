@@ -140,6 +140,22 @@ module.exports = async function handler(req, res) {
       if (result.defenseTop3) result.defenseTop3.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
     }
 
+    // Phase 2-3: active_policy + 최신 진단 노출 (프론트 카드에 매수/매도 시점 표시용)
+    let activePolicy = null;
+    let latestDiagnostic = null;
+    try {
+      if (supabase) {
+        const [apRes, diagRes] = await Promise.all([
+          supabase.from('active_policy').select('buy_offset_day,sell_offset_day,regime_mode,since_date,set_by').eq('id', 1).single(),
+          supabase.from('weekly_diagnostics')
+            .select('week_start,regime,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,recommendation_differs,consecutive_same_recommendation')
+            .order('week_start', { ascending: false }).limit(1).single(),
+        ]);
+        activePolicy = apRes.data || null;
+        latestDiagnostic = diagRes.data || null;
+      }
+    } catch (e) {}
+
     const response = {
       success: true,
       count: result.stocks.length,
@@ -148,6 +164,8 @@ module.exports = async function handler(req, res) {
       // v3.82: sidewaysTop3 제거 (2단계 레짐 전환)
       defenseTop3: result.defenseTop3 || [],  // v3.34: 방어 TOP 3
       predictionScore: prediction?.score ?? null,  // 업종 뱃지 버킷 결정에 사용된 score
+      activePolicy,                                // Phase 2-3: 현재 매매 정책
+      latestDiagnostic,                            // Phase 2-3: 최신 주간 진단
       metadata: result.metadata,
       timestamp: new Date().toISOString()
     };

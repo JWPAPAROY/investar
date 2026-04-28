@@ -1,5 +1,8 @@
 # Investar - AI 기반 주식 스크리닝 시스템
 
+> **현재 운영 파라미터** (자동 갱신): [OPERATING_STATE.md](./OPERATING_STATE.md)
+> **주간 진단 이력** (auto-append): [WEEKLY_DIAGNOSTICS.md](./WEEKLY_DIAGNOSTICS.md)
+
 ## 프로젝트 개요
 
 **Investar**는 한국투자증권 OpenAPI를 활용한 거래량 기반 주식 종목 발굴 시스템입니다.
@@ -7,8 +10,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.85
-- **최종 업데이트**: 2026-04-27
+- **버전**: 3.86
+- **최종 업데이트**: 2026-04-28
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -836,6 +839,78 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ---
 
+## 🔁 자동 운영 진단 시스템 (v3.86, 2026-04-28)
+
+매주 일요일 22:00 KST(13:00 UTC) `weekly-diagnostic` cron이 4가지 진단을 자동 산출하여 `weekly_diagnostics` 테이블에 누적. **관측·권고만 — 룰/타이밍 자동 변경 없음**. v3.55→v3.85의 churn 재발 방지 위해 모든 변경은 사용자 수동 적용.
+
+### 4가지 주간 진단
+
+1. **시장 레짐**: 강신호 종목(volR≥3 + VPD≥2)의 최근 30일 T+3 평균
+   - `> +1%` → momentum / `-1% ~ +1%` → sideways / `< -1%` → defense
+2. **점수 모델 건강도**: 점수 구간(45-55/55-65/65-75/≥75) × T+3 평균의 Spearman r
+   - `> 0.3` healthy / `-0.3 ~ 0.3` broken / `< -0.3` inverted
+3. **권장 매매 타이밍**: in-sample 8주 (k,n) 매트릭스 스캔. 모든 주에서 + 평균인 (k,n) 중 최저주 알파 최대화 (robust)
+4. **TOP1 알파**: 최근 30일 TOP1 vs TOP3 평균 알파, 현재 timing(D+0,D+3) vs 권장 timing 두 가지
+
+### 진단 진단 (meta-monitor)
+
+매주 진단 시 4주 전 진단이 권장한 (k,n)으로 후속 4주 가상 운영했다면 어땠을지 후향 계산.
+`meta_alpha_vs_baseline` 누적이 양수이면 진단의 예측력 작동 중. 음수 누적 시 진단 자체 의심.
+
+### 운영 정책 (active_policy)
+
+`active_policy` 단일 행 테이블 (default `D+0매수, D+3매도`). 변경 트리거로 `active_policy_history` 자동 기록.
+
+**자동 변경 절대 없음.** 수동 변경 방법 3가지:
+- 텔레그램: `/policy D+1 D+10 [사유]`
+- Supabase 대시보드 직접 update
+- 6주 연속 동일 권고 + 정책과 차이 시 텔레그램 적용 권고 알림 (사용자가 적용 결정)
+
+**6주 임계값은 임의값**임을 명시 (통계적 정당화는 27주 이상 필요하나 운영 현실 고려한 타협). `APPLY_THRESHOLD_WEEKS` 상수 1줄로 조정 가능.
+
+### 텔레그램 메시지
+
+- **일일 ALERT/SAVE 끝 한 줄**: `📊 주간진단(M/D): 🛡 방어 | 권장 D+2매수→D+10매도 | 점수건강 양호 | TOP1알파 +9.8%p ⚠️ 적용중 D+0→D+3 (1주 차이)`
+- **일요일 풀 진단** (cron 직후): 6개 섹션 (시장 레짐 / 권장 매매 타이밍 / 점수 모델 건강도 / TOP1 알파 / 진단 신뢰도 / 운영 정책 비교 / 검토 권고)
+
+### 텔레그램 명령어 추가
+- `/진단` — 주간 진단 즉시 실행 (재실행 시 같은 주는 upsert)
+- `/policy show` — 현재 매매 정책 + 최신 진단 비교 조회
+- `/policy D+1 D+10 [사유]` — 정책 수동 변경 (또는 `/policy 1 10 사유`)
+
+### 자동 생성 파일 (Vercel runtime에서는 skip)
+- `OPERATING_STATE.md` (덮어쓰기): 현재 운영 파라미터 단일 페이지
+- `WEEKLY_DIAGNOSTICS.md` (append): 주간 진단 시계열 이력
+
+### 프론트엔드 추가
+
+- **추천 카드**: 매수 D+N(MM/DD) 종가 / 매도 D+N(MM/DD) 종가 표시 (active_policy 기준, 평일 N일 후)
+- **TOP3 헤더**: 현재 매매 정책 박스 + 진단 권장과 차이 시 노란 경고
+- **신규 탭 "📊 운영 진단"**:
+  - 현재 정책 카드
+  - 차이 알림 (진단 권장 ≠ active_policy)
+  - 주간 진단 이력 테이블 (12주, regime/강신호/권장 timing/점수건강/TOP1알파/meta알파/정책일치)
+  - 정책 변경 이력 테이블 (active_policy_history)
+- **성과 검증 탭 토글**: TOP3 카드에 진입 시점 토글 `D+0 / D+1 / 정책 D+N` — 통계 카드(승률/평균수익/최대수익) 즉시 재계산. `daily_prices.cumulative_return` 기반 클라이언트 환산.
+
+### 데이터베이스 추가
+
+- `weekly_diagnostics`: 주간 진단 누적 (47개 컬럼 — 4 진단 + active 비교 4 + meta 7 + warnings 등)
+- `active_policy`: 단일 행 매매 정책 (수동 update only)
+- `active_policy_history`: 정책 변경 이력 (trigger 자동 기록)
+
+SQL 파일: `supabase-weekly-diagnostics.sql`, `supabase-active-policy.sql`, `supabase-policy-diff.sql`, `supabase-meta-monitor.sql`
+
+### Cron 스케줄
+
+| 시각 (KST) | 모드 | 비고 |
+|----------|------|------|
+| 일 22:00 | `weekly-diagnostic` | Phase 1 진단 INSERT + 풀 메시지 발송 |
+
+(기존 cron 10개는 변경 없음. 12함수 한도 회피 위해 `save-daily-recommendations.js`에 mode 통합.)
+
+---
+
 ## 🔮 To-Do 검토 리스트
 
 데이터 축적 후 검증이 필요한 개선 후보. 섣불리 적용하지 말고 데이터 기반으로 판단할 것.
@@ -868,6 +943,14 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 ---
 
 ## 📝 변경 이력
+
+### v3.86 (2026-04-28)
+- **자동 운영 진단 시스템 도입 (Phase 1+2+3)**: 매주 일요일 22:00 KST `weekly-diagnostic` cron이 4가지 진단(시장 레짐/점수 모델 건강도/권장 매매 타이밍/TOP1 알파)을 자동 산출. 진단의 신뢰도를 검증하는 meta-monitor(4주 전 권장의 후향 백테스트) 포함.
+- **active_policy 테이블 (수동 변경 only)**: 매매 정책(D+k 매수, D+n 매도)은 사용자만 변경 가능. 자동 변경 절대 없음 — v3.55→v3.85의 매주 룰 변경 churn 재발 방지. 6주 연속 동일 권고 시 적용 권고 알림(임계값 임의값).
+- **텔레그램**: 일일 메시지 끝에 진단 한 줄 / 일요일에 풀 진단 6개 섹션 / `/진단`, `/policy show`, `/policy D+k D+n [사유]` 명령 추가.
+- **프론트엔드**: 추천 카드에 매수/매도 D+N 날짜 표시 / "📊 운영 진단" 탭 신규(시계열 12주 + 정책 이력) / 성과 검증 탭에 진입 시점 토글(D+0/D+1/active).
+- **자동 생성 문서**: `OPERATING_STATE.md`(덮어쓰기), `WEEKLY_DIAGNOSTICS.md`(append). CLAUDE.md(설계 문서)와 분리.
+- **설계 원칙 (재확인)**: 관측은 자주, 변경은 드물게. 표본 부족 + 단일 백테스트 결과로 룰을 매주 바꾸는 패턴(v3.55-v3.85)이 4월 TOP1 알파 붕괴(-3.59%p)의 한 원인이었음을 분석으로 확인. 진단은 매주, 정책 변경은 사용자 수동.
 
 ### v3.84 (2026-04-16)
 - **TOP3 선별 단순화 — 점수 내림차순 단일 정렬**: v3.63 tier1(시총 1조 이하 우선) + v3.76 수급 1차 + 스윗스팟 구간 우선순위(50-59 → 60-69 → 80-89 → 90+ → 70-79 → 45-49) 전부 제거. 필터(수급 + 비과열 + |등락률|<25 + 이격도<150 + 점수≥45) 통과 풀에서 점수 내림차순 → 수급 tiebreak → 업종 주도도 tiebreak 후 `slice(0, 3)`만 수행.

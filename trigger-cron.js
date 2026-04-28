@@ -1,1 +1,0 @@
-﻿require('dotenv').config(); const handler = require('./api/cron/save-daily-recommendations.js'); handler({query: {mode: 'save'}, url: '/api/cron/save-daily-recommendations'}, {status: (s) => ({json: (d) => console.log('Result:', s, d)})}).catch(console.error);

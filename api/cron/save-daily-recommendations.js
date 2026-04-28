@@ -170,6 +170,278 @@ function formatPredictionLine(prediction) {
 }
 
 /**
+ * Phase 1: 주간 진단 한 줄 포맷
+ * 최신 weekly_diagnostics row를 받아 텔레그램용 텍스트 반환.
+ * row 없으면 빈 문자열 (메시지에 영향 없음).
+ */
+function formatDiagnosticLine(diag) {
+  if (!diag) return '';
+  const regimeMap = {
+    momentum: '🔴 모멘텀',
+    sideways: '⚪ 횡보',
+    defense:  '🛡 방어',
+    unknown:  '❓ 미상',
+  };
+  const healthMap = {
+    healthy:  '양호',
+    broken:   '⚠️ 깨짐',
+    inverted: '⛔ 역전',
+    unknown:  '?',
+  };
+  const buy = diag.optimal_buy_d;
+  const sell = diag.optimal_sell_d;
+  const timingStr = (buy != null && sell != null) ? `D+${buy}매수→D+${sell}매도` : 'N/A';
+  const alpha = diag.top1_alpha_optimal_timing;
+  const alphaStr = (alpha != null) ? `${alpha >= 0 ? '+' : ''}${alpha.toFixed(1)}%p` : 'N/A';
+  const wkShort = diag.week_start ? diag.week_start.slice(5).replace('-', '/') : '';
+  const warn = (diag.warnings && diag.warnings.length) ? ' ⚠️' : '';
+
+  // active_policy와 일치 여부 표시
+  let policyTag = '';
+  if (diag.active_buy_offset_day != null && diag.optimal_buy_d != null) {
+    if (diag.recommendation_differs) {
+      const consec = diag.consecutive_same_recommendation || 0;
+      policyTag = ` ⚠️ 적용중 D+${diag.active_buy_offset_day}→D+${diag.active_sell_offset_day} (${consec}주 차이)`;
+    } else {
+      policyTag = ` ✅ 적용일치`;
+    }
+  }
+
+  let line = `📊 <b>주간진단</b>(${wkShort}): ${regimeMap[diag.regime] || diag.regime} | 권장 ${timingStr} | 점수건강 ${healthMap[diag.score_health_label] || '?'} | TOP1알파 ${alphaStr}${warn}${policyTag}\n`;
+  return line;
+}
+
+/**
+ * Phase 1: 일요일 주간 진단 풀 블록 메시지
+ * cron 모드 weekly-diagnostic 내에서 호출. 직전 주 row와 비교하여 변화 표시.
+ */
+function formatWeeklyDiagnosticMessage(row, prev) {
+  const regimeMap = {
+    momentum: '🔴 모멘텀',
+    sideways: '⚪ 횡보',
+    defense:  '🛡 방어',
+    unknown:  '❓ 미상',
+  };
+  const healthMap = {
+    healthy:  '✅ 양호',
+    broken:   '⚠️ 깨짐',
+    inverted: '⛔ 역전',
+    unknown:  '❓ 미상',
+  };
+
+  const wkShort = row.week_start ? row.week_start.slice(5).replace('-', '/') : '';
+  const sigT3 = row.strong_signal_t3_avg;
+  const sigSign = (v) => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+  const pSign = (v) => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%p`;
+
+  const regimeChanged = prev && prev.regime !== row.regime;
+  const timingChanged = prev && (prev.optimal_buy_d !== row.optimal_buy_d || prev.optimal_sell_d !== row.optimal_sell_d);
+  const healthChanged = prev && prev.score_health_label !== row.score_health_label;
+
+  let msg = `📊 <b>주간 진단</b> (${wkShort} 기준)\n`;
+  msg += `━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  // 1. 시장 레짐
+  msg += `<b>1. 시장 레짐</b>: ${regimeMap[row.regime] || row.regime}`;
+  if (regimeChanged) msg += `  ← (전주 ${regimeMap[prev.regime] || prev.regime})`;
+  msg += `\n`;
+  msg += `   강신호 종목 T+3 평균: ${sigSign(sigT3)} (n=${row.strong_signal_n || 0})\n\n`;
+
+  // 2. 권장 매매 타이밍
+  msg += `<b>2. 권장 매매 타이밍</b>`;
+  if (timingChanged) msg += `  ← (전주 D+${prev.optimal_buy_d}→D+${prev.optimal_sell_d})`;
+  msg += `\n`;
+  if (row.optimal_buy_d != null && row.optimal_sell_d != null) {
+    msg += `   매수 D+${row.optimal_buy_d} 종가 → 매도 D+${row.optimal_sell_d} 종가\n`;
+    msg += `   in-sample 평균: ${sigSign(row.optimal_avg_return)} / 최저주: ${sigSign(row.optimal_min_return)}\n`;
+    msg += `   in-sample ${row.in_sample_weeks}주 / 표본 ${row.optimal_sample_n}건\n`;
+  } else {
+    msg += `   ⚠️ 권장 조합 없음 (모든 주 양수 (k,n) 미발견)\n`;
+  }
+  msg += `\n`;
+
+  // 3. 점수 모델 건강도
+  msg += `<b>3. 점수 모델 건강도</b>: ${healthMap[row.score_health_label] || row.score_health_label}`;
+  if (healthChanged) msg += `  ← (전주 ${healthMap[prev.score_health_label] || prev.score_health_label})`;
+  msg += `\n`;
+  if (row.score_health_corr != null) {
+    msg += `   점수↔수익 Spearman r = ${row.score_health_corr.toFixed(2)}`;
+    if (row.score_health_label === 'inverted') msg += `  ⛔ 점수 높을수록 수익 낮음`;
+    else if (row.score_health_label === 'broken') msg += `  ⚠️ 단조성 깨짐`;
+    msg += `\n`;
+  }
+  msg += `\n`;
+
+  // 4. TOP1 알파
+  msg += `<b>4. TOP1 알파</b> (TOP1 - TOP3 평균)\n`;
+  msg += `   현재 정책 (D+0매수): ${pSign(row.top1_alpha_current_timing)}\n`;
+  msg += `   권장 정책 (D+${row.optimal_buy_d}매수→D+${row.optimal_sell_d}매도): ${pSign(row.top1_alpha_optimal_timing)}\n`;
+  if (row.top1_alpha_current_timing != null && row.top1_alpha_optimal_timing != null) {
+    const gap = row.top1_alpha_optimal_timing - row.top1_alpha_current_timing;
+    if (Math.abs(gap) >= 1) {
+      msg += `   → 권장 적용 시 ${gap >= 0 ? '+' : ''}${gap.toFixed(1)}%p 개선\n`;
+    }
+  }
+  msg += `\n`;
+
+  // 5. 경고
+  if (row.warnings && row.warnings.length) {
+    msg += `<b>⚠️ 경고</b>\n`;
+    for (const w of row.warnings) msg += `   • ${w}\n`;
+    msg += `\n`;
+  }
+
+  // Phase 3: meta-monitor — N주 전 권장의 후향 검증
+  if (row.meta_past_buy_d != null) {
+    msg += `<b>5. 진단 신뢰도 (meta-monitor)</b>\n`;
+    msg += `   ${row.meta_lookback_weeks}주 전 권장(D+${row.meta_past_buy_d}→D+${row.meta_past_sell_d})으로 후속 ${row.meta_lookback_weeks}주 가상운영 시:\n`;
+    if (row.meta_backtest_avg_return != null) {
+      const avgSign = row.meta_backtest_avg_return >= 0 ? '+' : '';
+      msg += `   • 평균: ${avgSign}${row.meta_backtest_avg_return.toFixed(2)}%`;
+      if (row.meta_backtest_win_rate != null) msg += ` / 승률 ${row.meta_backtest_win_rate.toFixed(0)}%`;
+      msg += ` (n=${row.meta_backtest_sample_n})\n`;
+    }
+    if (row.meta_alpha_vs_baseline != null) {
+      const aSign = row.meta_alpha_vs_baseline >= 0 ? '+' : '';
+      const judgement = row.meta_alpha_vs_baseline >= 1 ? ' ✅ 진단 효과 확인'
+        : row.meta_alpha_vs_baseline >= 0 ? ' ⚪ baseline 동등'
+        : ' ⚠️ baseline 미달';
+      msg += `   • baseline(D+0,D+3) 대비 알파: ${aSign}${row.meta_alpha_vs_baseline.toFixed(2)}%p${judgement}\n`;
+    }
+    msg += `\n`;
+  }
+
+  // Phase 2: active_policy 비교
+  const consecCount = row.consecutive_same_recommendation || 0;
+  const APPLY_THRESHOLD_WEEKS = 6; // 6주 연속 동일 권고 시 적용 권고 (이전 v3.55-v3.85의 1-3주 변경보다 보수적)
+
+  if (row.active_buy_offset_day != null && row.optimal_buy_d != null) {
+    msg += `<b>6. 운영 정책 비교</b>\n`;
+    msg += `   현재 적용: D+${row.active_buy_offset_day}매수 → D+${row.active_sell_offset_day}매도\n`;
+    msg += `   진단 권장: D+${row.optimal_buy_d}매수 → D+${row.optimal_sell_d}매도\n`;
+    if (row.recommendation_differs) {
+      msg += `   ⚠️ 차이 있음 (${consecCount}주 연속 동일 권고)\n`;
+    } else {
+      msg += `   ✅ 일치\n`;
+    }
+    msg += `\n`;
+  }
+
+  // 검토 권고
+  const reviewFlags = [];
+  if (row.score_health_label === 'inverted') reviewFlags.push('점수 모델 역전 — 룰 재검토 필요');
+  if (row.score_health_label === 'broken') reviewFlags.push('점수 모델 단조성 깨짐 — 가중치 재검토 권고');
+  if (timingChanged) reviewFlags.push(`권장 timing 변경됨 — 누적 추이 관찰`);
+  if (regimeChanged) reviewFlags.push(`레짐 전환 (${prev.regime} → ${row.regime}) — 전략 모드 확인`);
+  if (row.recommendation_differs && consecCount >= APPLY_THRESHOLD_WEEKS) {
+    reviewFlags.push(`🔔 <b>수동 적용 권고</b>: D+${row.optimal_buy_d}매수 D+${row.optimal_sell_d}매도가 ${consecCount}주 연속 권장. /policy ${row.optimal_buy_d} ${row.optimal_sell_d} 명령 또는 Supabase active_policy 직접 수정`);
+  }
+
+  if (reviewFlags.length) {
+    msg += `<b>🔍 검토 권고</b>\n`;
+    for (const f of reviewFlags) msg += `   • ${f}\n`;
+    msg += `\n`;
+  } else {
+    msg += `🟢 검토 권고 없음\n\n`;
+  }
+
+  msg += `<i>Phase 2 (관측 + 권고). 룰/타이밍 자동 변경 없음 — 수동 적용.</i>`;
+  return msg;
+}
+
+/**
+ * Phase 2-6: /policy webhook 명령 처리
+ *  - /policy show         → 현재 정책 출력
+ *  - /policy D+k D+n [사유] → 정책 변경
+ *  - /policy k n [사유]    → 위와 동일 (D+ 생략)
+ */
+async function handlePolicyCommand(args) {
+  if (!supabase) return '❌ Supabase 연결 없음';
+
+  // show: 현재 정책 + 최신 진단 비교
+  if (!args.length || args[0] === 'show' || args[0] === '조회') {
+    try {
+      const { data: ap } = await supabase.from('active_policy').select('*').eq('id', 1).single();
+      const diag = await getLatestDiagnostic();
+      let msg = `🎯 <b>현재 매매 정책</b>\n\n`;
+      if (!ap) return msg + '⚠️ active_policy 테이블 비어있음';
+      msg += `매수: D+${ap.buy_offset_day} 종가\n`;
+      msg += `매도: D+${ap.sell_offset_day} 종가\n`;
+      msg += `시작일: ${ap.since_date} (${ap.set_by})\n`;
+      if (ap.change_reason) msg += `사유: ${ap.change_reason}\n`;
+      msg += `\n`;
+      if (diag) {
+        msg += `📊 최신 진단(${diag.week_start}) 권장:\n`;
+        msg += `  D+${diag.optimal_buy_d}매수 → D+${diag.optimal_sell_d}매도 `;
+        if (diag.recommendation_differs) msg += `⚠️ (${diag.consecutive_same_recommendation || 0}주 연속, 정책과 차이)`;
+        else msg += `✅ (정책과 일치)`;
+      }
+      msg += `\n\n변경: <code>/policy D+1 D+10 사유</code>`;
+      return msg;
+    } catch (e) {
+      return `❌ 정책 조회 실패: ${e.message}`;
+    }
+  }
+
+  // 변경: /policy D+k D+n [사유] 또는 /policy k n [사유]
+  const parseDay = (s) => {
+    const m = String(s).match(/^D?\+?(\d+)$/i);
+    return m ? parseInt(m[1]) : NaN;
+  };
+  const buyD = parseDay(args[0]);
+  const sellD = parseDay(args[1]);
+  if (isNaN(buyD) || isNaN(sellD)) {
+    return `❌ 형식 오류\n사용법: <code>/policy D+1 D+10 [사유]</code>\n또는: <code>/policy show</code>`;
+  }
+  if (buyD < 0 || buyD > 5) return `❌ buy_offset_day는 0~5 사이만 허용`;
+  if (sellD <= buyD || sellD > 30) return `❌ sell_offset_day는 buy보다 크고 30 이하`;
+  const reason = args.slice(2).join(' ').trim() || null;
+
+  try {
+    const { data: ap } = await supabase.from('active_policy').select('*').eq('id', 1).single();
+    const prevBuy = ap?.buy_offset_day, prevSell = ap?.sell_offset_day;
+
+    const { error } = await supabase.from('active_policy')
+      .update({
+        buy_offset_day: buyD,
+        sell_offset_day: sellD,
+        set_by: 'webhook',
+        change_reason: reason,
+      })
+      .eq('id', 1);
+    if (error) return `❌ 변경 실패: ${error.message}`;
+
+    let msg = `✅ <b>매매 정책 변경 완료</b>\n\n`;
+    msg += `이전: D+${prevBuy ?? '?'}매수 → D+${prevSell ?? '?'}매도\n`;
+    msg += `변경: <b>D+${buyD}매수 → D+${sellD}매도</b>\n`;
+    if (reason) msg += `사유: ${reason}\n`;
+    msg += `\n시작일: 오늘부터 적용. 그림자 추적 권장.`;
+    return msg;
+  } catch (e) {
+    return `❌ 변경 실패: ${e.message}`;
+  }
+}
+
+/**
+ * 최신 주간 진단 row 조회 (없으면 null)
+ */
+async function getLatestDiagnostic() {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from('weekly_diagnostics')
+      .select('week_start,regime,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_current_timing,top1_alpha_optimal_timing,warnings,strong_signal_t3_avg,optimal_avg_return,optimal_min_return')
+      .order('week_start', { ascending: false })
+      .limit(1);
+    if (error || !data || !data.length) return null;
+    return data[0];
+  } catch (e) {
+    console.warn('[diagnostic] fetch failed:', e.message);
+    return null;
+  }
+}
+
+/**
  * v3.32: 시장 태그 포맷 (종목명 옆에 표시)
  * @param {string} market - 'KOSPI' 또는 'KOSDAQ'
  * @returns {string} - '[코스피]' 또는 '[코스닥]' 또는 ''
@@ -946,7 +1218,7 @@ function formatDefenseTop3Section(defenseTop3, mode = 'save', expectations = [])
  * v3.27: SAVE 메시지 (오후 15:35)
  * 🌆 오늘의 결산 (오전 추천 성과 + 내일 TOP 3)
  */
-function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = [], expectations = [], prediction = null) {
+function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = [], expectations = [], prediction = null, diagnostic = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n`;
@@ -1091,6 +1363,10 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
     msg += `\n💡 <b>매매 룰</b>: D+1 −3% 손절 / +3% 익절 / 미도달 시 D+3 종료 매도 (백테 승률 71%, 손절 21%)\n`;
   }
 
+  // Phase 1: 주간 진단 한 줄 (있을 때만)
+  const diagLine = formatDiagnosticLine(diagnostic);
+  if (diagLine) msg += `\n${diagLine}`;
+
   return msg;
 }
 
@@ -1098,7 +1374,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
  * v3.27: ALERT 메시지 (아침 08:30)
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
-function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = [], prediction = null, regime = 'momentum') {
+function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = [], prediction = null, regime = 'momentum', diagnostic = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
@@ -1243,6 +1519,10 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       message += `${i + 1}. ${name} (${code}) ${scoreStr}점\n`;
     });
   }
+
+  // Phase 1: 주간 진단 한 줄 (있을 때만)
+  const diagLine = formatDiagnosticLine(diagnostic);
+  if (diagLine) message += `\n${diagLine}`;
 
   return message;
 }
@@ -1509,12 +1789,25 @@ module.exports = async (req, res) => {
     } else if (text.startsWith('/결산') || text.startsWith('/save')) {
       mode = 'save';
       await sendTelegramMessage('📤 /결산 명령어 접수! 처리 중...');
+    } else if (text.startsWith('/진단') || text.startsWith('/diagnostic')) {
+      mode = 'weekly-diagnostic';
+      await sendTelegramMessage('📤 /진단 명령어 접수! 처리 중...');
+    } else if (text.startsWith('/policy') || text.startsWith('/정책')) {
+      // Phase 2-6: active_policy 수동 변경
+      // 형식: /policy D+1 D+10 [사유...]  또는  /policy 1 10 [사유...]  또는  /policy show
+      const args = text.split(/\s+/).slice(1);
+      const result = await handlePolicyCommand(args);
+      await sendTelegramMessage(result);
+      return res.status(200).json({ ok: true });
     } else {
       // /도움 또는 미인식 명령어 → 도움말 전송
       const helpMsg = `📱 <b>사용 가능한 명령어</b>\n\n`
         + `/추적 — 장중 주가 추적 (3일치)\n`
         + `/알림 — 오늘의 TOP 3 + 과거 성과\n`
         + `/결산 — 오늘의 결산 (종가 기준)\n`
+        + `/진단 — 주간 진단 즉시 실행\n`
+        + `/policy show — 현재 매매 정책 조회\n`
+        + `/policy D+1 D+10 [사유] — 정책 변경\n`
         + `/도움 — 이 도움말`;
       await sendTelegramMessage(helpMsg);
       return res.status(200).json({ ok: true });
@@ -1551,6 +1844,51 @@ module.exports = async (req, res) => {
     // 야간장(18:00~05:00) 마감 직후 종가를 Supabase에 저장
     // → 08:00 alert 모드에서 읽어서 예측 스코어에 반영
     // =============================================
+    // =============================================
+    // 📊 WEEKLY-DIAGNOSTIC 모드: 주간 진단 (일요일 22:00 KST = 13:00 UTC)
+    // Phase 1: 관측 only — 4가지 진단을 weekly_diagnostics 테이블에 INSERT
+    // =============================================
+    if (mode === 'weekly-diagnostic') {
+      console.log('📊 주간 진단 모드 시작...');
+      try {
+        const { runDiagnostic } = require('../../scripts/weekly-diagnostic.js');
+        const row = await runDiagnostic({ dryRun: false });
+
+        // 직전 주 진단과 비교 (변화 표시용)
+        let prev = null;
+        try {
+          const { data } = await supabase
+            .from('weekly_diagnostics')
+            .select('week_start,regime,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,score_health_label')
+            .lt('week_start', row.week_start)
+            .order('week_start', { ascending: false })
+            .limit(1);
+          prev = data?.[0] || null;
+        } catch (_) {}
+
+        // 풀 진단 블록 메시지 빌드 + 텔레그램 전송
+        const msg = formatWeeklyDiagnosticMessage(row, prev);
+        const sent = await sendTelegramMessage(msg);
+
+        return res.status(200).json({
+          success: true,
+          mode: 'weekly-diagnostic',
+          week_start: row.week_start,
+          regime: row.regime,
+          score_health: row.score_health_label,
+          optimal_buy_d: row.optimal_buy_d,
+          optimal_sell_d: row.optimal_sell_d,
+          top1_alpha_current: row.top1_alpha_current_timing,
+          top1_alpha_optimal: row.top1_alpha_optimal_timing,
+          warnings: row.warnings,
+          telegram_sent: sent,
+        });
+      } catch (e) {
+        console.error('[weekly-diagnostic] failed:', e);
+        return res.status(500).json({ success: false, error: e.message });
+      }
+    }
+
     if (mode === 'night-futures') {
       console.log('🌙 야간선물 종가 캐시 모드 시작...');
       const results = await overnightPredictor.saveNightFutures();
@@ -2440,7 +2778,8 @@ module.exports = async (req, res) => {
       });
 
       // Step 7: 텔레그램 알림 전송
-      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction, alertRegime);
+      const diagnostic = await getLatestDiagnostic();
+      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction, alertRegime, diagnostic);
       const sent = await sendTelegramMessage(message);
 
       // v3.66: alert 전송 완료 시각 기록 (cron 중복 방지용)
@@ -3076,7 +3415,8 @@ module.exports = async (req, res) => {
 
       // v3.74: 레짐 기반 메시지
       const cachedRegime = existingData?.[0]?.market_regime || determineMarketRegime(sentiment, prediction);
-      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment, regime: cachedRegime }, defenseAlertTop3, expectations, prediction);
+      const cachedDiagnostic = await getLatestDiagnostic();
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment, regime: cachedRegime }, defenseAlertTop3, expectations, prediction, cachedDiagnostic);
       const sent = await sendTelegramMessage(message);
 
       // 해외 예측 실제 결과 업데이트
@@ -3489,7 +3829,8 @@ module.exports = async (req, res) => {
 
       // 5. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment, regime: saveRegime }, defenseTop3, expectations, prediction);
+        const saveDiagnostic = await getLatestDiagnostic();
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment, regime: saveRegime }, defenseTop3, expectations, prediction, saveDiagnostic);
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개, 레짐: ${saveRegime})`);
       } else {

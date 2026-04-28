@@ -58,6 +58,11 @@ module.exports = async (req, res) => {
       return await handleMomentum(req, res, apiStartTime);
     }
 
+    // Phase 2-4: 운영 진단 모드 — ?diagnostics=true
+    if (req.query.diagnostics === 'true') {
+      return await handleDiagnostics(req, res);
+    }
+
     const days = parseInt(req.query.days) || 30;
     const dnaCandidates = req.query.dna_candidates === 'true'; // DNA 후보 조회 모드
 
@@ -1069,4 +1074,37 @@ async function handleMomentum(req, res, apiStartTime) {
     elapsed: `${((Date.now() - apiStartTime) / 1000).toFixed(1)}s`,
     timestamp: new Date().toISOString(),
   });
+}
+
+// =============================================================================
+// Phase 2-4: handleDiagnostics — 운영 진단 시계열 + active_policy + 변경 이력
+// GET /api/recommendations/performance?diagnostics=true&weeks=12
+// =============================================================================
+async function handleDiagnostics(req, res) {
+  if (!supabase) {
+    return res.status(500).json({ success: false, error: 'supabase unavailable' });
+  }
+  const weeks = Math.min(52, Math.max(4, parseInt(req.query.weeks) || 12));
+  try {
+    const [diagRes, polRes, histRes] = await Promise.all([
+      supabase.from('weekly_diagnostics')
+        .select('week_start,regime,strong_signal_t3_avg,strong_signal_n,score_health_corr,score_health_label,optimal_buy_d,optimal_sell_d,optimal_avg_return,optimal_min_return,optimal_sample_n,top1_alpha_current_timing,top1_alpha_optimal_timing,active_buy_offset_day,active_sell_offset_day,recommendation_differs,consecutive_same_recommendation,in_sample_weeks,total_recs_evaluated,warnings,meta_lookback_weeks,meta_past_buy_d,meta_past_sell_d,meta_backtest_avg_return,meta_backtest_win_rate,meta_alpha_vs_baseline')
+        .order('week_start', { ascending: false })
+        .limit(weeks),
+      supabase.from('active_policy').select('*').eq('id', 1).single(),
+      supabase.from('active_policy_history')
+        .select('changed_at,buy_offset_day,sell_offset_day,regime_mode,set_by,change_reason,prev_buy_offset_day,prev_sell_offset_day')
+        .order('changed_at', { ascending: false })
+        .limit(20),
+    ]);
+    return res.status(200).json({
+      success: true,
+      diagnostics: (diagRes.data || []).reverse(), // chronological for chart
+      activePolicy: polRes.data || null,
+      policyHistory: histRes.data || [],
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    return res.status(500).json({ success: false, error: e.message });
+  }
 }
