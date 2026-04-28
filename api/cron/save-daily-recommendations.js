@@ -350,10 +350,31 @@ function formatWeeklyDiagnosticMessage(row, prev) {
 }
 
 /**
+ * 텔레그램 명령어 도움말 (사용 예 포함)
+ */
+function buildHelpMessage() {
+  return `📱 <b>사용 가능한 명령어</b>\n\n`
+    + `<b>━ 일일 운영 ━</b>\n`
+    + `/알림 — 오늘의 TOP 3 + 과거 성과\n`
+    + `/추적 — 장중 주가 추적 (3일치)\n`
+    + `/결산 — 오늘의 결산 (종가 기준)\n\n`
+    + `<b>━ 주간 진단 ━</b>\n`
+    + `/진단 — 주간 진단 즉시 실행 (정상은 일요일 22:00 자동)\n\n`
+    + `<b>━ 매매 정책 ━</b>\n`
+    + `/policy show — 현재 정책 + 진단 권장 비교\n`
+    + `/policy D+1 D+10 — 매수 D+1, 매도 D+10으로 변경\n`
+    + `/policy D+1 D+10 4월 진단 6주연속 권고 — 사유와 함께 변경\n`
+    + `   <i>* 셋째 단어부터 끝까지가 사유 (선택사항, 띄어쓰기로 단어 여러개 가능)</i>\n`
+    + `   <i>* "D+" 생략 가능: /policy 1 10 도 동일</i>\n\n`
+    + `<b>━ 기타 ━</b>\n`
+    + `/도움 (또는 /help, /명령) — 이 도움말`;
+}
+
+/**
  * Phase 2-6: /policy webhook 명령 처리
  *  - /policy show         → 현재 정책 출력
- *  - /policy D+k D+n [사유] → 정책 변경
- *  - /policy k n [사유]    → 위와 동일 (D+ 생략)
+ *  - /policy D+k D+n 사유  → 정책 변경
+ *  - /policy k n 사유      → 위와 동일 (D+ 생략)
  */
 async function handlePolicyCommand(args) {
   if (!supabase) return '❌ Supabase 연결 없음';
@@ -391,7 +412,12 @@ async function handlePolicyCommand(args) {
   const buyD = parseDay(args[0]);
   const sellD = parseDay(args[1]);
   if (isNaN(buyD) || isNaN(sellD)) {
-    return `❌ 형식 오류\n사용법: <code>/policy D+1 D+10 [사유]</code>\n또는: <code>/policy show</code>`;
+    return `❌ 형식 오류\n\n<b>사용 예</b>:\n`
+      + `<code>/policy D+1 D+10</code> — 매수 D+1, 매도 D+10\n`
+      + `<code>/policy 1 10</code> — 위와 동일 (D+ 생략 가능)\n`
+      + `<code>/policy D+1 D+10 4월 진단 6주연속 권고로 변경</code>\n`
+      + `   ↑ 셋째 단어부터 끝까지가 사유 (선택)\n`
+      + `<code>/policy show</code> — 현재 정책 조회`;
   }
   if (buyD < 0 || buyD > 5) return `❌ buy_offset_day는 0~5 사이만 허용`;
   if (sellD <= buyD || sellD > 30) return `❌ sell_offset_day는 buy보다 크고 30 이하`;
@@ -1794,22 +1820,18 @@ module.exports = async (req, res) => {
       await sendTelegramMessage('📤 /진단 명령어 접수! 처리 중...');
     } else if (text.startsWith('/policy') || text.startsWith('/정책')) {
       // Phase 2-6: active_policy 수동 변경
-      // 형식: /policy D+1 D+10 [사유...]  또는  /policy 1 10 [사유...]  또는  /policy show
+      // 형식: /policy D+1 D+10 사유 텍스트  또는  /policy 1 10 사유 텍스트  또는  /policy show
       const args = text.split(/\s+/).slice(1);
       const result = await handlePolicyCommand(args);
       await sendTelegramMessage(result);
       return res.status(200).json({ ok: true });
+    } else if (text.startsWith('/도움') || text.startsWith('/help') || text.startsWith('/명령') || text.startsWith('/start') || text.startsWith('/menu')) {
+      // 명시적 도움말 호출
+      await sendTelegramMessage(buildHelpMessage());
+      return res.status(200).json({ ok: true });
     } else {
-      // /도움 또는 미인식 명령어 → 도움말 전송
-      const helpMsg = `📱 <b>사용 가능한 명령어</b>\n\n`
-        + `/추적 — 장중 주가 추적 (3일치)\n`
-        + `/알림 — 오늘의 TOP 3 + 과거 성과\n`
-        + `/결산 — 오늘의 결산 (종가 기준)\n`
-        + `/진단 — 주간 진단 즉시 실행\n`
-        + `/policy show — 현재 매매 정책 조회\n`
-        + `/policy D+1 D+10 [사유] — 정책 변경\n`
-        + `/도움 — 이 도움말`;
-      await sendTelegramMessage(helpMsg);
+      // 미인식 명령어 → 도움말 전송
+      await sendTelegramMessage(buildHelpMessage());
       return res.status(200).json({ ok: true });
     }
   }
