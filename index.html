@@ -630,7 +630,7 @@
       const fetchDiagnostics = async () => {
         setDiagnosticLoading(true);
         try {
-          const res = await fetch(`${API_URL}/api/recommendations/performance?diagnostics=true&weeks=12`);
+          const res = await fetch(`${API_BASE_URL}/recommendations/performance?diagnostics=true&weeks=12`);
           const data = await res.json();
           if (data.success) {
             setDiagnosticHistory(data.diagnostics || []);
@@ -652,7 +652,7 @@
         setDiagnosticRunning(true);
         setDiagnosticRunResult(null);
         try {
-          const res = await fetch(`${API_URL}/api/cron/save-daily-recommendations?mode=weekly-diagnostic`);
+          const res = await fetch(`${API_BASE_URL}/cron/save-daily-recommendations?mode=weekly-diagnostic`);
           const data = await res.json();
           if (data.success) {
             setDiagnosticRunResult({ ok: true, message: `진단 완료 (${data.week_start}): ${data.regime} / 권장 D+${data.optimal_buy_d}매수→D+${data.optimal_sell_d}매도` });
