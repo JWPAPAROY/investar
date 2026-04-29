@@ -1071,7 +1071,7 @@
                     )}
 
                     {/* 시계열 테이블 (12주) */}
-                    <div className="bg-white border border-gray-300 rounded-lg p-4 overflow-x-auto">
+                    <div className="bg-white border border-gray-300 rounded-lg p-4">
                       <h3 className="text-lg font-bold text-gray-800 mb-3">📈 주간 진단 이력 (최근 {diagnosticHistory.length}주)</h3>
                       {diagnosticHistory.length === 0 ? (
                         <div className="text-center py-6 text-gray-500">아직 진단 데이터가 없습니다. 매주 일요일 22:00 KST에 자동 생성됩니다.</div>
@@ -1116,7 +1116,7 @@
 
                     {/* 정책 변경 이력 */}
                     {policyHistory.length > 0 && (
-                      <div className="bg-white border border-gray-300 rounded-lg p-4 overflow-x-auto">
+                      <div className="bg-white border border-gray-300 rounded-lg p-4">
                         <h3 className="text-lg font-bold text-gray-800 mb-3">📝 정책 변경 이력 ({policyHistory.length})</h3>
                         <table className="min-w-full text-xs md:text-sm">
                           <thead>
@@ -3217,7 +3217,7 @@
     }
 
 
-    // 운영 진단 테이블 헤더 (커스텀 툴팁)
+    // 운영 진단 테이블 헤더 (커스텀 툴팁 — 헤더 위로 표시)
     function DiagTh({ align = 'left', tip, children }) {
       const [show, setShow] = useState(false);
       const alignClass = align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left';
@@ -3233,7 +3233,7 @@
             <span className="text-xs text-blue-500">ⓘ</span>
           </span>
           {show && tip && (
-            <div className="absolute z-50 bg-gray-800 text-white text-xs font-normal rounded-lg p-3 shadow-xl w-64 md:w-72 max-w-[calc(100vw-3rem)] top-full mt-1 left-1/2 -translate-x-1/2 normal-case whitespace-normal text-left leading-relaxed">
+            <div className="absolute z-50 bg-gray-800 text-white text-xs font-normal rounded-lg p-3 shadow-xl w-64 md:w-72 max-w-[calc(100vw-3rem)] bottom-full mb-2 left-1/2 -translate-x-1/2 normal-case whitespace-normal text-left leading-relaxed pointer-events-none">
               {tip}
             </div>
           )}
