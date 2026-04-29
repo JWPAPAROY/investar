@@ -667,11 +667,7 @@
         }
       };
 
-      useEffect(() => {
-        if (activeTab === 'diagnostic' && diagnosticHistory === null) {
-          fetchDiagnostics();
-        }
-      }, [activeTab]);
+      // 운영 진단 탭은 자동 조회 안 함 — 사용자가 버튼 눌러야 조회
 
       // 버튼 클릭으로 분석 시작 (자동 로드 제거)
 
@@ -1020,23 +1016,19 @@
                 </div>
 
                 {/* 새로고침 영역 */}
-                <div className="bg-white rounded-xl shadow-lg p-4 md:p-6">
-                  <div className="flex gap-2 md:gap-3">
-                    <div className="flex-1 min-w-0 flex items-center px-3 py-2 md:px-4 md:py-2 border-2 border-gray-300 rounded-lg bg-gray-50 text-sm md:text-base text-gray-600">
-                      탭 진입 시 자동 조회됩니다. 최신 데이터를 다시 불러오려면 새로고침을 누르세요.
-                    </div>
-                    <button
-                      onClick={fetchDiagnostics}
-                      disabled={diagnosticLoading}
-                      className={`px-4 py-2 md:px-8 md:py-3 rounded-lg font-bold text-white transition-all whitespace-nowrap text-sm md:text-base self-start ${
-                        diagnosticLoading
-                          ? 'bg-gray-400 cursor-not-allowed'
-                          : 'bg-cyan-700 hover:bg-blue-900 shadow-md hover:shadow-lg'
-                      }`}
-                    >
-                      {diagnosticLoading ? '조회중...' : '새로고침'}
-                    </button>
-                  </div>
+                <div className="bg-white rounded-xl shadow-lg p-4 md:p-6 flex justify-center">
+                  <button
+                    onClick={fetchDiagnostics}
+                    disabled={diagnosticLoading}
+                    className={`px-6 py-3 md:px-8 md:py-4 rounded-xl font-bold text-white transition-all whitespace-nowrap text-sm md:text-base shadow-lg flex items-center gap-2 ${
+                      diagnosticLoading
+                        ? 'bg-gray-400 cursor-not-allowed'
+                        : 'bg-gradient-to-r from-cyan-700 to-blue-900 hover:from-cyan-800 hover:to-blue-950'
+                    }`}
+                  >
+                    <span>🩺</span>
+                    {diagnosticLoading ? '조회중...' : '진단 조회'}
+                  </button>
                 </div>
 
                 {diagnosticLoading && <div className="text-center py-8 text-gray-500">로딩 중...</div>}
@@ -1071,17 +1063,17 @@
                     )}
 
                     {/* 시계열 테이블 (12주) */}
-                    <div className="bg-white border border-gray-300 rounded-lg p-4">
+                    <div className="bg-white border border-gray-300 rounded-lg p-4 overflow-x-auto md:overflow-x-visible">
                       <h3 className="text-lg font-bold text-gray-800 mb-3">📈 주간 진단 이력 (최근 {diagnosticHistory.length}주)</h3>
                       {diagnosticHistory.length === 0 ? (
                         <div className="text-center py-6 text-gray-500">아직 진단 데이터가 없습니다. 매주 일요일 22:00 KST에 자동 생성됩니다.</div>
                       ) : (
-                        <table className="min-w-full text-xs md:text-sm">
+                        <table className="min-w-[820px] md:min-w-full text-xs md:text-sm">
                           <thead>
                             <tr className="bg-gray-100 text-gray-700">
                               <th className="px-2 py-2 text-left">주</th>
-                              <th className="px-2 py-2 text-left">레짐</th>
-                              <DiagTh align="right" tip="강신호 종목(거래량비율≥3 + VPD≥2)을 D+0 매수→D+3 매도했을 때의 최근 30일 평균 수익률. 시장 레짐(상승/횡보/방어) 판정의 기준 지표. > +1% → momentum, -1%~+1% → sideways, < -1% → defense">강신호 T+3</DiagTh>
+                              <DiagTh align="left" tip="강신호 T+3 수익률로 자동 결정되는 시장 레짐. 🔴 momentum: T+3 > +1% (상승장, 모멘텀 TOP3 활성) / ⚪ sideways: -1% ~ +1% (횡보장, 횡보 TOP3 활성) / 🛡 defense: T+3 < -1% (하락장, 방어 TOP3 활성). 즉, 강신호 T+3는 '레짐을 만드는 입력'이고 레짐은 '결과 라벨'.">레짐</DiagTh>
+                              <DiagTh align="right" tip="강신호 종목(거래량비율≥3 AND VPD≥2)을 D+0 매수 → D+3 매도했을 때 최근 30일 평균 수익률(%). 이 값이 곧 레짐 판정의 입력값. > +1% → 🔴 momentum / -1%~+1% → ⚪ sideways / < -1% → 🛡 defense. 옆 (n숫자)는 강신호 종목 샘플 수.">강신호 T+3</DiagTh>
                               <DiagTh align="center" tip="해당 주의 in-sample 8주 데이터로 (k,n) 매트릭스를 스캔하여 모든 주에서 양수 평균을 만족하는 (D+k 매수, D+n 매도) 중 최저주 알파를 최대화하는 조합. 진단의 권장 매매 타이밍">권장 timing</DiagTh>
                               <DiagTh align="right" tip="권장 timing(D+k → D+n)을 in-sample 8주에 적용했을 때 TOP3 평균 수익률. 권장의 백테스트 기대값">in-sample 평균</DiagTh>
                               <DiagTh align="center" tip="점수 구간(45-55/55-65/65-75/≥75) × T+3 평균 수익률의 Spearman 순위 상관계수. > 0.3 healthy(점수 높을수록 수익↑) / -0.3~0.3 broken(상관 약함) / < -0.3 inverted(역전 — 점수 모델 의심)">점수 건강</DiagTh>
@@ -1116,7 +1108,7 @@
 
                     {/* 정책 변경 이력 */}
                     {policyHistory.length > 0 && (
-                      <div className="bg-white border border-gray-300 rounded-lg p-4">
+                      <div className="bg-white border border-gray-300 rounded-lg p-4 overflow-x-auto md:overflow-x-visible">
                         <h3 className="text-lg font-bold text-gray-800 mb-3">📝 정책 변경 이력 ({policyHistory.length})</h3>
                         <table className="min-w-full text-xs md:text-sm">
                           <thead>
@@ -1142,8 +1134,6 @@
                     )}
 
                     <div className="text-xs text-gray-500 text-center py-4">
-                      <button onClick={fetchDiagnostics} className="text-blue-600 hover:underline">새로고침</button>
-                      <span className="mx-2">|</span>
                       자세한 설명: <code>OPERATING_STATE.md</code>, <code>WEEKLY_DIAGNOSTICS.md</code>
                     </div>
                   </>
@@ -3233,7 +3223,7 @@
             <span className="text-xs text-blue-500">ⓘ</span>
           </span>
           {show && tip && (
-            <div className="absolute z-50 bg-gray-800 text-white text-xs font-normal rounded-lg p-3 shadow-xl w-64 md:w-72 max-w-[calc(100vw-3rem)] bottom-full mb-2 left-1/2 -translate-x-1/2 normal-case whitespace-normal text-left leading-relaxed pointer-events-none">
+            <div className="absolute z-50 bg-gray-800 text-white text-xs font-normal rounded-lg p-3 shadow-xl w-64 md:w-72 max-w-[calc(100vw-3rem)] bottom-full mb-2 left-0 normal-case whitespace-normal text-left leading-relaxed pointer-events-none">
               {tip}
             </div>
           )}
