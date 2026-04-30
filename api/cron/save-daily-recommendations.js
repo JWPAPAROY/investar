@@ -324,7 +324,7 @@ function formatWeeklyDiagnosticMessage(row, prev) {
     msg += `🟢 검토 권고 없음\n\n`;
   }
 
-  msg += `<i>Phase 2 (관측 + 권고). 룰/타이밍 자동 변경 없음 — 수동 적용.</i>`;
+  msg += `<i>Phase 3 (자동 적용). 진단 권장 timing이 다르면 정책 자동 갱신.</i>`;
   return msg;
 }
 

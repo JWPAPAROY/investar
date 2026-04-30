@@ -362,10 +362,11 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   console.log(`[4. TOP1 ALPHA] current(D+0,D+3)=${top1AlphaCurrent?.toFixed(2)}%p optimal(D+${optimalBuyD},D+${optimalSellD})=${top1AlphaOptimal?.toFixed(2)}%p`);
 
   // =========================================================================
-  // 5. active_policy 비교 (Phase 2)
+  // 5. active_policy 비교 + 자동 적용 (Phase 3)
   // =========================================================================
   let activeBuyD = null, activeSellD = null;
   let recommendationDiffers = null, consecutiveSame = 0;
+  let policyAutoApplied = false;
   try {
     const { data: ap } = await sb.from('active_policy').select('buy_offset_day,sell_offset_day').eq('id', 1).limit(1);
     if (ap && ap.length) {
@@ -396,7 +397,44 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     } catch (_) {}
   }
 
-  console.log(`[5. POLICY COMPARE] active=(D+${activeBuyD},D+${activeSellD}) optimal=(D+${optimalBuyD},D+${optimalSellD}) differs=${recommendationDiffers} consecutive=${consecutiveSame}주`);
+  // Phase 3: 자동 적용 — 권장이 현재 정책과 다르면 즉시 active_policy 갱신
+  if (recommendationDiffers && optimalBuyD != null && optimalSellD != null) {
+    try {
+      const { error: updateErr } = await sb.from('active_policy')
+        .update({
+          buy_offset_day: optimalBuyD,
+          sell_offset_day: optimalSellD,
+          set_by: 'auto-diagnostic',
+          change_reason: `주간진단(${weekStart}) 자동적용: D+${optimalBuyD}→D+${optimalSellD} (in-sample avg ${optimalAvg?.toFixed(2)}%, ${consecutiveSame}주 연속 권고)`,
+          since_date: weekStart,
+        })
+        .eq('id', 1);
+
+      if (!updateErr) {
+        policyAutoApplied = true;
+        // 변경 이력 저장
+        await sb.from('active_policy_history').insert({
+          buy_offset_day: optimalBuyD,
+          sell_offset_day: optimalSellD,
+          set_by: 'auto-diagnostic',
+          change_reason: `주간진단(${weekStart}) 자동적용 (in-sample avg ${optimalAvg?.toFixed(2)}%, min ${optimalMin?.toFixed(2)}%)`,
+          prev_buy_offset_day: activeBuyD,
+          prev_sell_offset_day: activeSellD,
+        });
+        console.log(`[5. AUTO-APPLY] ✅ 정책 자동 변경: D+${activeBuyD}→D+${activeSellD} ⇒ D+${optimalBuyD}→D+${optimalSellD}`);
+        // 적용 후 상태 갱신
+        activeBuyD = optimalBuyD;
+        activeSellD = optimalSellD;
+        recommendationDiffers = false;
+      } else {
+        console.warn('[5. AUTO-APPLY] ❌ 정책 변경 실패:', updateErr.message);
+      }
+    } catch (e) {
+      console.warn('[5. AUTO-APPLY] ❌ 정책 변경 예외:', e.message);
+    }
+  }
+
+  console.log(`[5. POLICY] active=(D+${activeBuyD},D+${activeSellD}) optimal=(D+${optimalBuyD},D+${optimalSellD}) differs=${recommendationDiffers} consecutive=${consecutiveSame}주 autoApplied=${policyAutoApplied}`);
 
   // =========================================================================
   // 6. META-MONITOR — N주 전 권장의 후향 검증
