@@ -47,14 +47,19 @@ async function generateDiagnosticAI(row, prevRows) {
   if (!apiKey) return '(AI 해석 생성 불가 — API 키 누락)';
 
   const sign = (v, suffix = '%') => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}${suffix}`;
-  const healthMap = { healthy: '양호', broken: '깨짐', inverted: '역전', unknown: '미상' };
+  const healthDesc = {
+    healthy:  `양호 — 점수가 높을수록 수익도 높은 정상 상태 (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}, 기준: r>0.3)`,
+    broken:   `단조성 약화 — 점수와 수익 사이 뚜렷한 상관이 없는 상태 (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}, 기준: -0.3~0.3). 시장 전환기나 표본 부족 시 일시적으로 나타날 수 있음`,
+    inverted: `역전 — 점수가 높을수록 오히려 수익이 낮은 위험 상태 (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}, 기준: r<-0.3)`,
+    unknown:  `판정 불가 — 표본 부족`,
+  };
 
   // 이번 주 진단 요약
   let dataStr = `[이번 주 진단 (${row.week_start})]\n`;
   dataStr += `- 강신호 T+3 평균: ${sign(row.strong_signal_t3_avg)} (n=${row.strong_signal_n})\n`;
   dataStr += `- 권장 timing: ${row.optimal_buy_d != null ? `D+${row.optimal_buy_d}매수 → D+${row.optimal_sell_d}매도` : '권장 조합 없음'}\n`;
   dataStr += `- in-sample 평균: ${sign(row.optimal_avg_return)} / 최저주: ${sign(row.optimal_min_return)}\n`;
-  dataStr += `- 점수 모델 건강도: ${healthMap[row.score_health_label] || row.score_health_label} (Spearman r=${row.score_health_corr?.toFixed(2) ?? 'N/A'})\n`;
+  dataStr += `- 점수 모델 건강도: ${healthDesc[row.score_health_label] || row.score_health_label}\n`;
   dataStr += `- TOP1 알파: ${sign(row.top1_alpha_optimal_timing, '%p')}\n`;
   dataStr += `- meta 알파 (${row.meta_lookback_weeks || 4}주 전 권장 후향 검증): ${sign(row.meta_alpha_vs_baseline, '%p')}\n`;
   dataStr += `- 현재 정책: D+${row.active_buy_offset_day ?? '?'}매수 → D+${row.active_sell_offset_day ?? '?'}매도\n`;
