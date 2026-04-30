@@ -1138,16 +1138,16 @@
                       {diagnosticHistory.length === 0 ? (
                         <div className="text-center py-6 text-gray-500">아직 진단 데이터가 없습니다. 매주 일요일 22:00 KST에 자동 생성됩니다.</div>
                       ) : (
-                        <table className="min-w-[720px] md:min-w-full text-xs md:text-sm">
+                        <table className="min-w-[720px] md:min-w-full text-xs md:text-sm table-fixed">
                           <thead>
                             <tr className="bg-gray-100 text-gray-700">
-                              <th className="px-2 py-2 text-left">주</th>
-                              <th className="px-2 py-2 text-right">강신호 T+3</th>
-                              <th className="px-2 py-2 text-center">권장 timing</th>
-                              <th className="px-2 py-2 text-right">in-sample 평균</th>
-                              <th className="px-2 py-2 text-center">점수↔수익 상관</th>
-                              <th className="px-2 py-2 text-right">TOP1 알파</th>
-                              <th className="px-2 py-2 text-right">meta 알파</th>
+                              <th className="px-1 py-2 text-left" style={{width:'15%'}}>주</th>
+                              <th className="px-1 py-2 text-right" style={{width:'16%'}}>강신호 T+3</th>
+                              <th className="px-1 py-2 text-center" style={{width:'14%'}}>권장 timing</th>
+                              <th className="px-1 py-2 text-right" style={{width:'13%'}}>in-sample 평균</th>
+                              <th className="px-1 py-2 text-center" style={{width:'14%'}}>점수↔수익 상관</th>
+                              <th className="px-1 py-2 text-right" style={{width:'13%'}}>TOP1 알파</th>
+                              <th className="px-1 py-2 text-right" style={{width:'15%'}}>meta 알파</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1157,13 +1157,13 @@
                               const sign = (v, suffix='%') => v == null ? '-' : (v >= 0 ? '+' : '') + v.toFixed(2) + suffix;
                               return (
                                 <tr key={d.week_start} className={i === 0 ? 'bg-blue-50 font-semibold' : 'border-t border-gray-200'}>
-                                  <td className="px-2 py-2">{d.week_start}</td>
-                                  <td className="px-2 py-2 text-right" style={{color: (d.strong_signal_t3_avg || 0) >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.strong_signal_t3_avg)} <span className="text-gray-400 text-xs">(n{d.strong_signal_n||0})</span></td>
-                                  <td className="px-2 py-2 text-center">{d.optimal_buy_d != null ? `D+${d.optimal_buy_d} → D+${d.optimal_sell_d}` : '-'}</td>
-                                  <td className="px-2 py-2 text-right">{sign(d.optimal_avg_return)}</td>
-                                  <td className="px-2 py-2 text-center" style={{color: corrColor}}>{d.score_health_corr != null ? d.score_health_corr.toFixed(2) : '-'} <span className="text-xs">{healthIcon}</span></td>
-                                  <td className="px-2 py-2 text-right" style={{color: (d.top1_alpha_optimal_timing || 0) >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.top1_alpha_optimal_timing, '%p')}</td>
-                                  <td className="px-2 py-2 text-right" style={{color: d.meta_alpha_vs_baseline == null ? '#9ca3af' : (d.meta_alpha_vs_baseline >= 0 ? '#16a34a' : '#dc2626')}} title={d.meta_past_buy_d != null ? `${d.meta_lookback_weeks}주 전 권장 D+${d.meta_past_buy_d}→D+${d.meta_past_sell_d} 후향검증` : '데이터 부족'}>{sign(d.meta_alpha_vs_baseline, '%p')}</td>
+                                  <td className="px-1 py-2 truncate">{d.week_start}</td>
+                                  <td className="px-1 py-2 text-right" style={{color: (d.strong_signal_t3_avg || 0) >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.strong_signal_t3_avg)} <span className="text-gray-400 text-xs">(n{d.strong_signal_n||0})</span></td>
+                                  <td className="px-1 py-2 text-center">{d.optimal_buy_d != null ? `D+${d.optimal_buy_d}→D+${d.optimal_sell_d}` : '-'}</td>
+                                  <td className="px-1 py-2 text-right">{sign(d.optimal_avg_return)}</td>
+                                  <td className="px-1 py-2 text-center" style={{color: corrColor}}>{d.score_health_corr != null ? d.score_health_corr.toFixed(2) : '-'} <span className="text-xs">{healthIcon}</span></td>
+                                  <td className="px-1 py-2 text-right" style={{color: (d.top1_alpha_optimal_timing || 0) >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.top1_alpha_optimal_timing, '%p')}</td>
+                                  <td className="px-1 py-2 text-right" style={{color: d.meta_alpha_vs_baseline == null ? '#9ca3af' : (d.meta_alpha_vs_baseline >= 0 ? '#16a34a' : '#dc2626')}} title={d.meta_past_buy_d != null ? `${d.meta_lookback_weeks}주 전 권장 D+${d.meta_past_buy_d}→D+${d.meta_past_sell_d} 후향검증` : '데이터 부족'}>{sign(d.meta_alpha_vs_baseline, '%p')}</td>
                                 </tr>
                               );
                             })}

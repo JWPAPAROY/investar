@@ -232,7 +232,24 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   console.log(`[1. REGIME] ${regime} (strong T+3 avg=${strongAvg?.toFixed(2)}%, n=${strongRets.length})`);
 
   // =========================================================================
-  // 2. SCORE HEALTH — score bucket × T+3 monotonicity (last 30 days)
+  // 1.5. active_policy 조기 읽기 (Score Health에서 사용)
+  // =========================================================================
+  let activeBuyD = null, activeSellD = null;
+  try {
+    const { data: ap } = await sb.from('active_policy').select('buy_offset_day,sell_offset_day').eq('id', 1).limit(1);
+    if (ap && ap.length) {
+      activeBuyD = ap[0].buy_offset_day;
+      activeSellD = ap[0].sell_offset_day;
+    }
+  } catch (e) {
+    console.warn('[1.5. POLICY READ] skipped:', e.message);
+  }
+  // Score Health 측정 기준: active_policy timing, 없으면 D+0→D+3 fallback
+  const healthK = activeBuyD ?? 0;
+  const healthN = activeSellD ?? 3;
+
+  // =========================================================================
+  // 2. SCORE HEALTH — score bucket × 수익률 단조성 (last 30 days, active timing 기준)
   // =========================================================================
   const recent30All = recs.filter(r => r.recommendation_date >= last30Str);
   const buckets = [
@@ -244,7 +261,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   const bucketMids = [], bucketAvgs = [];
   for (const b of buckets) {
     const subset = recent30All.filter(r => (r.total_score||0) >= b.lo && (r.total_score||0) < b.hi);
-    const rets = subset.map(r => retFrom(pIdx, r.id, 0, 3)).filter(v => v != null);
+    const rets = subset.map(r => retFrom(pIdx, r.id, healthK, healthN)).filter(v => v != null);
     if (rets.length >= 5) {
       bucketMids.push(b.mid);
       bucketAvgs.push(mean(rets));
@@ -257,7 +274,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   else if (scoreHealthR < -0.3) scoreHealthLabel = 'inverted';
   else scoreHealthLabel = 'broken';
 
-  console.log(`[2. SCORE HEALTH] ${scoreHealthLabel} (r=${scoreHealthR?.toFixed(2)}, buckets=${bucketMids.length})`);
+  console.log(`[2. SCORE HEALTH] ${scoreHealthLabel} (r=${scoreHealthR?.toFixed(2)}, timing=D+${healthK}→D+${healthN}, buckets=${bucketMids.length})`);
 
   // =========================================================================
   // 3. OPTIMAL TIMING — walk-forward (k,n) scan
@@ -363,21 +380,12 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
 
   // =========================================================================
   // 5. active_policy 비교 + 자동 적용 (Phase 3)
+  //    (activeBuyD, activeSellD는 step 1.5에서 이미 읽음)
   // =========================================================================
-  let activeBuyD = null, activeSellD = null;
   let recommendationDiffers = null, consecutiveSame = 0;
   let policyAutoApplied = false;
-  try {
-    const { data: ap } = await sb.from('active_policy').select('buy_offset_day,sell_offset_day').eq('id', 1).limit(1);
-    if (ap && ap.length) {
-      activeBuyD = ap[0].buy_offset_day;
-      activeSellD = ap[0].sell_offset_day;
-      if (optimalBuyD != null && optimalSellD != null) {
-        recommendationDiffers = (optimalBuyD !== activeBuyD || optimalSellD !== activeSellD);
-      }
-    }
-  } catch (e) {
-    console.warn('[5. POLICY COMPARE] active_policy fetch skipped:', e.message);
+  if (activeBuyD != null && activeSellD != null && optimalBuyD != null && optimalSellD != null) {
+    recommendationDiffers = (optimalBuyD !== activeBuyD || optimalSellD !== activeSellD);
   }
 
   // 같은 권고가 몇 주 연속인지 카운트 (직전 진단들 조회)
