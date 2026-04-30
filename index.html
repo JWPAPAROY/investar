@@ -550,7 +550,7 @@
         { name: '강신호 T+3', desc: '강신호 종목(거래량비율≥3 AND VPD≥2)을 D+0 매수 → D+3 매도했을 때 최근 30일 평균 수익률(%). 양수이면 단기 추세 상승, 음수이면 하락. (n숫자)는 샘플 수.' },
         { name: '권장 timing', desc: 'in-sample 8주 데이터에서 (D+k 매수, D+n 매도) 매트릭스를 스캔하여, 모든 주에서 양수 평균을 만족하는 조합 중 최저주 알파를 최대화하는 권장 매매 타이밍.' },
         { name: 'in-sample 평균', desc: '권장 timing을 in-sample 8주에 적용했을 때 TOP3 평균 수익률. 권장의 백테스트 기대값.' },
-        { name: '점수 건강', desc: '점수 구간(45-55/55-65/65-75/≥75)별 T+3 평균 수익률의 Spearman 순위 상관. > 0.3 ✅ healthy / -0.3~0.3 ⚠️ broken / < -0.3 ⛔ inverted(역전).' },
+        { name: '점수↔수익 상관', desc: '점수 구간(45-55/55-65/65-75/≥75)별 T+3 평균 수익률의 Spearman 순위 상관계수. > 0.3 ✅ 정상(높은 점수 → 높은 수익) / -0.3~0.3 ⚠️ 약화(상관 불명확) / < -0.3 ⛔ 역전(높은 점수 → 낮은 수익).' },
         { name: 'TOP1 알파', desc: '권장 timing 적용 시 TOP1 종목과 TOP3 평균의 알파 차이(%p). 양수일수록 TOP1 선별이 작동 중.' },
         { name: 'meta 알파', desc: 'N주 전 진단 권장으로 후속 N주 가상 운영했을 때 baseline(D+0→D+3) 대비 추가 수익. 양수 누적 = 진단 예측력 작동 중.' },
         { name: '정책 일치', desc: '진단 권장 timing이 현재 매매 정책과 일치하는지 여부. ✅ 일치 / ⚠️ 차이 (6주 연속 차이 시 텔레그램 적용 권고 발송).' },
@@ -1146,7 +1146,7 @@
                               <th className="px-2 py-2 text-right">강신호 T+3</th>
                               <th className="px-2 py-2 text-center">권장 timing</th>
                               <th className="px-2 py-2 text-right">in-sample 평균</th>
-                              <th className="px-2 py-2 text-center">점수 건강</th>
+                              <th className="px-2 py-2 text-center">점수↔수익 상관</th>
                               <th className="px-2 py-2 text-right">TOP1 알파</th>
                               <th className="px-2 py-2 text-right">meta 알파</th>
                               <th className="px-2 py-2 text-center">정책 일치</th>
