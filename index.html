@@ -550,7 +550,7 @@
         { name: '적용 timing', desc: '매주 진단이 산출한 최적 매매 타이밍. 현재 정책과 다르면 자동 적용(Phase 3). D+k매수→D+n매도 형식.' },
         { name: '기대 수익', desc: '직전 8주간 매일 추천된 TOP3 종목을 모아 적용 timing으로 매매했을 때의 평균 수익률(in-sample). 모든 주에서 양수인 조합 중 최악주를 최대화한 값.' },
         { name: '검증 수익', desc: '직전 1주(out-of-sample)의 TOP3 종목에 적용 timing을 매매했을 때 실제 수익률. 기대 수익과 괴리가 크면 과적합 경고.' },
-        { name: '상관계수', desc: '점수 구간(45-55/55-65/65-75/≥75)별 수익률의 Spearman 순위 상관계수(적용 timing 기준). > 0.3 ✅ 정상 / -0.3~0.3 ⚠️ 약화 / < -0.3 ⛔ 역전.' },
+        { name: '점수 구간별 수익률', desc: '점수 구간(45-55/55-65/65-75/≥75)별 적용 timing 수익률 평균. 왼→오 갈수록 높으면 점수 모델 정상. 빨강=음수, 초록=양수. 마우스 오버 시 표본 수(n) 확인.' },
         { name: 'TOP1 알파', desc: 'TOP3 중 1순위 종목만 매매했을 때 TOP3 평균 대비 초과 수익(%p). 양수 = 1순위 선별력 유효.' },
         { name: 'meta 알파', desc: '4주 전 진단 권장 timing으로 후속 4주를 가상 운영했을 때 baseline(D+0→D+3) 대비 초과 수익. 양수 = 진단 시스템 작동 중.' },
       ];
@@ -1141,27 +1141,39 @@
                         <table className="min-w-[720px] md:min-w-full text-xs md:text-sm table-fixed">
                           <thead>
                             <tr className="bg-gray-100 text-gray-700">
-                              <th className="px-1 py-2 text-left" style={{width:'15%'}}>주</th>
-                              <th className="px-1 py-2 text-center" style={{width:'13%'}}>적용 timing</th>
-                              <th className="px-1 py-2 text-right" style={{width:'14%'}}>기대 수익</th>
-                              <th className="px-1 py-2 text-right" style={{width:'14%'}}>검증 수익</th>
-                              <th className="px-1 py-2 text-center" style={{width:'14%'}}>상관계수</th>
-                              <th className="px-1 py-2 text-right" style={{width:'15%'}}>TOP1 알파</th>
-                              <th className="px-1 py-2 text-right" style={{width:'15%'}}>meta 알파</th>
+                              <th className="px-1 py-2 text-left" style={{width:'14%'}}>주</th>
+                              <th className="px-1 py-2 text-center" style={{width:'11%'}}>적용 timing</th>
+                              <th className="px-1 py-2 text-right" style={{width:'11%'}}>기대 수익</th>
+                              <th className="px-1 py-2 text-right" style={{width:'11%'}}>검증 수익</th>
+                              <th className="px-1 py-2 text-center" style={{width:'24%'}}>점수 구간별 수익률</th>
+                              <th className="px-1 py-2 text-right" style={{width:'13%'}}>TOP1 알파</th>
+                              <th className="px-1 py-2 text-right" style={{width:'13%'}}>meta 알파</th>
                             </tr>
                           </thead>
                           <tbody>
                             {[...diagnosticHistory].reverse().map((d, i) => {
-                              const healthIcon = { healthy:'✅', broken:'⚠️', inverted:'⛔', unknown:'❓' }[d.score_health_label] || '?';
-                              const corrColor = d.score_health_corr == null ? '#9ca3af' : d.score_health_corr > 0.3 ? '#16a34a' : d.score_health_corr < -0.3 ? '#dc2626' : '#d97706';
                               const sign = (v, suffix='%') => v == null ? '-' : (v >= 0 ? '+' : '') + v.toFixed(2) + suffix;
+                              const buckets = d.score_bucket_returns || [];
                               return (
                                 <tr key={d.week_start} className={i === 0 ? 'bg-blue-50 font-semibold' : 'border-t border-gray-200'}>
                                   <td className="px-1 py-2 truncate">{d.week_start}</td>
                                   <td className="px-1 py-2 text-center">{d.optimal_buy_d != null ? `D+${d.optimal_buy_d}→D+${d.optimal_sell_d}` : '-'}</td>
                                   <td className="px-1 py-2 text-right" style={{color: d.optimal_avg_return == null ? '#9ca3af' : d.optimal_avg_return >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.optimal_avg_return)}</td>
                                   <td className="px-1 py-2 text-right" style={{color: d.oos_avg_return == null ? '#9ca3af' : d.oos_avg_return >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.oos_avg_return)}</td>
-                                  <td className="px-1 py-2 text-center" style={{color: corrColor}}>{d.score_health_corr != null ? d.score_health_corr.toFixed(2) : '-'} <span className="text-xs">{healthIcon}</span></td>
+                                  <td className="px-1 py-2 text-center">
+                                    {buckets.length > 0 ? (
+                                      <span className="inline-flex gap-0.5 text-xs">
+                                        {buckets.map((b, j) => (
+                                          <span key={j} title={`${b.label}: n=${b.n}`}>
+                                            {j > 0 && <span className="text-gray-300 mx-px">/</span>}
+                                            <span style={{color: b.avg == null ? '#9ca3af' : b.avg >= 0 ? '#16a34a' : '#dc2626'}}>
+                                              {b.avg != null ? (b.avg >= 0 ? '+' : '') + b.avg.toFixed(1) : '·'}
+                                            </span>
+                                          </span>
+                                        ))}
+                                      </span>
+                                    ) : '-'}
+                                  </td>
                                   <td className="px-1 py-2 text-right" style={{color: (d.top1_alpha_optimal_timing || 0) >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.top1_alpha_optimal_timing, '%p')}</td>
                                   <td className="px-1 py-2 text-right" style={{color: d.meta_alpha_vs_baseline == null ? '#9ca3af' : (d.meta_alpha_vs_baseline >= 0 ? '#16a34a' : '#dc2626')}} title={d.meta_past_buy_d != null ? `${d.meta_lookback_weeks}주 전 권장 D+${d.meta_past_buy_d}→D+${d.meta_past_sell_d} 후향검증` : '데이터 부족'}>{sign(d.meta_alpha_vs_baseline, '%p')}</td>
                                 </tr>

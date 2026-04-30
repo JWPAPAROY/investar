@@ -1088,7 +1088,7 @@ async function handleDiagnostics(req, res) {
   try {
     const [diagRes, polRes, histRes] = await Promise.all([
       supabase.from('weekly_diagnostics')
-        .select('week_start,regime,strong_signal_t3_avg,strong_signal_n,score_health_corr,score_health_label,optimal_buy_d,optimal_sell_d,optimal_avg_return,optimal_min_return,optimal_sample_n,oos_avg_return,top1_alpha_current_timing,top1_alpha_optimal_timing,active_buy_offset_day,active_sell_offset_day,recommendation_differs,consecutive_same_recommendation,in_sample_weeks,total_recs_evaluated,warnings,meta_lookback_weeks,meta_past_buy_d,meta_past_sell_d,meta_backtest_avg_return,meta_backtest_win_rate,meta_alpha_vs_baseline,ai_interpretation')
+        .select('week_start,regime,strong_signal_t3_avg,strong_signal_n,score_health_corr,score_health_label,score_bucket_returns,optimal_buy_d,optimal_sell_d,optimal_avg_return,optimal_min_return,optimal_sample_n,oos_avg_return,top1_alpha_current_timing,top1_alpha_optimal_timing,active_buy_offset_day,active_sell_offset_day,recommendation_differs,consecutive_same_recommendation,in_sample_weeks,total_recs_evaluated,warnings,meta_lookback_weeks,meta_past_buy_d,meta_past_sell_d,meta_backtest_avg_return,meta_backtest_win_rate,meta_alpha_vs_baseline,ai_interpretation')
         .order('week_start', { ascending: false })
         .limit(weeks),
       supabase.from('active_policy').select('*').eq('id', 1).single(),

@@ -259,12 +259,20 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     { lo: 75, hi: 200, mid: 80 },
   ];
   const bucketMids = [], bucketAvgs = [];
+  const scoreBucketReturns = [];
   for (const b of buckets) {
     const subset = recent30All.filter(r => (r.total_score||0) >= b.lo && (r.total_score||0) < b.hi);
     const rets = subset.map(r => retFrom(pIdx, r.id, healthK, healthN)).filter(v => v != null);
-    if (rets.length >= 5) {
-      bucketMids.push(b.mid);
-      bucketAvgs.push(mean(rets));
+    const label = b.hi >= 200 ? `≥${b.lo}` : `${b.lo}-${b.hi}`;
+    if (rets.length >= 3) {
+      const avg = mean(rets);
+      scoreBucketReturns.push({ label, avg: Math.round(avg * 100) / 100, n: rets.length });
+      if (rets.length >= 5) {
+        bucketMids.push(b.mid);
+        bucketAvgs.push(avg);
+      }
+    } else {
+      scoreBucketReturns.push({ label, avg: null, n: rets.length });
     }
   }
   const scoreHealthR = bucketMids.length >= 3 ? spearman(bucketMids, bucketAvgs) : null;
@@ -517,6 +525,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     strong_signal_n: strongRets.length,
     score_health_corr: scoreHealthR,
     score_health_label: scoreHealthLabel,
+    score_bucket_returns: scoreBucketReturns,
     optimal_buy_d: optimalBuyD,
     optimal_sell_d: optimalSellD,
     optimal_avg_return: optimalAvg,
