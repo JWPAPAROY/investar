@@ -597,24 +597,25 @@
       const [diagnosticHistory, setDiagnosticHistory] = useState(null); // Phase 2-4: 시계열 12주
       const [policyHistory, setPolicyHistory] = useState([]); // Phase 2-4: 정책 변경 이력
       const [diagnosticLoading, setDiagnosticLoading] = useState(false);
-      const [entryView, setEntryView] = useState('d0'); // Phase 2-5: 'd0' | 'd1' | 'active'
+      const [entryView, setEntryView] = useState('d0'); // Phase 2-5: 'd0' | 'active'
 
       // Phase 2-5: 진입 시점별 누적 수익 재계산 helper
-      // stock.current_return은 D+0 매수 기준. daily_prices의 cumulative_return을 이용해 D+k 매수 기준으로 환산.
+      // stock.current_return은 D+0 매수 기준. daily_prices의 가격을 이용해 D+k 매수 기준으로 환산.
       const computeEntryReturn = (stock) => {
-        if (!stock || stock.current_return == null) return null;
+        if (!stock || stock.current_return == null || stock.current_price == null) return null;
         let targetDay = 0;
-        if (entryView === 'd1') targetDay = 1;
-        else if (entryView === 'active') targetDay = activePolicy?.buy_offset_day ?? 0;
+        if (entryView === 'active') targetDay = activePolicy?.buy_offset_day ?? 0;
+        
         if (targetDay === 0) return stock.current_return;
+        
         const dp = stock.daily_prices || [];
-        const entry = dp.find(p => p.days_since_recommendation === targetDay);
-        if (!entry || entry.cumulative_return == null) return null;
-        return (1 + stock.current_return / 100) / (1 + entry.cumulative_return / 100) * 100 - 100;
+        // API 응답 데이터 키는 daysSince와 price임
+        const entry = dp.find(p => p.daysSince === targetDay);
+        if (!entry || entry.price == null || entry.price === 0) return null;
+        return (stock.current_price - entry.price) / entry.price * 100;
       };
       const entryViewLabel = entryView === 'd0' ? 'D+0 (추천일 종가)'
-        : entryView === 'd1' ? 'D+1 (다음날 종가)'
-        : `정책 적용 D+${activePolicy?.buy_offset_day ?? '?'}`;
+        : `운영 진단 D+${activePolicy?.buy_offset_day ?? '?'} 매수`;
 
       // Phase 2-3: 평일 N거래일 후 날짜 (휴일 미반영 — 대략 가이드)
       const addBusinessDays = (baseDate, n) => {
@@ -3624,21 +3625,42 @@
             </p>
           </div>
 
-          {/* v3.34: 전략 필터 토글 */}
-          <div className="flex justify-center gap-2">
-            {[
-              { key: 'momentum', label: '🔴 모멘텀', color: 'bg-red-500' },
-              { key: 'defense', label: '🛡️ 방어', color: 'bg-blue-500' }
-            ].map(s => (
+          {/* v3.34 & Phase 2-5: 전략/진입 기준 토글 */}
+          <div className="flex flex-col md:flex-row items-center justify-center gap-4">
+            <div className="flex items-center gap-2 bg-gray-100 p-1.5 rounded-lg border border-gray-200">
+              <span className="text-xs text-gray-500 font-bold px-2">전략</span>
+              {[
+                { key: 'momentum', label: '🔴 모멘텀', color: 'bg-red-500' },
+                { key: 'defense', label: '🛡️ 방어', color: 'bg-blue-500' }
+              ].map(s => (
+                <button
+                  key={s.key}
+                  onClick={() => setPerfStrategy(s.key)}
+                  className={`px-4 py-1.5 rounded font-semibold text-sm transition-all ${perfStrategy === s.key ? `${s.color} text-white shadow-sm` : 'bg-transparent text-gray-600 hover:bg-gray-200'
+                    }`}
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+
+            {/* 진입 시점 기준 토글 */}
+            <div className="flex items-center gap-2 bg-gray-100 p-1.5 rounded-lg border border-gray-200">
+              <span className="text-xs text-gray-500 font-bold px-2">매수 기준</span>
               <button
-                key={s.key}
-                onClick={() => setPerfStrategy(s.key)}
-                className={`px-5 py-2 rounded-lg font-semibold text-sm transition-all ${perfStrategy === s.key ? `${s.color} text-white` : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
-                  }`}
+                onClick={() => setEntryView('d0')}
+                className={`px-4 py-1.5 rounded font-semibold text-sm transition-all ${entryView === 'd0' ? 'bg-gray-800 text-white shadow-sm' : 'bg-transparent text-gray-600 hover:bg-gray-200'}`}
               >
-                {s.label}
+                추천일(D+0)
               </button>
-            ))}
+              <button
+                onClick={() => setEntryView('active')}
+                className={`px-4 py-1.5 rounded font-semibold text-sm transition-all ${entryView === 'active' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-transparent text-gray-600 hover:bg-gray-200'}`}
+                title="운영 진단에 의해 자동 설정된 최적 매수일"
+              >
+                정책적용(D+{activePolicy?.buy_offset_day ?? '?'})
+              </button>
+            </div>
           </div>
 
           {/* v3.71: 장중 모멘텀 분석 섹션 */}
