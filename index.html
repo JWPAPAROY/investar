@@ -2109,6 +2109,11 @@
                 fetchPerformanceData={fetchPerformanceData}
                 patternAnalysis={patternAnalysis}
                 patternLoading={patternLoading}
+                computeEntryReturn={computeEntryReturn}
+                entryView={entryView}
+                setEntryView={setEntryView}
+                activePolicy={activePolicy}
+                entryViewLabel={entryViewLabel}
               />
             )}
           </main>
@@ -3357,7 +3362,7 @@
     }
 
     // 성과 검증 컴포넌트 (v3.10.4: 캐싱 지원)
-    function PerformanceVerification({ apiBaseUrl, trackerData, loading, error, fetchPerformanceData, patternAnalysis, patternLoading }) {
+    function PerformanceVerification({ apiBaseUrl, trackerData, loading, error, fetchPerformanceData, patternAnalysis, patternLoading, computeEntryReturn, entryView, setEntryView, activePolicy, entryViewLabel }) {
       // 상태는 상위 컴포넌트에서 관리 (캐싱 효과)
       const [expandedStocks, setExpandedStocks] = useState({});
       const [expandedGrades, setExpandedGrades] = useState({});
