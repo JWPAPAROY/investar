@@ -176,12 +176,6 @@ function formatPredictionLine(prediction) {
  */
 function formatDiagnosticLine(diag) {
   if (!diag) return '';
-  const regimeMap = {
-    momentum: '🔴 모멘텀',
-    sideways: '⚪ 횡보',
-    defense:  '🛡 방어',
-    unknown:  '❓ 미상',
-  };
   const healthMap = {
     healthy:  '양호',
     broken:   '⚠️ 깨짐',
@@ -207,7 +201,7 @@ function formatDiagnosticLine(diag) {
     }
   }
 
-  let line = `📊 <b>주간진단</b>(${wkShort}): ${regimeMap[diag.regime] || diag.regime} | 권장 ${timingStr} | 점수건강 ${healthMap[diag.score_health_label] || '?'} | TOP1알파 ${alphaStr}${warn}${policyTag}\n`;
+  let line = `📊 <b>주간진단</b>(${wkShort}): 권장 ${timingStr} | 점수건강 ${healthMap[diag.score_health_label] || '?'} | TOP1알파 ${alphaStr}${warn}${policyTag}\n`;
   return line;
 }
 
@@ -216,12 +210,6 @@ function formatDiagnosticLine(diag) {
  * cron 모드 weekly-diagnostic 내에서 호출. 직전 주 row와 비교하여 변화 표시.
  */
 function formatWeeklyDiagnosticMessage(row, prev) {
-  const regimeMap = {
-    momentum: '🔴 모멘텀',
-    sideways: '⚪ 횡보',
-    defense:  '🛡 방어',
-    unknown:  '❓ 미상',
-  };
   const healthMap = {
     healthy:  '✅ 양호',
     broken:   '⚠️ 깨짐',
@@ -230,25 +218,17 @@ function formatWeeklyDiagnosticMessage(row, prev) {
   };
 
   const wkShort = row.week_start ? row.week_start.slice(5).replace('-', '/') : '';
-  const sigT3 = row.strong_signal_t3_avg;
   const sigSign = (v) => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
   const pSign = (v) => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%p`;
 
-  const regimeChanged = prev && prev.regime !== row.regime;
   const timingChanged = prev && (prev.optimal_buy_d !== row.optimal_buy_d || prev.optimal_sell_d !== row.optimal_sell_d);
   const healthChanged = prev && prev.score_health_label !== row.score_health_label;
 
   let msg = `📊 <b>주간 진단</b> (${wkShort} 기준)\n`;
   msg += `━━━━━━━━━━━━━━━━━━━━\n\n`;
 
-  // 1. 시장 레짐
-  msg += `<b>1. 시장 레짐</b>: ${regimeMap[row.regime] || row.regime}`;
-  if (regimeChanged) msg += `  ← (전주 ${regimeMap[prev.regime] || prev.regime})`;
-  msg += `\n`;
-  msg += `   강신호 종목 T+3 평균: ${sigSign(sigT3)} (n=${row.strong_signal_n || 0})\n\n`;
-
-  // 2. 권장 매매 타이밍
-  msg += `<b>2. 권장 매매 타이밍</b>`;
+  // 1. 권장 매매 타이밍
+  msg += `<b>1. 권장 매매 타이밍</b>`;
   if (timingChanged) msg += `  ← (전주 D+${prev.optimal_buy_d}→D+${prev.optimal_sell_d})`;
   msg += `\n`;
   if (row.optimal_buy_d != null && row.optimal_sell_d != null) {
@@ -260,8 +240,8 @@ function formatWeeklyDiagnosticMessage(row, prev) {
   }
   msg += `\n`;
 
-  // 3. 점수 모델 건강도
-  msg += `<b>3. 점수 모델 건강도</b>: ${healthMap[row.score_health_label] || row.score_health_label}`;
+  // 2. 점수 모델 건강도
+  msg += `<b>2. 점수 모델 건강도</b>: ${healthMap[row.score_health_label] || row.score_health_label}`;
   if (healthChanged) msg += `  ← (전주 ${healthMap[prev.score_health_label] || prev.score_health_label})`;
   msg += `\n`;
   if (row.score_health_corr != null) {
@@ -272,8 +252,8 @@ function formatWeeklyDiagnosticMessage(row, prev) {
   }
   msg += `\n`;
 
-  // 4. TOP1 알파
-  msg += `<b>4. TOP1 알파</b> (TOP1 - TOP3 평균)\n`;
+  // 3. TOP1 알파
+  msg += `<b>3. TOP1 알파</b> (TOP1 - TOP3 평균)\n`;
   msg += `   현재 정책 (D+0매수): ${pSign(row.top1_alpha_current_timing)}\n`;
   msg += `   권장 정책 (D+${row.optimal_buy_d}매수→D+${row.optimal_sell_d}매도): ${pSign(row.top1_alpha_optimal_timing)}\n`;
   if (row.top1_alpha_current_timing != null && row.top1_alpha_optimal_timing != null) {
@@ -293,7 +273,7 @@ function formatWeeklyDiagnosticMessage(row, prev) {
 
   // Phase 3: meta-monitor — N주 전 권장의 후향 검증
   if (row.meta_past_buy_d != null) {
-    msg += `<b>5. 진단 신뢰도 (meta-monitor)</b>\n`;
+    msg += `<b>4. 진단 신뢰도 (meta-monitor)</b>\n`;
     msg += `   ${row.meta_lookback_weeks}주 전 권장(D+${row.meta_past_buy_d}→D+${row.meta_past_sell_d})으로 후속 ${row.meta_lookback_weeks}주 가상운영 시:\n`;
     if (row.meta_backtest_avg_return != null) {
       const avgSign = row.meta_backtest_avg_return >= 0 ? '+' : '';
@@ -316,7 +296,7 @@ function formatWeeklyDiagnosticMessage(row, prev) {
   const APPLY_THRESHOLD_WEEKS = 6; // 6주 연속 동일 권고 시 적용 권고 (이전 v3.55-v3.85의 1-3주 변경보다 보수적)
 
   if (row.active_buy_offset_day != null && row.optimal_buy_d != null) {
-    msg += `<b>6. 운영 정책 비교</b>\n`;
+    msg += `<b>5. 운영 정책 비교</b>\n`;
     msg += `   현재 적용: D+${row.active_buy_offset_day}매수 → D+${row.active_sell_offset_day}매도\n`;
     msg += `   진단 권장: D+${row.optimal_buy_d}매수 → D+${row.optimal_sell_d}매도\n`;
     if (row.recommendation_differs) {
@@ -332,7 +312,6 @@ function formatWeeklyDiagnosticMessage(row, prev) {
   if (row.score_health_label === 'inverted') reviewFlags.push('점수 모델 역전 — 룰 재검토 필요');
   if (row.score_health_label === 'broken') reviewFlags.push('점수 모델 단조성 깨짐 — 가중치 재검토 권고');
   if (timingChanged) reviewFlags.push(`권장 timing 변경됨 — 누적 추이 관찰`);
-  if (regimeChanged) reviewFlags.push(`레짐 전환 (${prev.regime} → ${row.regime}) — 전략 모드 확인`);
   if (row.recommendation_differs && consecCount >= APPLY_THRESHOLD_WEEKS) {
     reviewFlags.push(`🔔 <b>수동 적용 권고</b>: D+${row.optimal_buy_d}매수 D+${row.optimal_sell_d}매도가 ${consecCount}주 연속 권장. /policy ${row.optimal_buy_d} ${row.optimal_sell_d} 명령 또는 Supabase active_policy 직접 수정`);
   }

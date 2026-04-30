@@ -430,7 +430,6 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
 function writeOperatingState(row) {
   const repoRoot = path.resolve(__dirname, '..');
   const file = path.join(repoRoot, 'OPERATING_STATE.md');
-  const regimeMap = { momentum:'🔴 모멘텀', sideways:'⚪ 횡보', defense:'🛡 방어', unknown:'❓ 미상' };
   const healthMap = { healthy:'✅ 양호', broken:'⚠️ 깨짐', inverted:'⛔ 역전', unknown:'❓ 미상' };
   const sign = (v, suffix='%') => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}${suffix}`;
   const md = `# Investar 운영 상태 (자동 생성)
@@ -446,7 +445,6 @@ function writeOperatingState(row) {
 
 | 항목 | 값 |
 |------|-----|
-| **시장 레짐** | ${regimeMap[row.regime] || row.regime} |
 | **권장 매수일** | D+${row.optimal_buy_d ?? '?'} 종가 |
 | **권장 매도일** | D+${row.optimal_sell_d ?? '?'} 종가 |
 | **점수 모델 건강도** | ${healthMap[row.score_health_label] || row.score_health_label} (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}) |
@@ -514,7 +512,6 @@ function appendWeeklyDiagnosticsLog(row) {
 
 | 항목 | 값 |
 |------|-----|
-| 레짐 | ${row.regime} |
 | 강신호 T+3 평균 | ${sign(row.strong_signal_t3_avg)} (n=${row.strong_signal_n}) |
 | 권장 timing | D+${row.optimal_buy_d ?? '?'} → D+${row.optimal_sell_d ?? '?'} |
 | in-sample 평균 / 최저주 | ${sign(row.optimal_avg_return)} / ${sign(row.optimal_min_return)} |
