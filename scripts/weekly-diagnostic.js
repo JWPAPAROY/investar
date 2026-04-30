@@ -12,6 +12,7 @@
 // ============================================================================
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs');
 const path = require('path');
 
@@ -36,6 +37,104 @@ async function fetchAll(table, select, filters = {}) {
 }
 
 const mean = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : null;
+const winR = a => a.length ? (a.filter(v => v > 0).length / a.length * 100) : null;
+
+// =============================================================================
+// AI 진단 해석 생성 (Gemini)
+// =============================================================================
+async function generateDiagnosticAI(row, prevRows) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return '(AI 해석 생성 불가 — API 키 누락)';
+
+  const sign = (v, suffix = '%') => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}${suffix}`;
+  const healthMap = { healthy: '양호', broken: '깨짐', inverted: '역전', unknown: '미상' };
+
+  // 이번 주 진단 요약
+  let dataStr = `[이번 주 진단 (${row.week_start})]\n`;
+  dataStr += `- 강신호 T+3 평균: ${sign(row.strong_signal_t3_avg)} (n=${row.strong_signal_n})\n`;
+  dataStr += `- 권장 timing: ${row.optimal_buy_d != null ? `D+${row.optimal_buy_d}매수 → D+${row.optimal_sell_d}매도` : '권장 조합 없음'}\n`;
+  dataStr += `- in-sample 평균: ${sign(row.optimal_avg_return)} / 최저주: ${sign(row.optimal_min_return)}\n`;
+  dataStr += `- 점수 모델 건강도: ${healthMap[row.score_health_label] || row.score_health_label} (Spearman r=${row.score_health_corr?.toFixed(2) ?? 'N/A'})\n`;
+  dataStr += `- TOP1 알파: ${sign(row.top1_alpha_optimal_timing, '%p')}\n`;
+  dataStr += `- meta 알파 (${row.meta_lookback_weeks || 4}주 전 권장 후향 검증): ${sign(row.meta_alpha_vs_baseline, '%p')}\n`;
+  dataStr += `- 현재 정책: D+${row.active_buy_offset_day ?? '?'}매수 → D+${row.active_sell_offset_day ?? '?'}매도\n`;
+  dataStr += `- 정책 일치: ${row.recommendation_differs === true ? `불일치 (${row.consecutive_same_recommendation}주 연속 차이)` : row.recommendation_differs === false ? '일치' : 'N/A'}\n`;
+  if (row.warnings && row.warnings.length) dataStr += `- 경고: ${row.warnings.join(', ')}\n`;
+
+  // 직전 3~4주 트렌드
+  if (prevRows && prevRows.length > 0) {
+    dataStr += `\n[직전 ${prevRows.length}주 트렌드 (최신 → 과거)]\n`;
+    for (const p of prevRows) {
+      dataStr += `  ${p.week_start}: 강신호T+3=${sign(p.strong_signal_t3_avg)} | 권장=D+${p.optimal_buy_d ?? '?'}→D+${p.optimal_sell_d ?? '?'} | 건강=${healthMap[p.score_health_label] || '?'} | TOP1α=${sign(p.top1_alpha_optimal_timing, '%p')} | metaα=${sign(p.meta_alpha_vs_baseline, '%p')}\n`;
+    }
+  }
+
+  const prompt = `당신은 알고리즘 트레이딩 시스템의 운영 진단 전문가입니다.
+아래 주간 진단 결과를 분석하여 시스템 운영 상태를 300자 내외로 종합 브리핑해주세요.
+
+${dataStr}
+
+[필수 분석 관점 — 자연스러운 하나의 단락으로 작성]
+1. 시스템 건강: 점수 모델이 정상 작동 중인지(healthy/broken/inverted), 최근 추세 변화
+2. 타이밍 유효성: 권장 timing의 일관성, in-sample 수익률 추세, 강신호 T+3 방향
+3. 행동 권고: 현재 매매 정책 유지가 적절한지, meta 알파 기반 진단 신뢰도, 정책 변경 필요 여부
+
+가벼운 경어체(해요/합니다)를 사용하고, 번호를 매기지 말고 자연스러운 브리핑 형태로 출력하세요. 군더더기 인사말은 생략하세요.`;
+
+  const genAI = new GoogleGenerativeAI(apiKey);
+  const models = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'];
+
+  for (const modelName of models) {
+    try {
+      console.log(`[AI] 진단 해석 생성 시도 (${modelName})...`);
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const text = (await result.response).text();
+      if (!text) throw new Error('Empty AI response');
+      console.log(`[AI] 진단 해석 생성 성공 (${modelName})`);
+      return text.trim();
+    } catch (err) {
+      console.warn(`[AI] ${modelName} 실패:`, err.message);
+      if (err.status === 429) {
+        console.log('[AI] 429 감지, 12초 대기...');
+        await new Promise(r => setTimeout(r, 12000));
+      }
+    }
+  }
+
+  // 모든 모델 실패 → 규칙 기반 fallback
+  console.log('[AI] 모든 모델 실패 — 규칙 기반 fallback');
+  return generateRuleFallback(row);
+}
+
+function generateRuleFallback(row) {
+  const sign = (v) => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+  let brief = '';
+  // 점수 건강
+  if (row.score_health_label === 'healthy') brief += '점수 모델이 정상 작동 중입니다. ';
+  else if (row.score_health_label === 'broken') brief += '점수 모델의 단조성이 깨져 있어 주의가 필요합니다. ';
+  else if (row.score_health_label === 'inverted') brief += '점수 모델이 역전 상태로, 점수가 높을수록 수익이 낮은 위험 상황입니다. ';
+  // 강신호
+  if (row.strong_signal_t3_avg != null) {
+    brief += row.strong_signal_t3_avg >= 0
+      ? `강신호 종목의 T+3 평균이 ${sign(row.strong_signal_t3_avg)}로 단기 추세가 양호합니다. `
+      : `강신호 종목의 T+3 평균이 ${sign(row.strong_signal_t3_avg)}로 시장이 약세 구간입니다. `;
+  }
+  // 정책 일치
+  if (row.recommendation_differs === true) {
+    brief += `진단 권장(D+${row.optimal_buy_d}→D+${row.optimal_sell_d})이 현재 정책과 ${row.consecutive_same_recommendation}주 연속 다릅니다. `;
+    if (row.consecutive_same_recommendation >= 6) brief += '정책 변경을 적극 검토하세요. ';
+  } else if (row.recommendation_differs === false) {
+    brief += '현재 정책이 진단 권장과 일치하여 유지가 적절합니다. ';
+  }
+  // meta 알파
+  if (row.meta_alpha_vs_baseline != null) {
+    brief += row.meta_alpha_vs_baseline >= 0
+      ? `meta 검증에서 baseline 대비 ${sign(row.meta_alpha_vs_baseline)} 양의 알파를 보이며 진단 신뢰도가 확인됩니다.`
+      : `meta 검증에서 baseline 미달(${sign(row.meta_alpha_vs_baseline)})로 진단 예측력에 주의가 필요합니다.`;
+  }
+  return brief.trim();
+}
 
 // Spearman rank correlation between two arrays
 function spearman(x, y) {
@@ -395,6 +494,27 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
       oosWeeksList: oosWeeks,
     },
   };
+
+  // =========================================================================
+  // 7. AI 진단 해석 생성 (Gemini)
+  // =========================================================================
+  try {
+    // 직전 4주 진단 조회 (트렌드 분석용)
+    let prevRows = [];
+    try {
+      const { data: prevData } = await sb.from('weekly_diagnostics')
+        .select('week_start,strong_signal_t3_avg,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,meta_alpha_vs_baseline')
+        .lt('week_start', weekStart)
+        .order('week_start', { ascending: false })
+        .limit(4);
+      prevRows = prevData || [];
+    } catch (_) {}
+    row.ai_interpretation = await generateDiagnosticAI(row, prevRows);
+    console.log(`[7. AI] 해석 생성 완료 (${row.ai_interpretation.length}자)`);
+  } catch (e) {
+    console.warn('[7. AI] 해석 생성 실패:', e.message);
+    row.ai_interpretation = null;
+  }
 
   if (dryRun) {
     console.log('\n[DRY RUN] would insert:');
