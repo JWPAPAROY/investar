@@ -547,12 +547,12 @@
     function DiagnosticLegend() {
       const [legendOpen, setLegendOpen] = useState(false);
       const items = [
-        { name: '강신호 T+3', desc: '강신호 종목(거래량비율≥3 AND VPD≥2)을 D+0 매수 → D+3 매도했을 때 최근 30일 평균 수익률(%). 양수이면 단기 추세 상승, 음수이면 하락. (n숫자)는 샘플 수.' },
-        { name: '권장 timing', desc: 'in-sample 8주 데이터에서 (D+k 매수, D+n 매도) 매트릭스를 스캔하여, 모든 주에서 양수 평균을 만족하는 조합 중 최저주 알파를 최대화하는 권장 매매 타이밍.' },
-        { name: 'in-sample 평균', desc: '권장 timing을 in-sample 8주에 적용했을 때 TOP3 평균 수익률. 권장의 백테스트 기대값.' },
-        { name: '점수↔수익 상관', desc: '점수 구간(45-55/55-65/65-75/≥75)별 T+3 평균 수익률의 Spearman 순위 상관계수. > 0.3 ✅ 정상(높은 점수 → 높은 수익) / -0.3~0.3 ⚠️ 약화(상관 불명확) / < -0.3 ⛔ 역전(높은 점수 → 낮은 수익).' },
-        { name: 'TOP1 알파', desc: '권장 timing 적용 시 TOP1 종목과 TOP3 평균의 알파 차이(%p). 양수일수록 TOP1 선별이 작동 중.' },
-        { name: 'meta 알파', desc: 'N주 전 진단 권장으로 후속 N주 가상 운영했을 때 baseline(D+0→D+3) 대비 추가 수익. 양수 누적 = 진단 예측력 작동 중.' },
+        { name: '적용 timing', desc: '매주 진단이 산출한 최적 매매 타이밍. 현재 정책과 다르면 자동 적용(Phase 3). D+k매수→D+n매도 형식.' },
+        { name: '기대 수익', desc: '직전 8주간 매일 추천된 TOP3 종목을 모아 적용 timing으로 매매했을 때의 평균 수익률(in-sample). 모든 주에서 양수인 조합 중 최악주를 최대화한 값.' },
+        { name: '검증 수익', desc: '직전 1주(out-of-sample)의 TOP3 종목에 적용 timing을 매매했을 때 실제 수익률. 기대 수익과 괴리가 크면 과적합 경고.' },
+        { name: '상관계수', desc: '점수 구간(45-55/55-65/65-75/≥75)별 수익률의 Spearman 순위 상관계수(적용 timing 기준). > 0.3 ✅ 정상 / -0.3~0.3 ⚠️ 약화 / < -0.3 ⛔ 역전.' },
+        { name: 'TOP1 알파', desc: 'TOP3 중 1순위 종목만 매매했을 때 TOP3 평균 대비 초과 수익(%p). 양수 = 1순위 선별력 유효.' },
+        { name: 'meta 알파', desc: '4주 전 진단 권장 timing으로 후속 4주를 가상 운영했을 때 baseline(D+0→D+3) 대비 초과 수익. 양수 = 진단 시스템 작동 중.' },
       ];
       return (
         <div className="bg-cyan-50 border border-cyan-200 rounded-xl shadow-sm">
@@ -1142,11 +1142,11 @@
                           <thead>
                             <tr className="bg-gray-100 text-gray-700">
                               <th className="px-1 py-2 text-left" style={{width:'15%'}}>주</th>
-                              <th className="px-1 py-2 text-right" style={{width:'16%'}}>강신호 T+3</th>
-                              <th className="px-1 py-2 text-center" style={{width:'14%'}}>권장 timing</th>
-                              <th className="px-1 py-2 text-right" style={{width:'13%'}}>in-sample 평균</th>
-                              <th className="px-1 py-2 text-center" style={{width:'14%'}}>점수↔수익 상관</th>
-                              <th className="px-1 py-2 text-right" style={{width:'13%'}}>TOP1 알파</th>
+                              <th className="px-1 py-2 text-center" style={{width:'13%'}}>적용 timing</th>
+                              <th className="px-1 py-2 text-right" style={{width:'14%'}}>기대 수익</th>
+                              <th className="px-1 py-2 text-right" style={{width:'14%'}}>검증 수익</th>
+                              <th className="px-1 py-2 text-center" style={{width:'14%'}}>상관계수</th>
+                              <th className="px-1 py-2 text-right" style={{width:'15%'}}>TOP1 알파</th>
                               <th className="px-1 py-2 text-right" style={{width:'15%'}}>meta 알파</th>
                             </tr>
                           </thead>
@@ -1158,9 +1158,9 @@
                               return (
                                 <tr key={d.week_start} className={i === 0 ? 'bg-blue-50 font-semibold' : 'border-t border-gray-200'}>
                                   <td className="px-1 py-2 truncate">{d.week_start}</td>
-                                  <td className="px-1 py-2 text-right" style={{color: (d.strong_signal_t3_avg || 0) >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.strong_signal_t3_avg)} <span className="text-gray-400 text-xs">(n{d.strong_signal_n||0})</span></td>
                                   <td className="px-1 py-2 text-center">{d.optimal_buy_d != null ? `D+${d.optimal_buy_d}→D+${d.optimal_sell_d}` : '-'}</td>
-                                  <td className="px-1 py-2 text-right">{sign(d.optimal_avg_return)}</td>
+                                  <td className="px-1 py-2 text-right" style={{color: d.optimal_avg_return == null ? '#9ca3af' : d.optimal_avg_return >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.optimal_avg_return)}</td>
+                                  <td className="px-1 py-2 text-right" style={{color: d.oos_avg_return == null ? '#9ca3af' : d.oos_avg_return >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.oos_avg_return)}</td>
                                   <td className="px-1 py-2 text-center" style={{color: corrColor}}>{d.score_health_corr != null ? d.score_health_corr.toFixed(2) : '-'} <span className="text-xs">{healthIcon}</span></td>
                                   <td className="px-1 py-2 text-right" style={{color: (d.top1_alpha_optimal_timing || 0) >= 0 ? '#16a34a' : '#dc2626'}}>{sign(d.top1_alpha_optimal_timing, '%p')}</td>
                                   <td className="px-1 py-2 text-right" style={{color: d.meta_alpha_vs_baseline == null ? '#9ca3af' : (d.meta_alpha_vs_baseline >= 0 ? '#16a34a' : '#dc2626')}} title={d.meta_past_buy_d != null ? `${d.meta_lookback_weeks}주 전 권장 D+${d.meta_past_buy_d}→D+${d.meta_past_sell_d} 후향검증` : '데이터 부족'}>{sign(d.meta_alpha_vs_baseline, '%p')}</td>

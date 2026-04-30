@@ -336,7 +336,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   candidates.sort((a, b) => b.minWk - a.minWk); // robust: maximize the worst week
 
   let optimalBuyD = null, optimalSellD = null, optimalAvg = null, optimalMin = null, optimalN = null;
-  let oosTop1AlphaOptimal = null;
+  let oosAvgReturn = null, oosSampleN = null;
 
   if (candidates.length === 0) {
     warnings.push('no (k,n) all-positive in in-sample');
@@ -351,7 +351,9 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     // OOS validation
     const oosAvgs = weekRet(oosWeeks, best.k, best.n, arr => arr.slice(0, 3));
     if (oosAvgs.length) {
-      console.log(`  OOS check: (D+${best.k}, D+${best.n}) → ${oosAvgs[0].avg.toFixed(2)}% (n=${oosAvgs[0].n})`);
+      oosAvgReturn = oosAvgs[0].avg;
+      oosSampleN = oosAvgs[0].n;
+      console.log(`  OOS check: (D+${best.k}, D+${best.n}) → ${oosAvgReturn.toFixed(2)}% (n=${oosSampleN})`);
     }
   }
 
@@ -520,6 +522,8 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     optimal_avg_return: optimalAvg,
     optimal_min_return: optimalMin,
     optimal_sample_n: optimalN,
+    oos_avg_return: oosAvgReturn,
+    oos_sample_n: oosSampleN,
     top1_alpha_current_timing: top1AlphaCurrent,
     top1_alpha_optimal_timing: top1AlphaOptimal,
     in_sample_weeks: inSampleWeeks.length,
