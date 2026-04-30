@@ -56,21 +56,24 @@ async function generateDiagnosticAI(row, prevRows) {
 
   // 이번 주 진단 요약
   let dataStr = `[이번 주 진단 (${row.week_start})]\n`;
-  dataStr += `- 강신호 T+3 평균: ${sign(row.strong_signal_t3_avg)} (n=${row.strong_signal_n})\n`;
-  dataStr += `- 권장 timing: ${row.optimal_buy_d != null ? `D+${row.optimal_buy_d}매수 → D+${row.optimal_sell_d}매도` : '권장 조합 없음'}\n`;
-  dataStr += `- in-sample 평균: ${sign(row.optimal_avg_return)} / 최저주: ${sign(row.optimal_min_return)}\n`;
+  if (row.score_bucket_returns) {
+    const buckets = row.score_bucket_returns.map(b => `${b.label}:${sign(b.avg)}`).join(' / ');
+    dataStr += `- 점수 구간별 수익률: ${buckets}\n`;
+  }
   dataStr += `- 점수 모델 건강도: ${healthDesc[row.score_health_label] || row.score_health_label}\n`;
+  dataStr += `- 권장 timing: ${row.optimal_buy_d != null ? `D+${row.optimal_buy_d}매수 → D+${row.optimal_sell_d}매도` : '권장 조합 없음'}\n`;
+  dataStr += `- 기대 수익(in-sample): ${sign(row.optimal_avg_return)} / 최저주: ${sign(row.optimal_min_return)}\n`;
+  dataStr += `- 검증 수익(OOS): ${row.oos_avg_return != null ? sign(row.oos_avg_return) : '데이터 대기 중 (최신 timing의 미래 날짜 미도래)'}\n`;
   dataStr += `- TOP1 알파: ${sign(row.top1_alpha_optimal_timing, '%p')}\n`;
   dataStr += `- meta 알파 (${row.meta_lookback_weeks || 4}주 전 권장 후향 검증): ${sign(row.meta_alpha_vs_baseline, '%p')}\n`;
-  dataStr += `- 현재 정책: D+${row.active_buy_offset_day ?? '?'}매수 → D+${row.active_sell_offset_day ?? '?'}매도\n`;
-  dataStr += `- 정책 일치: ${row.recommendation_differs === true ? `불일치 (${row.consecutive_same_recommendation}주 연속 차이)` : row.recommendation_differs === false ? '일치' : 'N/A'}\n`;
+  dataStr += `- 현재 정책(자동 적용 후): D+${row.active_buy_offset_day ?? '?'}매수 → D+${row.active_sell_offset_day ?? '?'}매도\n`;
   if (row.warnings && row.warnings.length) dataStr += `- 경고: ${row.warnings.join(', ')}\n`;
 
   // 직전 3~4주 트렌드
   if (prevRows && prevRows.length > 0) {
     dataStr += `\n[직전 ${prevRows.length}주 트렌드 (최신 → 과거)]\n`;
     for (const p of prevRows) {
-      dataStr += `  ${p.week_start}: 강신호T+3=${sign(p.strong_signal_t3_avg)} | 권장=D+${p.optimal_buy_d ?? '?'}→D+${p.optimal_sell_d ?? '?'} | 건강=${healthMap[p.score_health_label] || '?'} | TOP1α=${sign(p.top1_alpha_optimal_timing, '%p')} | metaα=${sign(p.meta_alpha_vs_baseline, '%p')}\n`;
+      dataStr += `  ${p.week_start}: 권장=D+${p.optimal_buy_d ?? '?'}→D+${p.optimal_sell_d ?? '?'} | OOS수익=${sign(p.oos_avg_return)} | 건강=${p.score_health_label} | TOP1α=${sign(p.top1_alpha_optimal_timing, '%p')} | metaα=${sign(p.meta_alpha_vs_baseline, '%p')}\n`;
     }
   }
 
@@ -80,9 +83,9 @@ async function generateDiagnosticAI(row, prevRows) {
 ${dataStr}
 
 [필수 분석 관점 — 자연스러운 하나의 단락으로 작성]
-1. 시스템 건강: 점수 모델이 정상 작동 중인지(healthy/broken/inverted), 최근 추세 변화
-2. 타이밍 유효성: 권장 timing의 일관성, in-sample 수익률 추세, 강신호 T+3 방향
-3. 행동 권고: 현재 매매 정책 유지가 적절한지, meta 알파 기반 진단 신뢰도, 정책 변경 필요 여부
+1. 시스템 건강: 점수 구간별 수익률 패턴이 정상적인지(고득점일수록 높은 수익), 상관계수(r) 기반 단조성 평가
+2. 타이밍 유효성: 권장 timing의 기대 수익(in-sample)과 실제 검증 수익(OOS) 간의 괴리 여부 (OOS가 음수이거나 괴리가 크면 과적합 주의)
+3. 종합 판단: Phase 3 자동 적용 시스템에 의해 현재 timing이 운영되고 있으므로, meta 알파 수치를 근거로 이 자동화 시스템이 잘 작동 중인지 평가
 
 가벼운 경어체(해요/합니다)를 사용하고, 번호를 매기지 말고 자연스러운 브리핑 형태로 출력하세요. 군더더기 인사말은 생략하세요.`;
 
@@ -119,18 +122,11 @@ function generateRuleFallback(row) {
   if (row.score_health_label === 'healthy') brief += '점수 모델이 정상 작동 중입니다. ';
   else if (row.score_health_label === 'broken') brief += '점수 모델의 단조성이 깨져 있어 주의가 필요합니다. ';
   else if (row.score_health_label === 'inverted') brief += '점수 모델이 역전 상태로, 점수가 높을수록 수익이 낮은 위험 상황입니다. ';
-  // 강신호
-  if (row.strong_signal_t3_avg != null) {
-    brief += row.strong_signal_t3_avg >= 0
-      ? `강신호 종목의 T+3 평균이 ${sign(row.strong_signal_t3_avg)}로 단기 추세가 양호합니다. `
-      : `강신호 종목의 T+3 평균이 ${sign(row.strong_signal_t3_avg)}로 시장이 약세 구간입니다. `;
-  }
-  // 정책 일치
-  if (row.recommendation_differs === true) {
-    brief += `진단 권장(D+${row.optimal_buy_d}→D+${row.optimal_sell_d})이 현재 정책과 ${row.consecutive_same_recommendation}주 연속 다릅니다. `;
-    if (row.consecutive_same_recommendation >= 6) brief += '정책 변경을 적극 검토하세요. ';
-  } else if (row.recommendation_differs === false) {
-    brief += '현재 정책이 진단 권장과 일치하여 유지가 적절합니다. ';
+  // 검증 수익 (OOS)
+  if (row.oos_avg_return != null) {
+    brief += row.oos_avg_return >= 0
+      ? `최근 1주 검증 수익이 ${sign(row.oos_avg_return)}로 양호합니다. `
+      : `최근 1주 검증 수익이 ${sign(row.oos_avg_return)}로 다소 부진합니다. `;
   }
   // meta 알파
   if (row.meta_alpha_vs_baseline != null) {
