@@ -559,11 +559,24 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     },
   };
 
+  if (dryRun) {
+    console.log('\n[DRY RUN] would insert:');
+    console.log(JSON.stringify({ ...row, raw_json: '...' }, null, 2));
+    return row;
+  }
+
+  // 먼저 진단 데이터를 저장 (AI 해석 없이)
+  const { error } = await sb.from('weekly_diagnostics').upsert(row, { onConflict: 'week_start' });
+  if (error) {
+    console.error('[weekly-diagnostic] INSERT failed:', error);
+    throw error;
+  }
+  console.log(`[weekly-diagnostic] saved row for week ${weekStart}`);
+
   // =========================================================================
-  // 7. AI 진단 해석 생성 (Gemini)
+  // 7. AI 진단 해석 생성 (Gemini) — DB 저장 후 별도 업데이트
   // =========================================================================
   try {
-    // 직전 4주 진단 조회 (트렌드 분석용)
     let prevRows = [];
     try {
       const { data: prevData } = await sb.from('weekly_diagnostics')
@@ -573,25 +586,17 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
         .limit(4);
       prevRows = prevData || [];
     } catch (_) {}
-    row.ai_interpretation = await generateDiagnosticAI(row, prevRows);
-    console.log(`[7. AI] 해석 생성 완료 (${row.ai_interpretation.length}자)`);
+    const aiText = await generateDiagnosticAI(row, prevRows);
+    if (aiText) {
+      await sb.from('weekly_diagnostics')
+        .update({ ai_interpretation: aiText })
+        .eq('week_start', weekStart);
+      row.ai_interpretation = aiText;
+      console.log(`[7. AI] 해석 생성 + 업데이트 완료 (${aiText.length}자)`);
+    }
   } catch (e) {
-    console.warn('[7. AI] 해석 생성 실패:', e.message);
-    row.ai_interpretation = null;
+    console.warn('[7. AI] 해석 생성 실패 (진단 데이터는 이미 저장됨):', e.message);
   }
-
-  if (dryRun) {
-    console.log('\n[DRY RUN] would insert:');
-    console.log(JSON.stringify({ ...row, raw_json: '...' }, null, 2));
-    return row;
-  }
-
-  const { error } = await sb.from('weekly_diagnostics').upsert(row, { onConflict: 'week_start' });
-  if (error) {
-    console.error('[weekly-diagnostic] INSERT failed:', error);
-    throw error;
-  }
-  console.log(`[weekly-diagnostic] saved row for week ${weekStart}`);
 
   // Phase 1-6: write OPERATING_STATE.md + append WEEKLY_DIAGNOSTICS.md
   // Vercel runtime은 read-only file system이므로 process.env.VERCEL=1일 때 skip
