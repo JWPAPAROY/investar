@@ -38,3 +38,10 @@ refresh-*.js
 .env.backup
 
 .vercel
+
+# 한국투자증권 API 참고 문서 (배포 제외)
+api/koreainvestment/
+
+# 로컬 개발/조사 스크립트
+scripts/inspect-schema.js
+scripts/top1-recent.js

@@ -447,6 +447,21 @@ async function getLatestDiagnostic() {
 }
 
 /**
+ * 현재 active_policy 조회 (없으면 default D+0,D+3)
+ */
+async function getActivePolicy() {
+  if (!supabase) return { buy_offset_day: 0, sell_offset_day: 3 };
+  try {
+    const { data } = await supabase.from('active_policy').select('buy_offset_day,sell_offset_day').eq('id', 1).single();
+    if (!data) return { buy_offset_day: 0, sell_offset_day: 3 };
+    return data;
+  } catch (e) {
+    console.warn('[active_policy] fetch failed:', e.message);
+    return { buy_offset_day: 0, sell_offset_day: 3 };
+  }
+}
+
+/**
  * v3.32: 시장 태그 포맷 (종목명 옆에 표시)
  * @param {string} market - 'KOSPI' 또는 'KOSDAQ'
  * @returns {string} - '[코스피]' 또는 '[코스닥]' 또는 ''
@@ -1223,7 +1238,7 @@ function formatDefenseTop3Section(defenseTop3, mode = 'save', expectations = [])
  * v3.27: SAVE 메시지 (오후 15:35)
  * 🌆 오늘의 결산 (오전 추천 성과 + 내일 TOP 3)
  */
-function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = [], expectations = [], prediction = null, diagnostic = null) {
+function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = [], expectations = [], prediction = null, diagnostic = null, activePolicy = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n`;
@@ -1363,9 +1378,13 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
     });
   }
 
-  // v3.85: 매매 룰 (백테스트 검증)
+  // 매매 룰 (active_policy 기반)
   if (primaryTop3 && primaryTop3.length > 0 && (regime === 'momentum' || !regime)) {
-    msg += `\n💡 <b>매매 룰</b>: D+1 −3% 손절 / +3% 익절 / 미도달 시 D+3 종료 매도 (백테 승률 71%, 손절 21%)\n`;
+    const sellD = activePolicy?.sell_offset_day ?? 3;
+    const buyD = activePolicy?.buy_offset_day ?? 0;
+    const isLegacy = buyD === 0 && sellD === 3;
+    const tail = isLegacy ? ' (백테 승률 71%, 손절 21%)' : '';
+    msg += `\n💡 <b>매매 룰</b>: D+1 −3% 손절 / +3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n`;
   }
 
   // Phase 1: 주간 진단 한 줄 (있을 때만)
@@ -1379,7 +1398,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
  * v3.27: ALERT 메시지 (아침 08:30)
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
-function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = [], prediction = null, regime = 'momentum', diagnostic = null) {
+function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = [], prediction = null, regime = 'momentum', diagnostic = null, activePolicy = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
@@ -1466,9 +1485,13 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       message += `\n`;
     });
 
-    // v3.85: 매매 룰 (모멘텀 레짐만)
+    // 매매 룰 (active_policy 기반, 모멘텀 레짐만)
     if (regime === 'momentum' || !regime) {
-      message += `💡 <b>매매 룰</b>: D+1 −3% 손절 / +3% 익절 / 미도달 시 D+3 종료 매도 (백테 승률 71%, 손절 21%)\n\n`;
+      const sellD = activePolicy?.sell_offset_day ?? 3;
+      const buyD = activePolicy?.buy_offset_day ?? 0;
+      const isLegacy = buyD === 0 && sellD === 3;
+      const tail = isLegacy ? ' (백테 승률 71%, 손절 21%)' : '';
+      message += `💡 <b>매매 룰</b>: D+1 −3% 손절 / +3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n\n`;
     }
   }
 
@@ -2780,7 +2803,8 @@ module.exports = async (req, res) => {
 
       // Step 7: 텔레그램 알림 전송
       const diagnostic = await getLatestDiagnostic();
-      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction, alertRegime, diagnostic);
+      const activePolicy = await getActivePolicy();
+      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction, alertRegime, diagnostic, activePolicy);
       const sent = await sendTelegramMessage(message);
 
       // v3.66: alert 전송 완료 시각 기록 (cron 중복 방지용)
@@ -3417,7 +3441,8 @@ module.exports = async (req, res) => {
       // v3.74: 레짐 기반 메시지
       const cachedRegime = existingData?.[0]?.market_regime || determineMarketRegime(sentiment, prediction);
       const cachedDiagnostic = await getLatestDiagnostic();
-      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment, regime: cachedRegime }, defenseAlertTop3, expectations, prediction, cachedDiagnostic);
+      const cachedActivePolicy = await getActivePolicy();
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment, regime: cachedRegime }, defenseAlertTop3, expectations, prediction, cachedDiagnostic, cachedActivePolicy);
       const sent = await sendTelegramMessage(message);
 
       // 해외 예측 실제 결과 업데이트
@@ -3831,7 +3856,8 @@ module.exports = async (req, res) => {
       // 5. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
         const saveDiagnostic = await getLatestDiagnostic();
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment, regime: saveRegime }, defenseTop3, expectations, prediction, saveDiagnostic);
+        const saveActivePolicy = await getActivePolicy();
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment, regime: saveRegime }, defenseTop3, expectations, prediction, saveDiagnostic, saveActivePolicy);
         tgSent = await sendTelegramMessage(saveMsg);
         console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개, 레짐: ${saveRegime})`);
       } else {
