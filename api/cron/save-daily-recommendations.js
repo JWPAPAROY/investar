@@ -2307,8 +2307,9 @@ module.exports = async (req, res) => {
       const today = getTodayDateKST();
       console.log(`📅 기준 날짜: ${today}`);
 
-      // v3.66: cron 중복 실행 방지 — 오늘 이미 alert 전송했으면 스킵 (웹훅 수동 명령은 허용)
-      if (!req._fromWebhook) {
+      // v3.66: cron 중복 실행 방지 — 오늘 이미 alert 전송했으면 스킵 (웹훅 수동 명령 / force=true 허용)
+      const forceAlert = req.query.force === 'true';
+      if (!req._fromWebhook && !forceAlert) {
         try {
           const { data: existing } = await supabase
             .from('overnight_predictions')
