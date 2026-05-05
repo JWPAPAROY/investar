@@ -1161,7 +1161,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, ex
   }
 
   // 매매 룰 (active_policy 기반)
-  if (primaryTop3 && primaryTop3.length > 0 && (regime === 'momentum' || !regime)) {
+  if (primaryTop3 && primaryTop3.length > 0) {
     const sellD = activePolicy?.sell_offset_day ?? 3;
     const buyD = activePolicy?.buy_offset_day ?? 0;
     const isLegacy = buyD === 0 && sellD === 3;
