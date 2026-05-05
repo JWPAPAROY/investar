@@ -435,7 +435,7 @@ async function getLatestDiagnostic() {
   try {
     const { data, error } = await supabase
       .from('weekly_diagnostics')
-      .select('week_start,regime,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_current_timing,top1_alpha_optimal_timing,warnings,strong_signal_t3_avg,optimal_avg_return,optimal_min_return')
+      .select('week_start,regime,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_current_timing,top1_alpha_optimal_timing,warnings,strong_signal_t3_avg,optimal_avg_return,optimal_min_return,active_buy_offset_day,active_sell_offset_day,recommendation_differs,consecutive_same_recommendation')
       .order('week_start', { ascending: false })
       .limit(1);
     if (error || !data || !data.length) return null;
@@ -660,16 +660,15 @@ async function sendTelegramMessage(message) {
 }
 
 /**
- * TOP 3 선별 (screening.js selectTop3와 동일한 전략)
- * v3.84: 점수 내림차순 단순 정렬 — 스윗스팟 구간 우선순위 및 tier1 시총 우선 제거
- *   근거: v3.76~v3.83 POST 기간 백테스트(15일)에서 구간 우선순위가 낮은 점수 소형주를
- *         금메달로 올려 -28% 등 참사 유발. 전체 풀 점수 내림차순이 합산 +2.68%, 승률 50%,
- *         -5% 손실 29%로 모든 변형 중 최고 안정성.
+ * TOP 3 선별
+ * v3.86(복귀): tier1(시총≤1조 우선) + 스윗스팟 구간(50-59→60-69→80-89→90+→70-79→45-49) + 수급1차→점수
+ *   근거: 동일 데이터(2025-11-03~2026-05-04) 역대전략 비교에서 v376이 D+1→D+10 평균 +11.48%로
+ *         2위(v384 +7.62%) 대비 50% 우위. v385(isV2Priority) 성과 최하위(+4.40%)로 복귀 결정.
  */
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
 
-  // v3.85: 공통 자격 (80-89 + 이격도 ≥120 결합 패널티)
+  // 공통 자격 (80-89 + 이격도 ≥120 결합 패널티 유지)
   const isCommonEligible = (s) => {
     const hasSupply = s.whale_detected || (s.institution_buy_days || 0) >= 3 || (s.foreign_buy_days || 0) >= 3;
     const score = s.total_score || 0;
@@ -682,7 +681,7 @@ function selectAlertTop3(stocks) {
       !isS89Trap;
   };
 
-  // v3.85: 이격도 단계적 컷 (130 → 140 → 150)
+  // 이격도 단계적 컷 (130 → 140 → 150)
   const tiers = [130, 140, 150];
   let baseEligible = [];
   for (const tier of tiers) {
@@ -691,30 +690,34 @@ function selectAlertTop3(stocks) {
     baseEligible = filtered;
   }
 
-  // v3.85: V2 정렬 — 50-69 고래단독 1순위 → 점수 → 수급 tiebreak
-  const isV2Priority = (s) => {
-    const score = s.total_score || 0;
-    const inRange = score >= 50 && score <= 69;
+  // v376: tier1(시총≤1조) 우선 — 3개 미달 시 전체로 확대
+  const tier1 = baseEligible.filter(s => (s.market_cap || Infinity) <= 1_000_000_000_000);
+  const pool = tier1.length >= 3 ? tier1 : baseEligible;
+
+  // v376 정렬: 스윗스팟 구간 → 수급 → 점수
+  const bandRank = (score) => {
+    if (score >= 50 && score <= 59) return 1;
+    if (score >= 60 && score <= 69) return 2;
+    if (score >= 80 && score <= 89) return 3;
+    if (score >= 90) return 4;
+    if (score >= 70 && score <= 79) return 5;
+    return 6; // 45-49
+  };
+  const supplyRank = (s) => {
     const inst = s.institution_buy_days || 0;
     const frgn = s.foreign_buy_days || 0;
-    const isSolo = s.whale_detected && inst < 2 && frgn < 2;
-    return inRange && isSolo ? 1 : 0;
+    if (frgn >= 2 && inst < 2) return 5;
+    if (inst >= 2 && frgn >= 2) return 4;
+    if (inst >= 2) return 3;
+    if (frgn >= 1) return 2;
+    return 1;
   };
-  return [...baseEligible].sort((a, b) => {
-    const v2Diff = isV2Priority(b) - isV2Priority(a);
-    if (v2Diff !== 0) return v2Diff;
-    const scoreDiff = (b.total_score || 0) - (a.total_score || 0);
-    if (scoreDiff !== 0) return scoreDiff;
-    const supplyRank = (s) => {
-      const inst = s.institution_buy_days || 0;
-      const frgn = s.foreign_buy_days || 0;
-      if (frgn >= 2 && inst < 2) return 5;
-      if (inst >= 2 && frgn >= 2) return 4;
-      if (inst >= 2) return 3;
-      if (frgn >= 1) return 2;
-      return 1;
-    };
-    return supplyRank(b) - supplyRank(a);
+  return [...pool].sort((a, b) => {
+    const bd = bandRank(a.total_score || 0) - bandRank(b.total_score || 0);
+    if (bd !== 0) return bd;
+    const sd = supplyRank(b) - supplyRank(a);
+    if (sd !== 0) return sd;
+    return (b.total_score || 0) - (a.total_score || 0);
   }).slice(0, 3);
 }
 
@@ -850,10 +853,8 @@ function selectWhaleStocks(stocks, top3) {
 }
 
 /**
- * v3.85: SAVE 모드 TOP 3 선별 (selectAlertTop3과 동일 로직, camelCase)
- *  - V2 정렬: 50-69 + 고래단독 1순위 → 점수 내림차순
- *  - 이격도 단계적 컷 130 → 140 → 150
- *  - 80-89 + 이격도 ≥120 결합 패널티 (90+은 그대로)
+ * v3.86(복귀): SAVE 모드 TOP 3 선별 (selectAlertTop3과 동일 로직, camelCase)
+ *  - tier1(시총≤1조) + 스윗스팟 구간 + 수급1차→점수
  */
 function selectSaveTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
@@ -873,7 +874,7 @@ function selectSaveTop3(stocks) {
     return hasSupply && !isOverheated && changeRate < 25 && score >= 45 && !isS89Trap;
   };
 
-  // v3.85: 이격도 단계적 컷
+  // 이격도 단계적 컷 (130 → 140 → 150)
   const tiers = [130, 140, 150];
   let baseEligible = [];
   for (const tier of tiers) {
@@ -882,30 +883,34 @@ function selectSaveTop3(stocks) {
     baseEligible = filtered;
   }
 
-  // v3.85: V2 정렬
-  const isV2Priority = (s) => {
-    const score = s.totalScore || 0;
-    const inRange = score >= 50 && score <= 69;
+  // v376: tier1(시총≤1조) 우선 — 3개 미달 시 전체로 확대
+  const tier1 = baseEligible.filter(s => (s.marketCap || Infinity) <= 1_000_000_000_000);
+  const pool = tier1.length >= 3 ? tier1 : baseEligible;
+
+  // v376 정렬: 스윗스팟 구간 → 수급 → 점수
+  const bandRank = (score) => {
+    if (score >= 50 && score <= 59) return 1;
+    if (score >= 60 && score <= 69) return 2;
+    if (score >= 80 && score <= 89) return 3;
+    if (score >= 90) return 4;
+    if (score >= 70 && score <= 79) return 5;
+    return 6; // 45-49
+  };
+  const supplyRank = (s) => {
     const inst = s.institutionalFlow?.institutionDays || 0;
     const frgn = s.institutionalFlow?.foreignDays || 0;
-    const isSolo = hasBuyWhaleOf(s) && inst < 2 && frgn < 2;
-    return inRange && isSolo ? 1 : 0;
+    if (frgn >= 2 && inst < 2) return 5;
+    if (inst >= 2 && frgn >= 2) return 4;
+    if (inst >= 2) return 3;
+    if (frgn >= 1) return 2;
+    return 1;
   };
-  return [...baseEligible].sort((a, b) => {
-    const v2Diff = isV2Priority(b) - isV2Priority(a);
-    if (v2Diff !== 0) return v2Diff;
-    const scoreDiff = (b.totalScore || 0) - (a.totalScore || 0);
-    if (scoreDiff !== 0) return scoreDiff;
-    const supplyRank = (s) => {
-      const inst = s.institutionalFlow?.institutionDays || 0;
-      const frgn = s.institutionalFlow?.foreignDays || 0;
-      if (frgn >= 2 && inst < 2) return 5;
-      if (inst >= 2 && frgn >= 2) return 4;
-      if (inst >= 2) return 3;
-      if (frgn >= 1) return 2;
-      return 1;
-    };
-    return supplyRank(b) - supplyRank(a);
+  return [...pool].sort((a, b) => {
+    const bd = bandRank(a.totalScore || 0) - bandRank(b.totalScore || 0);
+    if (bd !== 0) return bd;
+    const sd = supplyRank(b) - supplyRank(a);
+    if (sd !== 0) return sd;
+    return (b.totalScore || 0) - (a.totalScore || 0);
   }).slice(0, 3);
 }
 
@@ -1384,7 +1389,8 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
     const buyD = activePolicy?.buy_offset_day ?? 0;
     const isLegacy = buyD === 0 && sellD === 3;
     const tail = isLegacy ? ' (백테 승률 71%, 손절 21%)' : '';
-    msg += `\n💡 <b>매매 룰</b>: D+1 −3% 손절 / +3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n`;
+    const stopLossD = buyD + 1;
+    msg += `\n💡 <b>매매 룰</b>: D+${buyD} 매수 / D+${stopLossD} −3% 손절·+3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n`;
   }
 
   // Phase 1: 주간 진단 한 줄 (있을 때만)
@@ -1491,7 +1497,8 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       const buyD = activePolicy?.buy_offset_day ?? 0;
       const isLegacy = buyD === 0 && sellD === 3;
       const tail = isLegacy ? ' (백테 승률 71%, 손절 21%)' : '';
-      message += `💡 <b>매매 룰</b>: D+1 −3% 손절 / +3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n\n`;
+      const stopLossD = buyD + 1;
+      message += `💡 <b>매매 룰</b>: D+${buyD} 매수 / D+${stopLossD} −3% 손절·+3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n\n`;
     }
   }
 
