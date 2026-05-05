@@ -129,7 +129,8 @@ function formatSentimentLine(kospiSentiment, kosdaqSentiment) {
   const qGrade = kosdaqSentiment?.grade;
   const sentiment = { kospi: kospiSentiment, kosdaq: kosdaqSentiment };
 
-  if (isMarketDefensive(sentiment)) {
+  const bearish = ['fear', 'anxiety'];
+  if (bearish.includes(kGrade) || bearish.includes(qGrade)) {
     msg += `  🛡️ <b>하락장</b> — 손절 우선\n`;
   } else if (kGrade === 'extreme' && qGrade === 'extreme') {
     msg += `  🔴 <b>강한 상승장</b> — 모멘텀 TOP3 적극 매수\n`;
