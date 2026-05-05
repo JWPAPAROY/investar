@@ -220,7 +220,6 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   let regime;
   if (strongAvg == null) { regime = 'unknown'; warnings.push('strong_signal sample=0'); }
   else if (strongAvg > 1.0) regime = 'momentum';
-  else if (strongAvg < -1.0) regime = 'defense';
   else regime = 'sideways';
 
   if (strongRets.length < 10) warnings.push(`strong_signal n=${strongRets.length} (<10, low confidence)`);
@@ -660,10 +659,9 @@ ${row.warnings && row.warnings.length ? `## ⚠️ 경고\n\n${row.warnings.map(
 
 ---
 
-## Phase 1 상태
+## Phase 3 상태 (자동 적용 운영 중)
 
-- **현재**: 관측 only. 룰/가중치 자동 변경 **없음**.
-- **다음 단계**: Phase 2 (4주 데이터 누적 후) — \`active_policy\` 테이블 + timing 자동 조정
+- **현재**: 주간진단 권장 timing이 현재 정책과 다르면 \`active_policy\` 자동 갱신.
 - **이력**: [WEEKLY_DIAGNOSTICS.md](./WEEKLY_DIAGNOSTICS.md)
 `;
   fs.writeFileSync(file, md, 'utf8');

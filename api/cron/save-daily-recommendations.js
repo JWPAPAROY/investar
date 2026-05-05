@@ -130,7 +130,7 @@ function formatSentimentLine(kospiSentiment, kosdaqSentiment) {
   const sentiment = { kospi: kospiSentiment, kosdaq: kosdaqSentiment };
 
   if (isMarketDefensive(sentiment)) {
-    msg += `  🛡️ <b>하락장</b> — 방어 TOP3 참고, 손절 우선\n`;
+    msg += `  🛡️ <b>하락장</b> — 손절 우선\n`;
   } else if (kGrade === 'extreme' && qGrade === 'extreme') {
     msg += `  🔴 <b>강한 상승장</b> — 모멘텀 TOP3 적극 매수\n`;
   } else if (kGrade === 'extreme' || qGrade === 'extreme' || kGrade === 'optimism' || qGrade === 'optimism') {
@@ -690,7 +690,7 @@ function selectAlertTop3(stocks) {
     baseEligible = filtered;
   }
 
-  // B1: 스윗스팟 구간 → 수급 → 점수 (tier1 시총 필터 없음)
+  // v387: 수급등급(sg) 1차 → 기관매수일 2차 → 스윗스팟 구간 3차 (승률 최대화)
   const bandRank = (score) => {
     if (score >= 50 && score <= 59) return 1;
     if (score >= 60 && score <= 69) return 2;
@@ -709,11 +709,11 @@ function selectAlertTop3(stocks) {
     return 1;
   };
   return [...baseEligible].sort((a, b) => {
-    const bd = bandRank(a.total_score || 0) - bandRank(b.total_score || 0);
-    if (bd !== 0) return bd;
     const sd = supplyRank(b) - supplyRank(a);
     if (sd !== 0) return sd;
-    return (b.total_score || 0) - (a.total_score || 0);
+    const id = (b.institution_buy_days || 0) - (a.institution_buy_days || 0);
+    if (id !== 0) return id;
+    return bandRank(a.total_score || 0) - bandRank(b.total_score || 0);
   }).slice(0, 3);
 }
 
@@ -879,7 +879,7 @@ function selectSaveTop3(stocks) {
     baseEligible = filtered;
   }
 
-  // B1: 스윗스팟 구간 → 수급 → 점수 (tier1 시총 필터 없음)
+  // v387: 수급등급(sg) 1차 → 기관매수일 2차 → 스윗스팟 구간 3차 (승률 최대화)
   const bandRank = (score) => {
     if (score >= 50 && score <= 59) return 1;
     if (score >= 60 && score <= 69) return 2;
@@ -898,160 +898,16 @@ function selectSaveTop3(stocks) {
     return 1;
   };
   return [...baseEligible].sort((a, b) => {
-    const bd = bandRank(a.totalScore || 0) - bandRank(b.totalScore || 0);
-    if (bd !== 0) return bd;
     const sd = supplyRank(b) - supplyRank(a);
     if (sd !== 0) return sd;
-    return (b.totalScore || 0) - (a.totalScore || 0);
+    const inst_a = a.institutionalFlow?.institutionDays || 0;
+    const inst_b = b.institutionalFlow?.institutionDays || 0;
+    const id = inst_b - inst_a;
+    if (id !== 0) return id;
+    return bandRank(a.totalScore || 0) - bandRank(b.totalScore || 0);
   }).slice(0, 3);
 }
 
-/**
- * v3.78: 방어 전략 TOP 3 선별 (SAVE용 - 스크리닝 결과 camelCase)
- * 과매도 반등 종목 중심, 수급은 점수 보너스로만 반영
- */
-function selectDefenseSaveTop3(stocks) {
-  if (!stocks || stocks.length === 0) return [];
-
-  // v3.78: SmartMoney/과열 자격 필터 제거 — 시총+비폭락만 체크
-  const isEligible = (s) => {
-    const isNotCrashing = !s.crashCheck?.isCrashing;
-    const mcBillion = s.marketCap ? s.marketCap / 100000000 : 0;
-    const hasMinMarketCap = mcBillion >= 1000;
-    return isNotCrashing && hasMinMarketCap;
-  };
-
-  // v3.78: 방어점수 1차 정렬 (수급은 점수에 이미 반영됨)
-  const sortFn = (a, b) => b.defenseScore - a.defenseScore;
-
-  const top3 = [];
-  const used = new Set();
-  const addFromPool = (pool) => {
-    for (const s of pool) {
-      if (top3.length >= 3) break;
-      if (used.has(s.stockCode)) continue;
-      top3.push(s);
-      used.add(s.stockCode);
-    }
-  };
-
-  // v3.78: 점수 하한 없이 방어점수 내림차순 top3 (데이터 검증: 하락일 87.5% 선방)
-  const eligible = stocks.filter(isEligible);
-  addFromPool(eligible.sort(sortFn));
-
-  return top3;
-}
-
-/**
- * v3.78: 방어 전략 TOP 3 선별 (ALERT용 - DB snake_case)
- */
-function selectDefenseAlertTop3(stocks) {
-  if (!stocks || stocks.length === 0) return [];
-
-  // v3.78: SmartMoney/과열 자격 필터 제거 — 시총만 체크
-  const isEligible = (s) => {
-    const mcBillion = s.market_cap ? s.market_cap / 100000000 : 0;
-    const hasMinMarketCap = mcBillion >= 1000;
-    return hasMinMarketCap;
-  };
-
-  // v3.78: 방어점수 1차 정렬
-  const sortFn = (a, b) => b.defense_score - a.defense_score;
-
-  const top3 = [];
-  const used = new Set();
-  const addFromPool = (pool) => {
-    for (const s of pool) {
-      if (top3.length >= 3) break;
-      if (used.has(s.stock_code)) continue;
-      top3.push(s);
-      used.add(s.stock_code);
-    }
-  };
-
-  // v3.78: 점수 하한 없이 방어점수 내림차순 top3
-  const eligible = stocks.filter(isEligible);
-  addFromPool(eligible.sort(sortFn));
-
-  return top3;
-}
-
-/**
- * v3.34: 시장 공포 상태인지 확인
- */
-function isMarketDefensive(sentiment) {
-  if (!sentiment) return false;
-  const kGrade = sentiment.kospi?.grade;
-  const qGrade = sentiment.kosdaq?.grade;
-  const bearish = ['fear', 'anxiety'];
-  return bearish.includes(kGrade) || bearish.includes(qGrade);
-}
-
-/**
- * v3.81: ALERT 레짐 변경 시 DB 데이터로 전체 TOP3 재선별
- * 스크리닝 재실행 없이 저장된 지표(change_rate, mfi, rsi, market_cap 등)로 선별
- */
-function reselectAlertTop3ForRegime(allStocks, newRegime) {
-  const momentum = selectAlertTop3(allStocks);
-  const defense = selectDefenseAlertTop3(allStocks);
-  console.log(`  📊 재선별 (${newRegime}): 모멘텀 ${momentum.length}, 방어 ${defense.length}`);
-  return { momentum, defense };
-}
-
-/**
- * v3.82: 시장 레짐 결정 — 2단계 (momentum / defense)
- *
- * 양쪽 모두 하락(anxiety/fear) → defense
- * 한쪽 fear + 다른쪽 non-bullish → defense
- * 한쪽 anxiety + 다른쪽 non-bullish → prediction ≤ -0.4면 defense, 아니면 momentum
- * 한쪽 하락 + 다른쪽 bullish (상충) → prediction ≤ -0.4면 defense, 아니면 momentum
- * 한쪽이라도 bullish → momentum
- * 양쪽 neutral → prediction ≤ -0.4면 defense, 아니면 momentum
- */
-function determineMarketRegime(sentiment, prediction) {
-  if (!sentiment) return 'momentum';
-
-  const kGrade = sentiment.kospi?.grade || 'neutral';
-  const qGrade = sentiment.kosdaq?.grade || 'neutral';
-  const bearish = ['fear', 'anxiety'];
-  const bullish = ['optimism', 'extreme'];
-  const predScore = prediction?.score ?? 0;
-
-  const kBearish = bearish.includes(kGrade);
-  const qBearish = bearish.includes(qGrade);
-  const kBullish = bullish.includes(kGrade);
-  const qBullish = bullish.includes(qGrade);
-
-  // 1. 양쪽 모두 하락 → defense
-  if (kBearish && qBearish) return 'defense';
-
-  // 2. 한쪽이 fear(3개 bearish 합의) + 다른쪽 non-bullish → defense
-  const kFear = kGrade === 'fear';
-  const qFear = qGrade === 'fear';
-  if ((kFear && !qBullish) || (qFear && !kBullish)) return 'defense';
-
-  // 3. 한쪽 anxiety + 다른쪽 non-bullish → prediction 보조
-  if ((kBearish && !qBullish) || (qBearish && !kBullish)) {
-    return predScore <= -0.4 ? 'defense' : 'momentum';
-  }
-
-  // 4. 한쪽 하락 + 다른쪽 bullish (상충) → prediction 보조
-  if ((kBearish && qBullish) || (qBearish && kBullish)) {
-    return predScore <= -0.4 ? 'defense' : 'momentum';
-  }
-
-  // 5. 한쪽이라도 bullish → momentum
-  if (kBullish || qBullish) return 'momentum';
-
-  // 6. 양쪽 neutral → prediction 보조
-  return predScore <= -0.4 ? 'defense' : 'momentum';
-}
-
-/**
- * v3.43: DB에 저장된 is_top3/is_defense_top3 플래그 기반 TOP3 조회
- * 결산(save) 시점에 저장된 TOP3를 그대로 사용하여 불일치 방지
- * fallback: is_top3 미저장 시 기존 선별 로직 사용
- */
 function getTop3FromDb(stocks, field = 'is_top3') {
   const dbTop3 = (stocks || [])
     .filter(s => s[field])
@@ -1071,29 +927,12 @@ function getTop3FromDb(stocks, field = 'is_top3') {
       return supplyRank(b) - supplyRank(a);
     });
   if (dbTop3.length > 0) return dbTop3.slice(0, 3);
-  // fallback: is_top3 미저장 시 기존 로직
-  return field === 'is_defense_top3'
-    ? selectDefenseAlertTop3(stocks || [])
-    : selectAlertTop3(stocks || []).slice(0, 3);
+  return selectAlertTop3(stocks || []).slice(0, 3);
 }
 
-/**
- * v3.74: 레짐 기반 TOP3 조회 — DB의 market_regime 필드 참조
- * defense → is_defense_top3, momentum → is_top3
- * 레짐별 TOP3가 비어있으면 모멘텀 fallback
- */
 function getRegimeTop3FromDb(stocks) {
-  const regime = stocks?.[0]?.market_regime || 'momentum';
-  // v3.82: sideways 제거 — 기존 sideways 데이터는 momentum으로 fallback
-  const effectiveRegime = regime === 'sideways' ? 'momentum' : regime;
-  const fieldMap = { defense: 'is_defense_top3', momentum: 'is_top3' };
-  let top3 = getTop3FromDb(stocks, fieldMap[effectiveRegime] || 'is_top3');
-  // 레짐별 TOP3가 비어있으면 모멘텀 fallback
-  if (top3.length === 0 && effectiveRegime !== 'momentum') {
-    top3 = getTop3FromDb(stocks, 'is_top3');
-    return { top3, regime: 'momentum', fallback: true };
-  }
-  return { top3, regime: effectiveRegime, fallback: false };
+  const top3 = getTop3FromDb(stocks, 'is_top3');
+  return { top3, regime: 'momentum', fallback: false };
 }
 
 /**
@@ -1166,6 +1005,7 @@ function getExpectedReturn(stock, expectations) {
         days: stockMatch.optimal_days, p25: +stockMatch.p25, median: +stockMatch.median,
         p75: +stockMatch.p75, winRate: +stockMatch.win_rate, sampleCount: stockMatch.sample_count,
         matchMethod: stockMatch.match_method, matchDimensions: stockMatch.match_dimensions,
+        updatedAt: stockMatch.updated_at,
       };
     }
   }
@@ -1179,63 +1019,21 @@ function getExpectedReturn(stock, expectations) {
     match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
   }
   if (!match || match.sample_count < 5) return null;
-  return { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count, matchMethod: 'grade_based' };
+  return {
+    days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75,
+    winRate: +match.win_rate, sampleCount: match.sample_count, matchMethod: 'grade_based',
+    latestDataDate: match.latest_data_date, updatedAt: match.updated_at,
+  };
 }
 
 /**
  * v3.34: 방어 TOP 3 텔레그램 메시지 포맷 (공통)
  */
-function formatDefenseTop3Section(defenseTop3, mode = 'save', expectations = []) {
-  if (!defenseTop3 || defenseTop3.length === 0) return '';
-
-  let msg = `\n━━━━━━━━━━━━━━━━━━━━\n\n`;
-  msg += `🛡️ <b>방어 전략 TOP 3</b> (기관 수급 기반)\n\n`;
-
-  defenseTop3.forEach((stock, i) => {
-    const medal = ['🥇', '🥈', '🥉'][i];
-    const isSave = mode === 'save';
-    const price = isSave ? (stock.currentPrice || 0) : (stock.recommended_price || 0);
-    const score = isSave ? (stock.defenseScore || 0) : (stock.defense_score || 0);
-    const grade = isSave ? (stock.defenseGrade || 'D') : (stock.defense_grade || 'D');
-    const mc = isSave ? (stock.marketCap || 0) : (stock.market_cap || 0);
-    const mcBillion = mc / 100000000;
-
-    // 손절 계산 (시총별 차등)
-    const slWarning = mcBillion >= 50000 ? Math.floor(price * 0.96) : Math.floor(price * 0.97);
-    const slExit = mcBillion >= 50000 ? Math.floor(price * 0.94) : Math.floor(price * 0.95);
-    const slWarningPct = mcBillion >= 50000 ? '-4%' : '-3%';
-    const slExitPct = mcBillion >= 50000 ? '-6%' : '-5%';
-
-    const instDays = isSave
-      ? (stock.institutionalFlow?.institutionDays || 0)
-      : (stock.institution_buy_days || 0);
-    const foreignDays = isSave
-      ? (stock.institutionalFlow?.foreignDays || 0)
-      : (stock.foreign_buy_days || 0);
-
-    const marketTag = formatMarketTag(stock.market);
-    const displayName = getDisplayName(stock);
-    msg += `${medal} <b>${displayName}</b> ${marketTag} (${grade}, ${score.toFixed ? score.toFixed(0) : score}점)\n`;
-    msg += `   💰 현재가: ${price.toLocaleString()}원\n`;
-    msg += `   🛡️ 손절: ${slWarning.toLocaleString()}원(${slWarningPct}) / ${slExit.toLocaleString()}원(${slExitPct})\n`;
-    msg += `   📊 기관 ${instDays}일 연속매수 | 외국인 ${foreignDays}일\n`;
-
-    // v3.46: 기대수익 구간
-    const er = getExpectedReturn(stock, expectations);
-    if (er) {
-      msg += `   📈 기대수익(${er.days}일): +${er.p25.toFixed(1)}% ~ +${er.median.toFixed(1)}% ~ +${er.p75.toFixed(1)}% (승률 ${er.winRate.toFixed(0)}%)\n`;
-    }
-    msg += `\n`;
-  });
-
-  return msg;
-}
-
 /**
  * v3.27: SAVE 메시지 (오후 15:35)
  * 🌆 오늘의 결산 (오전 추천 성과 + 내일 TOP 3)
  */
-function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, defenseTop3 = [], expectations = [], prediction = null, diagnostic = null, activePolicy = null) {
+function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, expectations = [], prediction = null, diagnostic = null, activePolicy = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let msg = `🌆 <b>오늘의 결산</b> (${dateShort})\n`;
@@ -1283,22 +1081,9 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
     msg += `━━━━━━━━━━━━━━━━━━━━\n\n`;
   }
 
-  // ── 2. 내일을 위한 TOP 3 (v3.74: 레짐 기반 전환) ──
-  const regime = options.regime || 'momentum';
-  // 레짐별 메인 TOP3 결정
-  let primaryTop3 = nextTop3;
-  let primaryTitle = '🏆 <b>내일을 위한 TOP 3</b>';
-  let secondaryTop3 = null;
-  let secondaryTitle = '';
-
-  if (regime === 'defense' && defenseTop3 && defenseTop3.length > 0) {
-    primaryTop3 = defenseTop3;
-    primaryTitle = '🛡️ <b>내일을 위한 방어 TOP 3</b>';
-    secondaryTop3 = nextTop3;
-    secondaryTitle = '📊 참고: 모멘텀 TOP 3';
-  } else if (regime === 'defense' && (!defenseTop3 || defenseTop3.length === 0)) {
-    primaryTitle = '🏆 <b>내일을 위한 TOP 3</b> ⚠️방어종목 미충족';
-  }
+  // ── 2. 내일을 위한 TOP 3 ──
+  const primaryTop3 = nextTop3;
+  const primaryTitle = '🏆 <b>내일을 위한 TOP 3</b>';
 
   if (!primaryTop3 || primaryTop3.length === 0) {
     msg += `${primaryTitle}\n`;
@@ -1396,7 +1181,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, de
  * v3.27: ALERT 메시지 (아침 08:30)
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
-function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, defenseTop3 = [], expectations = [], prediction = null, regime = 'momentum', diagnostic = null, activePolicy = null) {
+function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, expectations = [], prediction = null, diagnostic = null, activePolicy = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
@@ -1411,20 +1196,9 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
     message += formatSentimentLine(sentiment.kospi, sentiment.kosdaq);
   }
 
-  // ── 오늘의 TOP 3 (v3.74: 레짐 기반 전환) ──
-  let alertPrimaryTop3 = top3;
-  let alertPrimaryTitle = '🏆 <b>오늘의 TOP 3</b>';
-  let alertSecondaryTop3 = null;
-  let alertSecondaryTitle = '';
-
-  if (regime === 'defense' && defenseTop3 && defenseTop3.length > 0) {
-    alertPrimaryTop3 = defenseTop3;
-    alertPrimaryTitle = '🛡️ <b>오늘의 방어 TOP 3</b>';
-    alertSecondaryTop3 = top3;
-    alertSecondaryTitle = '📊 참고: 모멘텀 TOP 3';
-  } else if (regime === 'defense' && (!defenseTop3 || defenseTop3.length === 0)) {
-    alertPrimaryTitle = '🏆 <b>오늘의 TOP 3</b> ⚠️방어종목 미충족';
-  }
+  // ── 오늘의 TOP 3 ──
+  const alertPrimaryTop3 = top3;
+  const alertPrimaryTitle = '🏆 <b>오늘의 TOP 3</b>';
 
   if (!alertPrimaryTop3 || alertPrimaryTop3.length === 0) {
     message += `조건을 충족하는 종목이 없습니다.\n`;
@@ -1483,15 +1257,13 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       message += `\n`;
     });
 
-    // 매매 룰 (active_policy 기반, 모멘텀 레짐만)
-    if (regime === 'momentum' || !regime) {
-      const sellD = activePolicy?.sell_offset_day ?? 3;
-      const buyD = activePolicy?.buy_offset_day ?? 0;
-      const isLegacy = buyD === 0 && sellD === 3;
-      const tail = isLegacy ? ' (백테 승률 71%, 손절 21%)' : '';
-      const stopLossD = buyD + 1;
-      message += `💡 <b>매매 룰</b>: D+${buyD} 매수 / D+${stopLossD} −3% 손절·+3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n\n`;
-    }
+    // 매매 룰 (active_policy 기반)
+    const sellD = activePolicy?.sell_offset_day ?? 3;
+    const buyD = activePolicy?.buy_offset_day ?? 0;
+    const isLegacy = buyD === 0 && sellD === 3;
+    const tail = isLegacy ? ' (백테 승률 71%, 손절 21%)' : '';
+    const stopLossD = buyD + 1;
+    message += `💡 <b>매매 룰</b>: D+${buyD} 매수 / D+${stopLossD} −3% 손절·+3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n\n`;
   }
 
   // ── 과거 추천 성과 ──
@@ -1533,18 +1305,6 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       const winRateAll = (totalWinAll / totalCountAll * 100).toFixed(0);
       message += `📊 전체: 평균 ${avgReturnAll >= 0 ? '+' : ''}${avgReturnAll.toFixed(1)}% | 승률 ${winRateAll}% (${totalWinAll}/${totalCountAll})\n`;
     }
-  }
-
-  // v3.74: 참고 TOP3 (메인이 아닌 전략의 TOP3를 보충 참고로 표시)
-  if (alertSecondaryTop3 && alertSecondaryTop3.length > 0) {
-    message += `\n${alertSecondaryTitle}\n`;
-    alertSecondaryTop3.forEach((stock, i) => {
-      const name = stock.stock_name || stock.stockName;
-      const code = stock.stock_code || stock.stockCode;
-      const score = (stock.total_score || stock.totalScore || 0);
-      const scoreStr = typeof score === 'number' ? score.toFixed(0) : score;
-      message += `${i + 1}. ${name} (${code}) ${scoreStr}점\n`;
-    });
   }
 
   // Phase 1: 주간 진단 한 줄 (있을 때만)
@@ -1609,9 +1369,7 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null, expectations 
   dayResults.forEach((day, dayIdx) => {
     const dateShort = day.alertDate.slice(5).replace('-', '/');
     const daysAgo = dayIdx === 0 ? '오늘' : `D-${dayIdx}`;
-    // v3.74: 레짐 태그
-    const regimeTag = day.regime === 'defense' ? ' 🛡️방어' : '';
-    msg += `📅 ${daysAgo}(${dateShort}) 추천${regimeTag}\n`;
+    msg += `📅 ${daysAgo}(${dateShort}) 추천\n`;
 
     day.stocks.forEach((stock, i) => {
       const r = stock.return_rate || 0;
@@ -1838,8 +1596,9 @@ module.exports = async (req, res) => {
   }
 
   // KRX 휴장일/주말 체크 (cron 자동 실행만 차단, 웹훅 수동 명령은 허용)
+  // weekly-diagnostic은 일요일 실행이므로 주말/공휴일 체크 면제
   const todayKST = getTodayDateKST();
-  if (!req._fromWebhook) {
+  if (!req._fromWebhook && mode !== 'weekly-diagnostic') {
     if (isKRXHoliday(todayKST)) {
       console.log(`🏖️ 오늘(${todayKST})은 KRX 휴장일 — cron 건너뜀`);
       return res.status(200).json({ success: true, message: `KRX holiday (${todayKST}) — skipped`, holiday: true });
@@ -2214,16 +1973,11 @@ module.exports = async (req, res) => {
     // =============================================
     if (mode === 'calc-expectations') {
       console.log('📈 기대수익 통계 산출 모드 시작...');
+      console.log('📅 전체 기간 데이터 사용 (롤링 윈도우 없음)');
 
-      // 90일 롤링 윈도우: 최근 데이터만 사용하여 현재 시장 상황 반영
-      const ROLLING_DAYS = 90;
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - ROLLING_DAYS);
-      const cutoffStr = cutoffDate.toISOString().split('T')[0];
-      console.log(`📅 롤링 윈도우: 최근 ${ROLLING_DAYS}일 (${cutoffStr} 이후)`);
-
-      // Step 1: 페이지네이션으로 screening_recommendations 조회 (최근 90일)
+      // Step 1: 페이지네이션으로 screening_recommendations 조회 (전체 기간)
       // v3.66: 유사 매칭용 6개 차원 추가 조회
+      // v3.87: 90일 롤링 윈도우 제거 → 희귀 등급×고래 조합도 샘플 확보
       let allRecs = [];
       let from = 0;
       const PAGE_SIZE = 1000;
@@ -2231,7 +1985,6 @@ module.exports = async (req, res) => {
         const { data, error } = await supabase
           .from('screening_recommendations')
           .select('id, recommendation_date, stock_code, recommendation_grade, whale_detected, total_score, institution_buy_days, market_cap, volume_ratio, rsi')
-          .gte('recommendation_date', cutoffStr)
           .range(from, from + PAGE_SIZE - 1);
         if (error) { console.error('❌ recs 조회 실패:', error.message); break; }
         if (!data || data.length === 0) break;
@@ -2239,7 +1992,7 @@ module.exports = async (req, res) => {
         if (data.length < PAGE_SIZE) break;
         from += PAGE_SIZE;
       }
-      console.log(`📊 추천 종목 조회: ${allRecs.length}건 (최근 ${ROLLING_DAYS}일)`);
+      console.log(`📊 추천 종목 조회: ${allRecs.length}건 (전체 기간)`);
 
       // Step 2: 페이지네이션으로 recommendation_daily_prices 조회 (days 1~15)
       let allPrices = [];
@@ -2258,6 +2011,10 @@ module.exports = async (req, res) => {
         from += PAGE_SIZE;
       }
       console.log(`📊 일별 가격 조회: ${allPrices.length}건`);
+
+      // 최신 데이터 날짜 추적
+      const latestDataDate = allRecs.reduce((max, r) => r.recommendation_date > max ? r.recommendation_date : max, '');
+      console.log(`📅 최신 데이터 날짜: ${latestDataDate}`);
 
       // Step 3: rec ID → grade+whale 매핑
       const recMap = new Map();
@@ -2290,7 +2047,7 @@ module.exports = async (req, res) => {
         for (let day = 1; day <= 15; day++) {
           const key = `${grade}|${whaleStr}|${day}`;
           const returns = groups[key];
-          if (!returns || returns.length < 10) continue; // 90일 롤링 윈도우에 맞춰 최소 샘플 10개
+          if (!returns || returns.length < 5) continue; // 최소 샘플 5개 (전체 기간 사용)
           const sorted = [...returns].sort((a, b) => a - b);
           const med = sorted[Math.floor(sorted.length / 2)];
           if (med > bestMedian) {
@@ -2319,6 +2076,7 @@ module.exports = async (req, res) => {
           p75: parseFloat(p75.toFixed(2)),
           win_rate: parseFloat(winRate.toFixed(2)),
           sample_count: n,
+          latest_data_date: latestDataDate,
           updated_at: new Date().toISOString()
         });
       });
@@ -2601,15 +2359,10 @@ module.exports = async (req, res) => {
 
       const savedStocks = (allSavedStocks || []).filter(s => s.is_active);
 
-      // Step 2: TOP 3 풀 조회 — DB 플래그 기반 (레짐은 Step 5에서 최신 데이터로 재판정)
-      const savedRegime = allSavedStocks?.[0]?.market_regime || 'momentum';
+      // Step 2: TOP 3 풀 조회
       let top3 = getTop3FromDb(savedStocks, 'is_top3');
-      let defenseAlertTop3 = getTop3FromDb(savedStocks, 'is_defense_top3');
-      console.log(`📦 TOP 3 풀: 모멘텀 ${top3.length}개, 방어 ${defenseAlertTop3.length}개 (저장 레짐: ${savedRegime})`);
-
-      // v3.80: 모든 TOP3 풀 보완 (레짐 재판정 전이므로 전부 보완)
+      console.log(`📦 TOP 3 풀: ${top3.length}개`);
       await supplementStockInfo(top3);
-      if (defenseAlertTop3.length > 0) await supplementStockInfo(defenseAlertTop3);
 
       // Step 3: 과거 추천 종목 성과 조회 (D-1의 SAVE 데이터부터)
       // SAVE날짜 → ALERT 전달일 매핑: SAVE 2/4 → ALERT 2/5, SAVE 2/3 → ALERT 2/4, ...
@@ -2746,64 +2499,15 @@ module.exports = async (req, res) => {
         }
       }
 
-      // Step 6: v3.81 레짐 재판정 + TOP3 재선별 — 최신 해외 전망 + 시장 심리 기반
-      const alertRegime = determineMarketRegime(sentiment, prediction);
-      if (alertRegime !== savedRegime) {
-        console.log(`📊 레짐 변경: ${savedRegime} → ${alertRegime} (최신 해외 전망 반영)`);
-
-        // v3.81: 레짐 변경 시 전체 풀에서 새 레짐의 TOP3 재선별
-        console.log(`🔄 레짐 변경 → 전체 풀(${allSavedStocks.length}개)에서 ${alertRegime} TOP3 재선별...`);
-        const reselected = reselectAlertTop3ForRegime(allSavedStocks, alertRegime);
-        top3 = reselected.momentum;
-        defenseAlertTop3 = reselected.defense;
-        console.log(`✅ 재선별 결과: 모멘텀 ${top3.length}개, 방어 ${defenseAlertTop3.length}개`);
-
-        // 재선별된 TOP3 종목 정보 보완
-        await supplementStockInfo(top3);
-        if (defenseAlertTop3.length > 0) await supplementStockInfo(defenseAlertTop3);
-
-        // DB 플래그 업데이트: 기존 TOP3 플래그 초기화 → 새 TOP3 마킹
-        try {
-          // 전체 초기화
-          await supabase
-            .from('screening_recommendations')
-            .update({ is_top3: false, is_defense_top3: false, is_sideways_top3: false, market_regime: alertRegime })
-            .eq('recommendation_date', latestSaveDate);
-
-          // 새 모멘텀 TOP3 마킹
-          for (const s of top3) {
-            await supabase
-              .from('screening_recommendations')
-              .update({ is_top3: true, is_active: true })
-              .eq('recommendation_date', latestSaveDate)
-              .eq('stock_code', s.stock_code);
-          }
-          // 새 방어 TOP3 마킹
-          for (const s of defenseAlertTop3) {
-            await supabase
-              .from('screening_recommendations')
-              .update({ is_defense_top3: true, is_active: true })
-              .eq('recommendation_date', latestSaveDate)
-              .eq('stock_code', s.stock_code);
-          }
-          console.log(`✅ DB 플래그 업데이트 완료 (market_regime: ${alertRegime})`);
-        } catch (e) {
-          console.warn('⚠️ DB 플래그 업데이트 실패:', e.message);
-        }
-      } else {
-        console.log(`📊 레짐 유지: ${alertRegime}`);
-      }
-
-      const primaryAlertTop3 = alertRegime === 'defense' ? defenseAlertTop3 : top3;
-      console.log(`✅ 최종 TOP 3 (${alertRegime}): ${primaryAlertTop3.length}개`);
-      primaryAlertTop3.forEach((s, i) => {
+      console.log(`✅ 최종 TOP 3: ${top3.length}개`);
+      top3.forEach((s, i) => {
         console.log(`  TOP ${i + 1}. ${s.stock_name} (${s.total_score}점, 고래:${s.whale_detected})`);
       });
 
-      // Step 7: 텔레그램 알림 전송
+      // Step 6: 텔레그램 알림 전송
       const diagnostic = await getLatestDiagnostic();
       const activePolicy = await getActivePolicy();
-      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, defenseAlertTop3, expectations, prediction, alertRegime, diagnostic, activePolicy);
+      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, expectations, prediction, diagnostic, activePolicy);
       const sent = await sendTelegramMessage(message);
 
       // v3.66: alert 전송 완료 시각 기록 (cron 중복 방지용)
@@ -2909,8 +2613,7 @@ module.exports = async (req, res) => {
           .eq('is_active', true)
           .order('total_score', { ascending: false });
 
-        // v3.74: 레짐 기반 TOP3 조회
-        const { top3, regime: dayRegime } = getRegimeTop3FromDb(savedStocks);
+        const { top3 } = getRegimeTop3FromDb(savedStocks);
         if (top3.length === 0) continue;
 
         // v3.33: 종목 정보 보완 (통합 함수)
@@ -2990,7 +2693,7 @@ module.exports = async (req, res) => {
           });
         }
 
-        dayResults.push({ alertDate: alertDates[dayIdx], stocks, saveDate, regime: dayRegime });
+        dayResults.push({ alertDate: alertDates[dayIdx], stocks, saveDate });
       }
 
       // v3.70: 장중 모멘텀 분석 (전체 추적 종목 대상)
@@ -3407,9 +3110,6 @@ module.exports = async (req, res) => {
         }
       }));
 
-      // v3.34: 방어 TOP 3도 cached 경로에서 선별 — DB 플래그 기반 (v3.43)
-      const defenseAlertTop3 = getTop3FromDb(existingData, 'is_defense_top3');
-
       // v3.46: 기대수익 통계 조회
       let expectations = [];
       try { const { data } = await supabase.from('expected_return_stats').select('*'); expectations = data || []; } catch (e) { }
@@ -3437,11 +3137,9 @@ module.exports = async (req, res) => {
         }
       }
 
-      // v3.74: 레짐 기반 메시지
-      const cachedRegime = existingData?.[0]?.market_regime || determineMarketRegime(sentiment, prediction);
       const cachedDiagnostic = await getLatestDiagnostic();
       const cachedActivePolicy = await getActivePolicy();
-      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment, regime: cachedRegime }, defenseAlertTop3, expectations, prediction, cachedDiagnostic, cachedActivePolicy);
+      const message = formatSaveAlertMessage(nextTop3, morningResults, today, { sentiment }, expectations, prediction, cachedDiagnostic, cachedActivePolicy);
       const sent = await sendTelegramMessage(message);
 
       // 해외 예측 실제 결과 업데이트
@@ -3581,26 +3279,19 @@ module.exports = async (req, res) => {
           + (stock.scoreBreakdown?.signalAdjustments?.upperShadowPenalty || 0)
           + (stock.scoreBreakdown?.signalAdjustments?.sellWhalePenalty || 0),
 
-        // v3.34: 방어 전략
-        defense_score: stock.defenseScore || 0,
-        defense_grade: stock.defenseGrade || 'D',
-
         // v3.36: 스코어링 v2 병렬 비교
         total_score_v2: stock.totalScoreV2 || 0,
 
-        // v3.63: B등급(45점) 이상만 성과 추적, 나머지는 기대수익 통계용으로만 저장
-        is_active: (stock.totalScore || 0) >= 45,
+        // v3.88: 전 등급 성과 추적 (C/D 포함) — 기대수익 통계 정확도 향상
+        is_active: true,
         is_top3: false,
         is_sideways_top3: false,
-        is_defense_top3: false,
         is_top3_v2: false
       };
     });
 
     // v3.35: TOP3 선별 후 DB 저장 전에 마킹
     const saveTop3Codes = selectSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
-    // v3.82: 횡보 TOP3 제거 (2단계 레짐 전환)
-    const defSaveTop3Codes = selectDefenseSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
 
     // v3.37: v2 TOP3 선별 (Supply 기반 필터 — 기관/외국인 수급 + v2 총점)
     const v2Top3Codes = stocks
@@ -3619,10 +3310,8 @@ module.exports = async (req, res) => {
 
     for (const rec of recommendations) {
       if (saveTop3Codes.includes(rec.stock_code)) rec.is_top3 = true;
-      if (defSaveTop3Codes.includes(rec.stock_code)) rec.is_defense_top3 = true;
       if (v2Top3Codes.includes(rec.stock_code)) rec.is_top3_v2 = true;
-      // v3.80: TOP3 종목은 is_active 보장 (방어/횡보 TOP3가 낮은 모멘텀 점수로 누락되는 버그 수정)
-      if (rec.is_top3 || rec.is_defense_top3) rec.is_active = true;
+      if (rec.is_top3) rec.is_active = true;
     }
 
     // 장중 수동 결산 시 DB 저장 건너뜀
@@ -3682,18 +3371,18 @@ module.exports = async (req, res) => {
       'S+': filteredStocks.filter(s => s.recommendation.grade === 'S+').length,
       S: filteredStocks.filter(s => s.recommendation.grade === 'S').length,
       A: filteredStocks.filter(s => s.recommendation.grade === 'A').length,
-      B: filteredStocks.filter(s => s.recommendation.grade === 'B').length
+      B: filteredStocks.filter(s => s.recommendation.grade === 'B').length,
+      C: filteredStocks.filter(s => s.recommendation.grade === 'C').length,
+      D: filteredStocks.filter(s => s.recommendation.grade === 'D').length,
     };
-    console.log(`   등급: 과열(${gradeStats.과열}) S+(${gradeStats['S+']}) S(${gradeStats.S}) A(${gradeStats.A}) B(${gradeStats.B})\n`);
+    console.log(`   등급: 과열(${gradeStats.과열}) S+(${gradeStats['S+']}) S(${gradeStats.S}) A(${gradeStats.A}) B(${gradeStats.B}) C(${gradeStats.C}) D(${gradeStats.D})\n`);
 
     // v3.25: save 시점에 텔레그램 알림 (고래 상세 정보 포함)
     let tgSent = false;
     try {
-      // 1. 내일 TOP 3 선정 (모멘텀 + 방어)
+      // 1. 내일 TOP 3 선정
       const saveTop3 = selectSaveTop3(stocks);
-      const defenseTop3 = selectDefenseSaveTop3(stocks);
       console.log(`📱 TOP 3 후보: ${saveTop3.length}개 - ${saveTop3.map(s => s.stockName + '(' + s.totalScore + ')').join(', ')}`);
-      console.log(`🛡️ 방어 TOP 3: ${defenseTop3.length}개 - ${defenseTop3.map(s => s.stockName + '(' + s.defenseScore + ')').join(', ')}`);
 
       // 2. 전 거래일 추천 종목의 당일 성과 분석 (오늘 종가 기준)
       // v3.31: 주말/휴일에도 정상 동작하도록 가장 최근 SAVE 날짜 조회 (ALERT 모드와 동일)
@@ -3836,29 +3525,13 @@ module.exports = async (req, res) => {
         }
       }
 
-      // 4. v3.74: 시장 레짐 결정 + DB 업데이트
-      const saveRegime = determineMarketRegime(sentiment, prediction);
-      console.log(`📊 시장 레짐: ${saveRegime} (${saveRegime === 'defense' ? '방어' : '모멘텀'})`);
-
-      if (!skipDbSave) {
-        try {
-          await supabase
-            .from('screening_recommendations')
-            .update({ market_regime: saveRegime })
-            .eq('recommendation_date', today);
-          console.log(`✅ market_regime '${saveRegime}' DB 업데이트 완료`);
-        } catch (regimeErr) {
-          console.warn('⚠️ market_regime 업데이트 실패:', regimeErr.message);
-        }
-      }
-
-      // 5. 메시지 전송
+      // 4. 메시지 전송
       if (saveTop3.length > 0 || morningResults.length > 0) {
         const saveDiagnostic = await getLatestDiagnostic();
         const saveActivePolicy = await getActivePolicy();
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment, regime: saveRegime }, defenseTop3, expectations, prediction, saveDiagnostic, saveActivePolicy);
+        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment }, expectations, prediction, saveDiagnostic, saveActivePolicy);
         tgSent = await sendTelegramMessage(saveMsg);
-        console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개, 레짐: ${saveRegime})`);
+        console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
       } else {
         console.log('📱 텔레그램: 전송할 내용 없음');
       }

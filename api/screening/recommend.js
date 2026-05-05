@@ -34,7 +34,8 @@ module.exports = async function handler(req, res) {
         const [expRes, stockExpRes] = await Promise.all([
           supabase.from('expected_return_stats').select('*'),
           supabase.from('stock_expected_returns').select('*')
-            .gte('recommendation_date', new Date(Date.now() - 5 * 86400000).toISOString().split('T')[0]),
+            .gte('recommendation_date', new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0])
+            .order('recommendation_date', { ascending: false }),
         ]);
         expectations = expRes.data || [];
         stockExpected = stockExpRes.data || [];
@@ -52,7 +53,7 @@ module.exports = async function handler(req, res) {
               days: stockMatch.optimal_days, p25: +stockMatch.p25, median: +stockMatch.median,
               p75: +stockMatch.p75, winRate: +stockMatch.win_rate, sampleCount: stockMatch.sample_count,
               matchMethod: stockMatch.match_method, matchDimensions: stockMatch.match_dimensions,
-              updatedAt: stockMatch.updated_at,
+              updatedAt: stockMatch.updated_at, latestDataDate: stockMatch.recommendation_date,
             };
           }
         }
@@ -64,12 +65,10 @@ module.exports = async function handler(req, res) {
           match = expectations.find(e => e.grade === grade && e.whale_detected === !whale);
         }
         if (!match || match.sample_count < 5) return null;
-        return { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count, matchMethod: 'grade_based', updatedAt: match.updated_at };
+        return { days: match.optimal_days, p25: +match.p25, median: +match.median, p75: +match.p75, winRate: +match.win_rate, sampleCount: match.sample_count, matchMethod: 'grade_based', updatedAt: match.updated_at, latestDataDate: match.latest_data_date };
       };
       result.stocks.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
       if (result.top3) result.top3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
-      // v3.82: sidewaysTop3 제거
-      if (result.defenseTop3) result.defenseTop3.forEach(s => { s.expectedReturn = matchExpectedReturn(s); });
     }
 
     // 당일 prediction score를 Supabase 캐시에서 조회 (08:00 alert cron이 저장한 데이터)
@@ -136,8 +135,6 @@ module.exports = async function handler(req, res) {
       };
       result.stocks.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
       if (result.top3) result.top3.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
-      // v3.82: sidewaysTop3 제거
-      if (result.defenseTop3) result.defenseTop3.forEach(s => { s.sectorOutlook = matchSectorOutlook(s); });
     }
 
     // Phase 2-3: active_policy + 최신 진단 노출 (프론트 카드에 매수/매도 시점 표시용)
@@ -146,7 +143,7 @@ module.exports = async function handler(req, res) {
     try {
       if (supabase) {
         const [apRes, diagRes] = await Promise.all([
-          supabase.from('active_policy').select('buy_offset_day,sell_offset_day,regime_mode,since_date,set_by').eq('id', 1).single(),
+          supabase.from('active_policy').select('buy_offset_day,sell_offset_day,since_date,set_by').eq('id', 1).single(),
           supabase.from('weekly_diagnostics')
             .select('week_start,regime,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,recommendation_differs,consecutive_same_recommendation')
             .order('week_start', { ascending: false }).limit(1).single(),
@@ -160,9 +157,7 @@ module.exports = async function handler(req, res) {
       success: true,
       count: result.stocks.length,
       recommendations: result.stocks,
-      top3: result.top3 || [],  // 🆕 TOP 3 추천 종목
-      // v3.82: sidewaysTop3 제거 (2단계 레짐 전환)
-      defenseTop3: result.defenseTop3 || [],  // v3.34: 방어 TOP 3
+      top3: result.top3 || [],
       predictionScore: prediction?.score ?? null,  // 업종 뱃지 버킷 결정에 사용된 score
       activePolicy,                                // Phase 2-3: 현재 매매 정책
       latestDiagnostic,                            // Phase 2-3: 최신 주간 진단

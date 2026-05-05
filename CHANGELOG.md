@@ -4,6 +4,14 @@
 
 ## 📝 변경 이력
 
+### v3.87 (2026-05-06)
+- **방어 레짐 전면 제거**: 투자 성과 미개선 + 운영 진단 데이터 오염 확인으로 defense 전략 일체 제거.
+  - `calculateDefenseScore()`, `getDefenseRecommendation()`, `selectDefenseTop3/SaveTop3/AlertTop3()`, `determineMarketRegime()`, `reselectAlertTop3ForRegime()`, `formatDefenseTop3Section()` 함수 삭제
+  - ALERT/SAVE 텔레그램 메시지: 방어 TOP3 분기 제거, 항상 모멘텀 TOP3만 표시
+  - 진단 시스템 레짐: momentum / sideways / unknown 3단계로 단순화 (defense 제거)
+  - DB `is_defense_top3`, `defense_score`, `defense_grade`, `market_regime` 컬럼은 기존 데이터 보존을 위해 유지 (신규 저장에서만 미사용)
+  - **근거**: 방어 레짐 기간 DB에 쌓인 방어 종목이 주간 진단 타이밍 분석을 오염시켜 `D+? → D+?` (권장 타이밍 결정 불가) 반복 발생. 레짐 자체의 성과 개선 효과도 미확인.
+
 ### v3.86 (2026-04-28)
 - **자동 운영 진단 시스템 도입 (Phase 1+2+3)**: 매주 일요일 22:00 KST `weekly-diagnostic` cron이 4가지 진단(시장 레짐/점수 모델 건강도/권장 매매 타이밍/TOP1 알파)을 자동 산출. 진단의 신뢰도를 검증하는 meta-monitor(4주 전 권장의 후향 백테스트) 포함.
 - **active_policy 테이블 (수동 변경 only)**: 매매 정책(D+k 매수, D+n 매도)은 사용자만 변경 가능. 자동 변경 절대 없음 — v3.55→v3.85의 매주 룰 변경 churn 재발 방지. 6주 연속 동일 권고 시 적용 권고 알림(임계값 임의값).

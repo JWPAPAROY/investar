@@ -1306,12 +1306,6 @@ class StockScreener {
       // 🆕 v3.13: 지속적 폭락 감지
       const crashCheck = this.detectContinuousDecline(chartData);
 
-      // 🆕 v3.34: 방어 전략 점수 계산 (병렬 운영)
-      const defenseResult = this.calculateDefenseScore(
-        volumeAnalysis, advancedAnalysis, chartData, currentData.currentPrice,
-        investorData, riskAdjusted, crashCheck, currentData.marketCap
-      );
-
       const recommendation = this.getRecommendation(totalScore, advancedAnalysis.tier, overheating, overheatingV2);
       return {
         stockCode,
@@ -1329,7 +1323,7 @@ class StockScreener {
         volumeAnalysis,
         advancedAnalysis,
         institutionalFlow, // 신규: 기관/외국인 수급
-        riskAdjusted, // 위험조정 점수 (방어 전략에서 사용)
+        riskAdjusted,
         manipulation, // 신규: 작전주 필터
         liquidity, // 신규: 유동성 필터
         previousSurge, // 신규: 과거급등 필터
@@ -1348,10 +1342,6 @@ class StockScreener {
         grade: recommendation.grade,
         recommendation,
         rankBadges: rankBadges || {},
-        // v3.34: 방어 전략
-        defenseScore: defenseResult.totalScore,
-        defenseGrade: defenseResult.grade,
-        defenseBreakdown: defenseResult.breakdown,
         // v3.36: 스코어링 v2 병렬 비교
         totalScoreV2: v2.totalScore,
         scoreV2Breakdown: v2.breakdown
@@ -1451,227 +1441,6 @@ class StockScreener {
     // v3.39: 서브 컴포넌트를 _baseDetail에 저장 (scoreBreakdown에서 참조)
     this._baseDetail = { volumeRatio: volumeRatioScore, vpd: vpdScore, marketCap: marketCapScore, drawdown: drawdownScore, consecutiveRise: riseScore };
     return finalBase;
-  }
-
-  // ========================================
-  // v3.34: 방어 전략 스코어링 (Defense Strategy)
-  // DefenseTotal = Recovery(0-30) + SmartMoney(0-25) + Stability(0-25) + Safety(0-20) + SignalAdj
-  // ========================================
-
-  /**
-   * 방어 전략 점수 계산
-   * 하락장에서 과매도 반등 + 기관 수급 기반 안전한 종목 선별
-   */
-  calculateDefenseScore(volumeAnalysis, advancedAnalysis, chartData, currentPrice, investorData, riskAdjusted, crashCheck, marketCap) {
-    if (!chartData || chartData.length < 20) {
-      return { totalScore: 0, breakdown: {}, grade: 'D' };
-    }
-
-    // === 1. Recovery Score (0-35점): 과매도 반등 신호 (v3.78: 30→35점 확대) ===
-    const rsi = this.calculateRSI(chartData, 14);
-    const mfi = volumeAnalysis?.indicators?.mfi || 50;
-    const disparity = this.calculateDisparity(chartData, currentPrice, 20);
-
-    // RSI 과매도 (0-14점) — v3.78: 12→14점 확대
-    let rsiScore = 0;
-    if (rsi >= 25 && rsi < 35) rsiScore = 14;
-    else if (rsi >= 20 && rsi < 25) rsiScore = 12;
-    else if (rsi < 20) rsiScore = 10;
-    else if (rsi >= 35 && rsi < 45) rsiScore = 10;
-    else if (rsi >= 45 && rsi < 50) rsiScore = 5;
-
-    // MFI 회복 (0-12점) — v3.78: 10→12점 확대
-    let mfiScore = 0;
-    if (mfi >= 20 && mfi < 30) mfiScore = 12;
-    else if (mfi >= 15 && mfi < 20) mfiScore = 9;
-    else if (mfi < 15) mfiScore = 6;
-    else if (mfi >= 30 && mfi < 40) mfiScore = 8;
-    else if (mfi >= 40 && mfi < 50) mfiScore = 4;
-
-    // 이격도 할인 (0-9점) — v3.78: 8→9점 확대
-    let disparityScore = 0;
-    if (disparity >= 90 && disparity < 95) disparityScore = 9;
-    else if (disparity >= 85 && disparity < 90) disparityScore = 8;
-    else if (disparity < 85) disparityScore = 7;
-    else if (disparity >= 95 && disparity < 98) disparityScore = 5;
-    else if (disparity >= 98 && disparity < 100) disparityScore = 2;
-
-    const recoveryScore = Math.min(rsiScore + mfiScore + disparityScore, 35);
-
-    // === 2. Supply Bonus (0-10점): 기관/외국인 수급 가산 (v3.78: 25→10점, 자격→보너스) ===
-    let instBuyDays = 0;
-    let foreignBuyDays = 0;
-
-    if (investorData && investorData.length > 0) {
-      // 기관 연속 매수일 (최근부터 과거로)
-      for (const day of investorData) {
-        const instNet = parseInt(day.institution?.netBuyQty || day.institution_net_buy || 0);
-        if (instNet > 0) instBuyDays++;
-        else break;
-      }
-      // 외국인 연속 매수일
-      for (const day of investorData) {
-        const foreignNet = parseInt(day.foreign?.netBuyQty || day.foreign_net_buy || 0);
-        if (foreignNet > 0) foreignBuyDays++;
-        else break;
-      }
-    }
-
-    // 기관 점수 (0-4점)
-    let instScore = 0;
-    if (instBuyDays >= 4) instScore = 4;
-    else if (instBuyDays >= 3) instScore = 3;
-    else if (instBuyDays >= 2) instScore = 2;
-    else if (instBuyDays >= 1) instScore = 1;
-
-    // 외국인 점수 (0-4점)
-    let foreignScore = 0;
-    if (foreignBuyDays >= 4) foreignScore = 4;
-    else if (foreignBuyDays >= 3) foreignScore = 3;
-    else if (foreignBuyDays >= 2) foreignScore = 2;
-    else if (foreignBuyDays >= 1) foreignScore = 1;
-
-    // 쌍방 수급 보너스 (0-2점)
-    let dualBonus = 0;
-    if (instBuyDays >= 2 && foreignBuyDays >= 2) dualBonus = 2;
-    else if (instBuyDays >= 1 && foreignBuyDays >= 1) dualBonus = 1;
-
-    const supplyBonusScore = Math.min(instScore + foreignScore + dualBonus, 10);
-
-    // === 3. Stability Score (0-25점): 바닥 안정성 ===
-
-    // 3-1. 거래량 안정성 (0-10점)
-    const volumeRatio = volumeAnalysis?.current?.volumeMA20
-      ? volumeAnalysis.current.volume / volumeAnalysis.current.volumeMA20 : 1;
-    const recent5Volumes = chartData.slice(0, 5).map(d => d.volume);
-    const avgVol5 = recent5Volumes.reduce((a, b) => a + b, 0) / 5;
-    const stdVol5 = Math.sqrt(recent5Volumes.reduce((s, v) => s + Math.pow(v - avgVol5, 2), 0) / 5);
-    const volumeCV = avgVol5 > 0 ? stdVol5 / avgVol5 : 1;
-
-    let volumeStabilityScore = 0;
-    if (volumeRatio >= 0.8 && volumeRatio <= 1.5 && volumeCV < 0.3) volumeStabilityScore = 10;
-    else if (volumeRatio >= 0.8 && volumeRatio <= 1.5 && volumeCV < 0.5) volumeStabilityScore = 7;
-    else if (volumeRatio > 1.5 && volumeRatio <= 2.5 && volumeCV < 0.5) volumeStabilityScore = 5;
-    else if (volumeRatio >= 0.5 && volumeRatio < 0.8 && volumeCV < 0.3) volumeStabilityScore = 4;
-    else if (volumeRatio > 2.5) volumeStabilityScore = 2;
-    else if (volumeRatio < 0.5) volumeStabilityScore = 1;
-
-    // 3-2. 변동성 수축 (0-8점)
-    const volatility = this.analyzeVolatilityContraction(chartData);
-    const contractionRatio = volatility.details?.contractionRatio || (volatility.score > 0 ? 0.7 : 1.1);
-    let volatilityScore = 0;
-    if (contractionRatio <= 0.4) volatilityScore = 8;
-    else if (contractionRatio <= 0.6) volatilityScore = 6;
-    else if (contractionRatio <= 0.8) volatilityScore = 4;
-    else if (contractionRatio <= 1.0) volatilityScore = 2;
-
-    // 3-3. 바닥 형성 (0-7점)
-    const bottomFormation = advancedAnalysis?.indicators?.bottomFormation || { detected: false };
-    let bottomScore = 0;
-    if (bottomFormation.detected) {
-      bottomScore = 7;
-    } else {
-      // 부분 조건 체크
-      const recentHigh = Math.max(...chartData.slice(0, 30).map(d => d.high));
-      const decline = ((currentPrice - recentHigh) / recentHigh) * 100;
-      const hasDecline = decline < -15;
-
-      if (hasDecline) {
-        const recent5Vol = chartData.slice(0, 5).reduce((s, d) => s + d.volume, 0) / 5;
-        const old20Vol = chartData.slice(5, 25).reduce((s, d) => s + d.volume, 0) / 20;
-        const volDrying = old20Vol > 0 ? (recent5Vol / old20Vol) < 0.5 : false;
-
-        const recent5Prices = chartData.slice(0, 5).map(d => d.close);
-        const priceRange = ((Math.max(...recent5Prices) - Math.min(...recent5Prices)) / currentPrice) * 100;
-        const priceStable = priceRange < 3;
-
-        if (hasDecline && volDrying) bottomScore = 4;
-        else if (hasDecline && priceStable) bottomScore = 3;
-        else bottomScore = 1;
-      }
-    }
-
-    const stabilityScore = Math.min(volumeStabilityScore + volatilityScore + bottomScore, 25);
-
-    // === 4. Safety Score (0-20점): 리스크 관리 ===
-    const mcBillion = marketCap ? marketCap / 100000000 : 0; // 억 단위
-
-    // 시총 안전성 (0-10점)
-    let marketCapScore = 0;
-    if (mcBillion >= 100000) marketCapScore = 10;       // 10조+
-    else if (mcBillion >= 50000) marketCapScore = 8;    // 5조+
-    else if (mcBillion >= 30000) marketCapScore = 6;    // 3조+
-    else if (mcBillion >= 10000) marketCapScore = 4;    // 1조+
-    else if (mcBillion >= 5000) marketCapScore = 2;     // 5000억+
-
-    // 위험조정 수익률 (0-5점) — Sharpe 음수가 타겟
-    const sharpe = parseFloat(riskAdjusted?.sharpeRatio || 0);
-    let sharpeScore = 0;
-    if (sharpe < -1.0) sharpeScore = 5;
-    else if (sharpe < -0.5) sharpeScore = 3;
-    else if (sharpe < 0) sharpeScore = 2;
-
-    // 낙폭 포지셔닝 (0-5점)
-    const recentHigh = Math.max(...chartData.slice(0, 30).map(d => d.high));
-    const drawdownPct = ((recentHigh - currentPrice) / recentHigh) * 100;
-    let drawdownScore = 0;
-    if (drawdownPct >= 15 && drawdownPct < 25) drawdownScore = 5;
-    else if (drawdownPct >= 25 && drawdownPct < 35) drawdownScore = 4;
-    else if (drawdownPct >= 10 && drawdownPct < 15) drawdownScore = 3;
-    else if (drawdownPct >= 35) drawdownScore = 1;
-
-    const safetyScore = Math.min(marketCapScore + sharpeScore + drawdownScore, 20);
-
-    // === 5. Signal Adjustments ===
-    let signalAdj = 0;
-
-    // 비대칭 매수세 보너스
-    const asymmetricRatio = advancedAnalysis?.indicators?.asymmetric?.ratio || 1;
-    if (asymmetricRatio > 1.5) signalAdj += 5;
-
-    // 폭락 진행 중 감점
-    if (crashCheck?.isCrashing) signalAdj -= 15;
-
-    // 매도고래 최근 3일 감점
-    const sellWhales = (advancedAnalysis?.indicators?.whale || []).filter(w => w.type?.includes('매도'));
-    if (sellWhales.length > 0) {
-      const recentSellWhales = sellWhales.filter(w => {
-        const whaleIdx = chartData.findIndex(d => d.date === w.date);
-        return whaleIdx >= 0 && whaleIdx <= 3;
-      });
-      if (recentSellWhales.length > 0) signalAdj -= 10;
-    }
-
-    // 최종 점수
-    const rawScore = recoveryScore + supplyBonusScore + stabilityScore + safetyScore + signalAdj;
-    const totalScore = parseFloat(Math.min(Math.max(rawScore, 0), 100).toFixed(2));
-
-    const breakdown = {
-      recovery: { total: recoveryScore, rsi: rsiScore, mfi: mfiScore, disparity: disparityScore, rsiValue: parseFloat(rsi.toFixed(1)), mfiValue: parseFloat(mfi.toFixed(1)), disparityValue: parseFloat(disparity.toFixed(1)) },
-      smartMoney: { total: supplyBonusScore, institution: instScore, foreign: foreignScore, dualBonus, instBuyDays, foreignBuyDays },
-      stability: { total: stabilityScore, volumeStability: volumeStabilityScore, volatility: volatilityScore, bottomFormation: bottomScore, volumeCV: parseFloat(volumeCV.toFixed(2)), contractionRatio: parseFloat(contractionRatio.toFixed(2)) },
-      safety: { total: safetyScore, marketCap: marketCapScore, sharpe: sharpeScore, drawdown: drawdownScore, drawdownPct: parseFloat(drawdownPct.toFixed(1)) },
-      signalAdj,
-      formula: 'Recovery(0-35) + SupplyBonus(0-10) + Stability(0-25) + Safety(0-20) + SignalAdj [v3.78]'
-    };
-
-    const grade = this.getDefenseRecommendation(totalScore);
-
-    return { totalScore, breakdown, grade };
-  }
-
-  /**
-   * 방어 전략 등급 산출
-   */
-  getDefenseRecommendation(defenseScore, overheatingV2 = null) {
-    // v3.78: 만점 90점 기준으로 등급 하한 조정
-    if (overheatingV2 && overheatingV2.overheated) return '과열';
-    if (defenseScore >= 75) return 'S+';
-    if (defenseScore >= 60) return 'S';
-    if (defenseScore >= 45) return 'A';
-    if (defenseScore >= 35) return 'B';
-    if (defenseScore >= 20) return 'C';
-    return 'D';
   }
 
   /**
@@ -1980,19 +1749,15 @@ class StockScreener {
 
     // TOP 3 선정 (전체 결과에서 선정)
     const top3 = this.selectTop3(results);
-    // v3.82: 횡보 TOP3 제거 (2단계 레짐 전환)
-    const defenseTop3 = this.selectDefenseTop3(results);
 
     return {
       stocks: finalResults,
       top3: top3,
-      defenseTop3: defenseTop3,
       metadata: {
         totalAnalyzed: analyzed,
         totalFound: results.length,
         returned: finalResults.length,
         top3Count: top3.length,
-        defenseTop3Count: defenseTop3.length,
         poolSize: finalStockList.length,
         debug: {
           finalStockListSample: finalStockList.slice(0, 10),
@@ -2286,63 +2051,6 @@ class StockScreener {
     top3.forEach((s, i) => {
       const flow = s.institutionalFlow;
       console.log(`  ${i + 1}. ${s.stockName} (${s.totalScore}점, MFI=${getMfi(s).toFixed(0)}, RSI=${(s.overheatingV2?.rsi||0).toFixed(0)}, 기관${flow?.institutionDays || 0}일/외인${flow?.foreignDays || 0}일) P${s.sidewaysTop3Meta.priority}`);
-    });
-
-    return top3;
-  }
-
-  /**
-   * v3.34: 방어 전략 TOP 3 선별
-   * 기관/외국인 수급 기반 과매도 반등 종목 선별
-   */
-  selectDefenseTop3(allStocks) {
-    console.log(`\n🛡️ 방어 TOP 3 선정 시작...`);
-
-    // v3.78: SmartMoney/과열 자격 필터 제거 — 시총+비폭락만 체크
-    const isEligible = (s) => {
-      const isNotCrashing = !s.crashCheck?.isCrashing;
-      const mcBillion = s.marketCap ? s.marketCap / 100000000 : 0;
-      const hasMinMarketCap = mcBillion >= 1000;
-      return isNotCrashing && hasMinMarketCap;
-    };
-
-    // v3.78: 방어점수 1차 정렬
-    const sortFn = (a, b) => b.defenseScore - a.defenseScore;
-
-    const addMeta = (stock, priority) => {
-      const currentPrice = stock.currentPrice || 0;
-      const mcBillion = stock.marketCap ? stock.marketCap / 100000000 : 0;
-      const isLargeCap = mcBillion >= 50000; // 5조+
-      return {
-        ...stock,
-        defenseTop3Meta: {
-          priority,
-          stopLoss: {
-            caution: Math.floor(currentPrice * (isLargeCap ? 0.96 : 0.97)),
-            cut: Math.floor(currentPrice * (isLargeCap ? 0.94 : 0.95))
-          }
-        }
-      };
-    };
-
-    const top3 = [];
-    const used = new Set();
-    const addFromPool = (pool, priority) => {
-      for (const s of pool) {
-        if (top3.length >= 3) break;
-        if (used.has(s.stockCode)) continue;
-        top3.push(addMeta(s, priority));
-        used.add(s.stockCode);
-      }
-    };
-
-    // v3.78: 점수 하한 없이 방어점수 내림차순 top3
-    const eligible = allStocks.filter(isEligible);
-    addFromPool(eligible.sort(sortFn), 1);
-
-    console.log(`🛡️ 방어 TOP 3 선정 완료: ${top3.length}개`);
-    top3.forEach((s, i) => {
-      console.log(`  ${i + 1}. ${s.stockName} (방어 ${s.defenseScore}점, ${s.defenseGrade}) P${s.defenseTop3Meta.priority}`);
     });
 
     return top3;
