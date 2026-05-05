@@ -1414,7 +1414,7 @@
                               </div>
                               <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                                 <p className="text-sm text-gray-700">
-                                  <strong className="text-orange-700">💡 선정 기준:</strong> (매수고래 or 기관≥3일 or 외국인≥3일) + 비과열 + 총점≥45 + 이격도{'<'}150 + |등락률|{'<'}25%. 점수 내림차순 정렬 (동점 시 수급 우선).
+                                  <strong className="text-orange-700">💡 선정 기준:</strong> (매수고래 or 기관≥3일 or 외국인≥3일) + 비과열 + 총점≥45 + 이격도{'<'}150 + |등락률|{'<'}25%. 시총≤1조 우선(tier1) → 스윗스팟 구간(50-59 &gt; 60-69 &gt; 80-89 &gt; 90+ &gt; 70-79 &gt; 45-49) → 수급 → 점수.
                                 </p>
                               </div>
                               {/* Phase 2-3: 운영 정책 + 진단 권장 */}
@@ -3857,7 +3857,7 @@
                     <div className="min-w-0">
                       <h3 className="text-lg md:text-2xl font-bold text-orange-800">TOP 3 전략 성과</h3>
                       <p className="text-xs md:text-sm text-orange-600 mt-1">
-                        (매수고래/기관3+/외국인3+) + 비과열 → 점수 내림차순 실전 성과
+                        (매수고래/기관3+/외국인3+) + 비과열 → tier1(시총≤1조) + 스윗스팟 구간 우선 실전 성과
                       </p>
                     </div>
                   </div>
@@ -3981,7 +3981,7 @@
                 <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                   <p className="text-sm text-gray-700">
                     <strong className="text-orange-700">💡 TOP 3 전략:</strong>
-                    <strong className="text-orange-700"> 매수고래 감지 + 비과열 → 점수 내림차순</strong> 선별의 실전 성과입니다.
+                    <strong className="text-orange-700"> 매수고래 감지 + 비과열 → tier1(시총≤1조) + 스윗스팟 구간 우선</strong> 선별의 실전 성과입니다.
                     {top3WinRate >= 70 && top3AvgReturn > 0 ? (
                       <span className="text-green-700"> ✅ 우수한 성과를 보이고 있습니다!</span>
                     ) : top3AvgReturn >= 0 ? (
