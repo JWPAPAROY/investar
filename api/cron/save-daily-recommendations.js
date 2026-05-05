@@ -690,11 +690,7 @@ function selectAlertTop3(stocks) {
     baseEligible = filtered;
   }
 
-  // v376: tier1(시총≤1조) 우선 — 3개 미달 시 전체로 확대
-  const tier1 = baseEligible.filter(s => (s.market_cap || Infinity) <= 1_000_000_000_000);
-  const pool = tier1.length >= 3 ? tier1 : baseEligible;
-
-  // v376 정렬: 스윗스팟 구간 → 수급 → 점수
+  // B1: 스윗스팟 구간 → 수급 → 점수 (tier1 시총 필터 없음)
   const bandRank = (score) => {
     if (score >= 50 && score <= 59) return 1;
     if (score >= 60 && score <= 69) return 2;
@@ -712,7 +708,7 @@ function selectAlertTop3(stocks) {
     if (frgn >= 1) return 2;
     return 1;
   };
-  return [...pool].sort((a, b) => {
+  return [...baseEligible].sort((a, b) => {
     const bd = bandRank(a.total_score || 0) - bandRank(b.total_score || 0);
     if (bd !== 0) return bd;
     const sd = supplyRank(b) - supplyRank(a);
@@ -883,11 +879,7 @@ function selectSaveTop3(stocks) {
     baseEligible = filtered;
   }
 
-  // v376: tier1(시총≤1조) 우선 — 3개 미달 시 전체로 확대
-  const tier1 = baseEligible.filter(s => (s.marketCap || Infinity) <= 1_000_000_000_000);
-  const pool = tier1.length >= 3 ? tier1 : baseEligible;
-
-  // v376 정렬: 스윗스팟 구간 → 수급 → 점수
+  // B1: 스윗스팟 구간 → 수급 → 점수 (tier1 시총 필터 없음)
   const bandRank = (score) => {
     if (score >= 50 && score <= 59) return 1;
     if (score >= 60 && score <= 69) return 2;
@@ -905,7 +897,7 @@ function selectSaveTop3(stocks) {
     if (frgn >= 1) return 2;
     return 1;
   };
-  return [...pool].sort((a, b) => {
+  return [...baseEligible].sort((a, b) => {
     const bd = bandRank(a.totalScore || 0) - bandRank(b.totalScore || 0);
     if (bd !== 0) return bd;
     const sd = supplyRank(b) - supplyRank(a);
