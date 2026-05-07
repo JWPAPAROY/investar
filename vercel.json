@@ -22,20 +22,12 @@
   ],
   "crons": [
     {
-      "path": "/api/cron/save-daily-recommendations?mode=save",
-      "schedule": "35 6 * * 1-5"
-    },
-    {
       "path": "/api/recommendations/update-prices",
       "schedule": "5 7 * * 1-5"
     },
     {
       "path": "/api/cron/save-daily-recommendations?mode=night-futures",
       "schedule": "55 19 * * 0-4"
-    },
-    {
-      "path": "/api/cron/save-daily-recommendations?mode=alert",
-      "schedule": "0 23 * * 0-4"
     },
     {
       "path": "/api/cron/save-daily-recommendations?mode=post-market",
