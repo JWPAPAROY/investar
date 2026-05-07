@@ -1149,18 +1149,6 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, ex
     });
   }
 
-  // v3.74: 참고 TOP3 (메인이 아닌 전략의 TOP3를 보충 참고로 표시)
-  if (secondaryTop3 && secondaryTop3.length > 0) {
-    msg += `\n${secondaryTitle}\n`;
-    secondaryTop3.forEach((stock, i) => {
-      const name = stock.stockName || stock.stock_name;
-      const code = stock.stockCode || stock.stock_code;
-      const score = (stock.totalScore || stock.total_score || 0);
-      const scoreStr = typeof score === 'number' ? score.toFixed(0) : score;
-      msg += `${i + 1}. ${name} (${code}) ${scoreStr}점\n`;
-    });
-  }
-
   // 매매 룰 (active_policy 기반)
   if (primaryTop3 && primaryTop3.length > 0) {
     const sellD = activePolicy?.sell_offset_day ?? 3;
