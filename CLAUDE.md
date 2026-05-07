@@ -627,19 +627,26 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 
 ## 📱 텔레그램 알림 시스템
 
-### Cron 스케줄 (vercel.json)
+### Cron 스케줄
+
+**Cloudflare Workers** (`C:\Users\knoww\investar-cron`, 정시 실행):
 
 | UTC | KST | 모드 | 동작 |
 |-----|-----|------|------|
-| 06:35 | 15:35 | save | 결산: 스크리닝 → Supabase 저장 + 텔레그램 |
-| 07:05 | 16:05 | update-prices | 전체 종목 종가 업데이트 (장 마감 후) |
-| 07:20 | 16:20 | post-market | 장후 통합 처리 (패턴 수집 → 기대수익 산출) |
+| 23:00 (sun-thu) | 08:00 | alert | 실시간 스크리닝 TOP 3 알림 + 해외 전망 |
+| 06:35 (mon-fri) | 15:35 | save | 결산: 스크리닝 → Supabase 저장 + 텔레그램 |
+
+**Vercel** (`vercel.json`, 딜레이 가능):
+
+| UTC | KST | 모드 | 동작 |
+|-----|-----|------|------|
 | 19:55 | 04:55 | night-futures | 야간선물 종가 캐시 (야간장 마감 5분 전) |
-| 23:00 | 08:00 | alert | 실시간 스크리닝 TOP 3 알림 + 해외 전망 |
 | 01:00 | 10:00 | track | 장중 주가 추적 |
 | 02:30 | 11:30 | track | 장중 주가 추적 |
 | 04:30 | 13:30 | track | 장중 주가 추적 |
 | 06:00 | 15:00 | track | 장중 주가 추적 |
+| 07:05 | 16:05 | update-prices | 전체 종목 종가 업데이트 (장 마감 후) |
+| 07:20 | 16:20 | post-market | 장후 통합 처리 (패턴 수집 → 기대수익 산출) |
 
 ### 추천 종목 매수 타이밍
 
@@ -833,7 +840,7 @@ SQL 파일: `supabase-weekly-diagnostics.sql`, `supabase-active-policy.sql`, `su
 |----------|------|------|
 | 일 22:00 | `weekly-diagnostic` | Phase 1 진단 INSERT + 풀 메시지 발송 |
 
-(기존 cron 10개는 변경 없음. 12함수 한도 회피 위해 `save-daily-recommendations.js`에 mode 통합.)
+(alert/save는 Cloudflare Workers로 이관. 12함수 한도 회피 위해 `save-daily-recommendations.js`에 mode 통합.)
 
 ---
 
