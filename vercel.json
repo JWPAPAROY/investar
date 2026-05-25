@@ -47,7 +47,7 @@
     },
     {
       "path": "/api/cron/save-daily-recommendations?mode=track&time=4",
-      "schedule": "0 6 * * 1-5"
+      "schedule": "30 5 * * 1-5"
     },
     {
       "path": "/api/stocks?mode=update",
