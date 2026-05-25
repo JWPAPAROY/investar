@@ -1095,7 +1095,7 @@
                           {' '}({latestDiagnostic.consecutive_same_recommendation}주 연속 동일 권고)
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
-                          6주 이상 연속 권고 시 텔레그램으로 적용 권고가 발송됩니다. Supabase에서 active_policy 테이블 직접 수정 또는 향후 /policy 명령으로 변경.
+                          주간 진단 시 권장이 현재 정책과 다르면 자동 적용됩니다 (Phase 3). 수동 변경: /policy 명령 또는 Supabase active_policy 직접 수정. 6주 이상 연속 권고 시 텔레그램으로 추가 알림 발송.
                         </p>
                       </div>
                     )}
@@ -1414,7 +1414,7 @@
                               </div>
                               <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                                 <p className="text-sm text-gray-700">
-                                  <strong className="text-orange-700">💡 선정 기준:</strong> (매수고래 or 기관≥3일 or 외국인≥3일) + 비과열 + 총점≥45 + 이격도{'<'}150 + |등락률|{'<'}25%. 스윗스팟 구간(50-59 &gt; 60-69 &gt; 80-89 &gt; 90+ &gt; 70-79 &gt; 45-49) → 수급 → 점수.
+                                  <strong className="text-orange-700">💡 선정 기준:</strong> (매수고래 or 기관≥3일 or 외국인≥3일) + 비과열 + 총점≥45 + 이격도{'<'}150 + |등락률|{'<'}25%. 수급등급(쌍방&gt;외인≥2d&gt;기관≥2d&gt;외인&gt;고래) → 기관매수일 → 스윗스팟구간(50-59&gt;60-69&gt;80-89&gt;90+&gt;70-79&gt;45-49).
                                 </p>
                               </div>
                               {/* Phase 2-3: 운영 정책 + 진단 권장 */}
@@ -2236,7 +2236,8 @@
                     <span className="flex items-center gap-1">
                       {er.matchMethod && er.matchMethod !== 'grade_based' && <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-semibold">유사매칭</span>}
                       {(!er.matchMethod || er.matchMethod === 'grade_based') && <span className="text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">등급기준</span>}
-                      <span className={`text-xs ${isPositive ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'} px-2 py-0.5 rounded-full`} title={er.updatedAt ? `최근 90일 데이터 기준 · 갱신: ${new Date(er.updatedAt).toLocaleDateString('ko-KR')}` : ''}>N={er.sampleCount}</span>
+                      <span className={`text-xs ${isPositive ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'} px-2 py-0.5 rounded-full`}>N={er.sampleCount}</span>
+                      {(er.latestDataDate || er.updatedAt) && <span className="text-[10px] bg-gray-50 text-gray-500 px-1.5 py-0.5 rounded-full border border-gray-200" title="가장 최근 반영된 스크리닝 데이터 날짜">{(() => { const d = new Date(er.latestDataDate || er.updatedAt); return `${d.getMonth()+1}/${d.getDate()}까지`; })()}</span>}
                     </span>
                   </div>
                   <div className="grid grid-cols-3 gap-2 text-xs mb-2">
@@ -2741,9 +2742,13 @@
                                   <div className="border-t border-gray-700 my-1"></div>
                                   <div className="text-gray-300">이미 급등한 종목의 Momentum 감점</div>
                                   <div className="border-t border-gray-700 my-1"></div>
-                                  <div>• <span className="text-red-300">고가 15%+: -30점</span> (상한가급)</div>
-                                  <div>• <span className="text-red-300">종가 10%+: -15점</span></div>
-                                  <div>• <span className="text-red-300">종가 -10% 이하: -15점</span> (급락)</div>
+                                  <div>• <span className="text-red-300">종가 ≥+20%: -10점</span> (상한가급 모멘텀)</div>
+                                  <div>• <span className="text-red-300">고가 ≥+20% (종가 미달): -20점</span></div>
+                                  <div>• <span className="text-red-300">종가 +15~20%: -15점</span> (최위험 구간)</div>
+                                  <div>• <span className="text-red-300">고가 ≥+15% (종가 미달): -15점</span></div>
+                                  <div>• <span className="text-red-300">종가 +10~15%: -5점</span></div>
+                                  <div>• <span className="text-red-300">종가 ≤-10%: -20점</span> (급락)</div>
+                                  <div>• <span className="text-red-300">종가 ≤-5%: -10점</span> (하락)</div>
                                 </div>
                               )} />
                           );
@@ -2817,9 +2822,10 @@
                         {er.matchMethod && er.matchMethod !== 'grade_based' && <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">유사매칭</span>}
                         {(!er.matchMethod || er.matchMethod === 'grade_based') && <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">등급기준</span>}
                         <span className={`text-sm ${isPositive ? 'text-green-600 bg-green-100' : 'text-red-600 bg-red-100'} px-3 py-1 rounded-full font-semibold`}>{er.days}일 | N={er.sampleCount}</span>
+                        {(er.latestDataDate || er.updatedAt) && <span className="text-xs bg-gray-50 text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">{(() => { const d = new Date(er.latestDataDate || er.updatedAt); return `${d.getMonth()+1}/${d.getDate()}까지`; })()}</span>}
                       </span>
                     </div>
-                    <p className="text-sm text-gray-600 mb-4">{er.matchMethod && er.matchMethod !== 'grade_based' ? '유사 지표(점수·고래·기관·시총·거래량·RSI)를 가진 최근 90일 종목의 실제 수익률 분포입니다.' : '동일 등급·고래 조건의 최근 90일 종목 실제 수익률 분포입니다.'}{er.updatedAt && ` (${new Date(er.updatedAt).toLocaleDateString('ko-KR')} 갱신)`}</p>
+                    <p className="text-sm text-gray-600 mb-4">{er.matchMethod && er.matchMethod !== 'grade_based' ? '유사 지표(점수·고래·기관·시총·거래량·RSI)를 가진 누적 데이터 기반 실제 수익률 분포입니다.' : '동일 등급·고래 조건 누적 데이터 기반 실제 수익률 분포입니다.'}{(er.latestDataDate || er.updatedAt) && ` (${new Date(er.latestDataDate || er.updatedAt).toLocaleDateString('ko-KR')} 기준)`}</p>
                     <div className="grid grid-cols-3 gap-2 md:gap-3 mb-4">
                       <div className={`bg-white p-2 md:p-3 rounded-lg border ${er.p25 >= 0 ? 'border-green-200' : 'border-red-200'} text-center`}>
                         <p className="text-gray-600 text-[10px] md:text-xs mb-1">하단 (25%)</p>
@@ -2942,17 +2948,17 @@
                       <tbody>
                         <tr className="border-b border-indigo-100">
                           <td className="py-1.5 px-2 font-semibold">🐋 매수고래</td>
-                          <td className="py-1.5 px-2">거래량 ≥ 평균 2.5배 + 가격 3%+ 상승 (양봉)</td>
+                          <td className="py-1.5 px-2">거래량 ≥ 평균 {소형주(시총&lt;1조) 2.0배 / 중형주 1.5배 / 대형주(≥10조) 1.2배} + 가격 3%+ 상승 (양봉)</td>
                           <td className="py-1.5 px-2 text-center text-green-700 font-semibold">확인 +30 / 미확인 +15</td>
                         </tr>
                         <tr className="border-b border-indigo-100">
                           <td className="py-1.5 px-2 font-semibold">🐳 매도고래</td>
-                          <td className="py-1.5 px-2">거래량 ≥ 평균 2.5배 + 가격 3%+ 하락 (음봉)</td>
+                          <td className="py-1.5 px-2">거래량 ≥ 평균 {소형주 2.0배 / 중형주 1.5배 / 대형주 1.2배} + 가격 3%+ 하락 (음봉)</td>
                           <td className="py-1.5 px-2 text-center text-red-600 font-semibold">최근 3일 내 -10</td>
                         </tr>
                         <tr className="border-b border-indigo-100">
                           <td className="py-1.5 px-2 font-semibold">🚀 탈출 속도</td>
-                          <td className="py-1.5 px-2">저항선 돌파 + 거래량 2배+ + Closing Strength 70%+</td>
+                          <td className="py-1.5 px-2">저항선 돌파 + 거래량 2배+ + 양봉 + Closing Strength 70%+ + 윗꼬리 &lt;10%</td>
                           <td className="py-1.5 px-2 text-center text-green-700 font-semibold">+5</td>
                         </tr>
                         <tr className="border-b border-indigo-100">
@@ -3013,7 +3019,7 @@
                         <div className="space-y-1">
                           <div className="font-bold text-gray-400">🐋 고래 감지 (미감지)</div>
                           <div className="border-t border-gray-700 my-1"></div>
-                          <div>• 조건: 거래량 2.5배 이상 + 가격 3% 이상 변동</div>
+                          <div>• 조건: 거래량 소형주(시총&lt;1조) 2.0배 / 중형주 1.5배 / 대형주(≥10조) 1.2배 이상 + 가격 3% 이상 변동</div>
                           <div>• 의미: 기관/외국인 등 세력 매매 감지</div>
                           <div className="text-gray-400">→ 현재 조건 미충족</div>
                         </div>
@@ -3038,7 +3044,7 @@
                           <div>• Closing Strength: <span className="text-green-300">{escapeData.closingStrength}%</span></div>
                           <div className="border-t border-gray-700 my-1"></div>
                           <div className="text-yellow-300">
-                            → {escapeData.detected ? '저항선 돌파 + 거래량 폭발 + 강한 마감' : '조건: 저항선 돌파 + 거래량 2배+ + Closing Strength 70%+'}
+                            → {escapeData.detected ? '저항선 돌파 + 거래량 폭발 + 강한 마감 + 윗꼬리<10%' : '조건: 저항선 돌파 + 거래량 2배+ + 양봉 + Closing Strength 70%+ + 윗꼬리 <10%'}
                           </div>
                         </div>
                       )
@@ -3421,7 +3427,7 @@
         whale: {
           icon: '🐋',
           label: '고래 감지',
-          description: '거래량 2.5배 이상 + 가격 3% 이상 상승. 기관/외국인 등 세력 매수 신호로, 단기 급등 가능성이 높습니다. (승률 81.3%, 평균 +15.73%)'
+          description: '거래량 소형주(시총<1조) 2.0배 / 중형주 1.5배 / 대형주(≥10조) 1.2배 이상 + 가격 3% 이상 상승. 기관/외국인 등 세력 매수 신호로, 단기 급등 가능성이 높습니다. (승률 81.3%, 평균 +15.73%)'
         },
         normal: {
           icon: '📊',
@@ -3857,7 +3863,7 @@
                     <div className="min-w-0">
                       <h3 className="text-lg md:text-2xl font-bold text-orange-800">TOP 3 전략 성과</h3>
                       <p className="text-xs md:text-sm text-orange-600 mt-1">
-                        (매수고래/기관3+/외국인3+) + 비과열 → 스윗스팟 구간 우선 실전 성과
+                        (매수고래/기관3+/외국인3+) + 비과열 → 수급등급 우선 실전 성과
                       </p>
                     </div>
                   </div>
@@ -3981,7 +3987,7 @@
                 <div className="mt-4 bg-white border border-yellow-300 rounded-lg p-3">
                   <p className="text-sm text-gray-700">
                     <strong className="text-orange-700">💡 TOP 3 전략:</strong>
-                    <strong className="text-orange-700"> 매수고래 감지 + 비과열 → 스윗스팟 구간 우선</strong> 선별의 실전 성과입니다.
+                    <strong className="text-orange-700"> 매수고래 감지 + 비과열 → 수급등급 우선</strong> 선별의 실전 성과입니다.
                     {top3WinRate >= 70 && top3AvgReturn > 0 ? (
                       <span className="text-green-700"> ✅ 우수한 성과를 보이고 있습니다!</span>
                     ) : top3AvgReturn >= 0 ? (

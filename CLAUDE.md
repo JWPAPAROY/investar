@@ -774,7 +774,7 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ## 🔁 자동 운영 진단 시스템 (v3.86, 2026-04-28)
 
-매주 일요일 22:00 KST(13:00 UTC) `weekly-diagnostic` cron이 3가지 진단을 자동 산출하여 `weekly_diagnostics` 테이블에 누적. **관측·권고만 — 룰/타이밍 자동 변경 없음**. v3.55→v3.85의 churn 재발 방지 위해 모든 변경은 사용자 수동 적용.
+매주 일요일 22:00 KST(13:00 UTC) `weekly-diagnostic` cron이 3가지 진단을 자동 산출하여 `weekly_diagnostics` 테이블에 누적. 권장 timing이 현재 정책과 다르면 **즉시 `active_policy` 자동 갱신 (Phase 3)**.
 
 ### 3가지 주간 진단
 
@@ -793,10 +793,10 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 `active_policy` 단일 행 테이블 (default `D+0매수, D+3매도`). 변경 트리거로 `active_policy_history` 자동 기록.
 
-**자동 변경 절대 없음.** 수동 변경 방법 3가지:
+**자동 변경 발생.** 매주 진단 시 권장 timing ≠ active_policy이면 즉시 자동 갱신 (`set_by='auto-diagnostic'`). 수동 변경 방법:
 - 텔레그램: `/policy D+1 D+10 [사유]`
 - Supabase 대시보드 직접 update
-- 6주 연속 동일 권고 + 정책과 차이 시 텔레그램 적용 권고 알림 (사용자가 적용 결정)
+- 6주 연속 동일 권고 시 텔레그램으로 추가 알림 발송 (이미 자동 적용된 상태)
 
 **6주 임계값은 임의값**임을 명시 (통계적 정당화는 27주 이상 필요하나 운영 현실 고려한 타협). `APPLY_THRESHOLD_WEEKS` 상수 1줄로 조정 가능.
 
