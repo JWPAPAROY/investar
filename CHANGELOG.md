@@ -4,6 +4,15 @@
 
 ## 📝 변경 이력
 
+### v3.88 (2026-05-25)
+- **시장 레짐 / 강신호 T+3 진단 완전 폐기**: v3.87에서 defense 레짐 분기 운영을 제거한 뒤에도 `weekly-diagnostic`이 strong-signal(volR≥3 + VPD≥2) T+3 평균으로 regime을 계산·저장·표시해왔으나, 이 값이 어떤 운영 결정에도 입력되지 않는 좀비 지표 상태였음. v3.87의 의도(전면 제거)와 일치하도록 잔재 일괄 정리.
+  - `scripts/weekly-diagnostic.js`: REGIME 블록 삭제 (line 209-227 영역), `regime` / `strong_signal_t3_avg` / `strong_signal_n` INSERT 필드 제거. 진단 구성 4개 → 3개(점수 건강도 / 권장 timing / TOP1 알파). 섹션 번호 재배치(1→5).
+  - `api/cron/save-daily-recommendations.js`: `getRegimeTop3FromDb()` 죽은 래퍼 함수 삭제 → 호출자 4곳을 `getTop3FromDb()` 직호출로 교체. `getLatestDiagnostic()` / meta-monitor select / weekly-diagnostic 모드 응답 JSON에서 `regime` / `strong_signal_*` 제거. `formatDiagnosticLine` / `formatWeeklyDiagnosticMessage`는 이미 정리되어 있었음.
+  - `api/screening/recommend.js`, `api/recommendations/performance.js`: `weekly_diagnostics` select에서 `regime` / `strong_signal_*` 제거. performance.js의 handleDiagnostics에 `oos_sample_n` 추가.
+  - `OPERATING_STATE.md` / `WEEKLY_DIAGNOSTICS.md` 출력 템플릿에서 "강신호 종목 T+3 평균" 행 제거. OOS 검증 수익 행 추가.
+  - CLAUDE.md: "4가지 진단" → "3가지 진단", 시장 레짐 섹션 / 6개 섹션 메시지 설명 / 진단 이력 테이블 컬럼 설명 갱신.
+  - **DB 컬럼은 유지** (`weekly_diagnostics.regime`, `strong_signal_t3_avg`, `strong_signal_n`): 기존 데이터 보존. 신규 INSERT부터 NULL이 들어감. 잔재 컬럼 drop은 별도 마이그레이션.
+
 ### v3.87 (2026-05-06)
 - **방어 레짐 전면 제거**: 투자 성과 미개선 + 운영 진단 데이터 오염 확인으로 defense 전략 일체 제거.
   - `calculateDefenseScore()`, `getDefenseRecommendation()`, `selectDefenseTop3/SaveTop3/AlertTop3()`, `determineMarketRegime()`, `reselectAlertTop3ForRegime()`, `formatDefenseTop3Section()` 함수 삭제

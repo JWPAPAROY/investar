@@ -145,7 +145,7 @@ module.exports = async function handler(req, res) {
         const [apRes, diagRes] = await Promise.all([
           supabase.from('active_policy').select('buy_offset_day,sell_offset_day,since_date,set_by').eq('id', 1).single(),
           supabase.from('weekly_diagnostics')
-            .select('week_start,regime,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,recommendation_differs,consecutive_same_recommendation')
+            .select('week_start,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,recommendation_differs,consecutive_same_recommendation')
             .order('week_start', { ascending: false }).limit(1).single(),
         ]);
         activePolicy = apRes.data || null;

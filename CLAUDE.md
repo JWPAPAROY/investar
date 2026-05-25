@@ -774,16 +774,15 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ## 🔁 자동 운영 진단 시스템 (v3.86, 2026-04-28)
 
-매주 일요일 22:00 KST(13:00 UTC) `weekly-diagnostic` cron이 4가지 진단을 자동 산출하여 `weekly_diagnostics` 테이블에 누적. **관측·권고만 — 룰/타이밍 자동 변경 없음**. v3.55→v3.85의 churn 재발 방지 위해 모든 변경은 사용자 수동 적용.
+매주 일요일 22:00 KST(13:00 UTC) `weekly-diagnostic` cron이 3가지 진단을 자동 산출하여 `weekly_diagnostics` 테이블에 누적. **관측·권고만 — 룰/타이밍 자동 변경 없음**. v3.55→v3.85의 churn 재발 방지 위해 모든 변경은 사용자 수동 적용.
 
-### 4가지 주간 진단
+### 3가지 주간 진단
 
-1. **시장 레짐**: 강신호 종목(volR≥3 + VPD≥2)의 최근 30일 T+3 평균
-   - `> +1%` → momentum / `≤ +1%` → sideways (v3.87: defense 레짐 제거)
-2. **점수 모델 건강도**: 점수 구간(45-55/55-65/65-75/≥75) × T+3 평균의 Spearman r
+1. **점수 모델 건강도**: 점수 구간(45-55/55-65/65-75/≥75) × active_policy timing 수익률의 Spearman r
    - `> 0.3` healthy / `-0.3 ~ 0.3` broken / `< -0.3` inverted
-3. **권장 매매 타이밍**: in-sample 8주 (k,n) 매트릭스 스캔. 모든 주에서 + 평균인 (k,n) 중 최저주 알파 최대화 (robust)
-4. **TOP1 알파**: 최근 30일 TOP1 vs TOP3 평균 알파, 현재 timing(D+0,D+3) vs 권장 timing 두 가지
+   - 측정 윈도우는 `active_policy`의 (buy_offset_day, sell_offset_day)를 따라감 (없으면 D+0→D+3 fallback)
+2. **권장 매매 타이밍**: in-sample 8주 (k,n) 매트릭스 스캔. 모든 주에서 + 평균인 (k,n) 중 최저주 알파 최대화 (robust)
+3. **TOP1 알파**: 최근 30일 TOP1 vs TOP3 평균 알파, 현재 timing(D+0,D+3) vs 권장 timing 두 가지
 
 ### 진단 진단 (meta-monitor)
 
@@ -803,8 +802,8 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ### 텔레그램 메시지
 
-- **일일 ALERT/SAVE 끝 한 줄**: `📊 주간진단(M/D): 🛡 방어 | 권장 D+2매수→D+10매도 | 점수건강 양호 | TOP1알파 +9.8%p ⚠️ 적용중 D+0→D+3 (1주 차이)`
-- **일요일 풀 진단** (cron 직후): 6개 섹션 (시장 레짐 / 권장 매매 타이밍 / 점수 모델 건강도 / TOP1 알파 / 진단 신뢰도 / 운영 정책 비교 / 검토 권고)
+- **일일 ALERT/SAVE 끝 한 줄**: `📊 주간진단(M/D): 권장 D+2매수→D+10매도 | 점수건강 양호 | TOP1알파 +9.8%p ⚠️ 적용중 D+0→D+3 (1주 차이)`
+- **일요일 풀 진단** (cron 직후): 5개 섹션 (권장 매매 타이밍 / 점수 모델 건강도 / TOP1 알파 / 진단 신뢰도 / 운영 정책 비교 / 검토 권고)
 
 ### 텔레그램 명령어 추가
 - `/진단` — 주간 진단 즉시 실행 (재실행 시 같은 주는 upsert)
@@ -822,7 +821,7 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 - **신규 탭 "📊 운영 진단"**:
   - 현재 정책 카드
   - 차이 알림 (진단 권장 ≠ active_policy)
-  - 주간 진단 이력 테이블 (12주, regime/강신호/권장 timing/점수건강/TOP1알파/meta알파/정책일치)
+  - 주간 진단 이력 테이블 (12주, 권장 timing/점수건강/TOP1알파/meta알파/정책일치)
   - 정책 변경 이력 테이블 (active_policy_history)
 - **성과 검증 탭 토글**: TOP3 카드에 진입 시점 토글 `D+0 / D+1 / 정책 D+N` — 통계 카드(승률/평균수익/최대수익) 즉시 재계산. `daily_prices.cumulative_return` 기반 클라이언트 환산.
 

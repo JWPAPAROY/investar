@@ -1,14 +1,12 @@
 // ============================================================================
 // weekly-diagnostic.js — Phase 1: 주간 진단 (관측 only, action 없음)
-// 매주 일요일 22:00 KST 실행. 4가지 진단을 weekly_diagnostics 테이블에 INSERT.
+// 매주 일요일 22:00 KST 실행. 3가지 진단을 weekly_diagnostics 테이블에 INSERT.
 // ============================================================================
 // 진단 구성:
-//   1. Regime: 강신호 종목(volR>=3 + VPD>=2)의 최근 30일 T+3 평균
-//        > +1% momentum / -1% < x < +1% sideways / < -1% defense
-//   2. Score Health: 점수 구간 × T+3 평균의 Spearman r. >0이면 정상
-//   3. Optimal Timing: in-sample 8주에서 (k,n) 매트릭스 스캔
+//   1. Score Health: 점수 구간 × active_policy timing 수익률 Spearman r. >0이면 정상
+//   2. Optimal Timing: in-sample 8주에서 (k,n) 매트릭스 스캔
 //        모든 주에서 + 평균인 (k,n) 중 평균 알파 최대 → OOS 1주에서 검증
-//   4. TOP1 Alpha: 최근 30일 TOP1 vs TOP3 알파 (현재 timing + optimal timing)
+//   3. TOP1 Alpha: 최근 30일 TOP1 vs TOP3 알파 (현재 timing + optimal timing)
 // ============================================================================
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
@@ -205,29 +203,11 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   console.log(`[weekly-diagnostic] recs=${recs.length} prices=${prices.length}`);
 
   const warnings = [];
-
-  // =========================================================================
-  // 1. REGIME — last 30 days strong-signal T+3 mean
-  // =========================================================================
   const last30Cutoff = new Date(today); last30Cutoff.setDate(last30Cutoff.getDate() - 30);
   const last30Str = last30Cutoff.toISOString().slice(0, 10);
-  const recent = recs.filter(r => r.recommendation_date >= last30Str
-    && r.vpd_raw != null && r.disparity != null && r.disparity >= 100);
-  const strong = recent.filter(r => r.volume_ratio >= 3 && r.vpd_raw >= 2);
-  const strongRets = strong.map(r => retFrom(pIdx, r.id, 0, 3)).filter(v => v != null);
-  const strongAvg = mean(strongRets);
-
-  let regime;
-  if (strongAvg == null) { regime = 'unknown'; warnings.push('strong_signal sample=0'); }
-  else if (strongAvg > 1.0) regime = 'momentum';
-  else regime = 'sideways';
-
-  if (strongRets.length < 10) warnings.push(`strong_signal n=${strongRets.length} (<10, low confidence)`);
-
-  console.log(`[1. REGIME] ${regime} (strong T+3 avg=${strongAvg?.toFixed(2)}%, n=${strongRets.length})`);
 
   // =========================================================================
-  // 1.5. active_policy 조기 읽기 (Score Health에서 사용)
+  // 0. active_policy 조기 읽기 (Score Health에서 사용)
   // =========================================================================
   let activeBuyD = null, activeSellD = null;
   let activePolicySetBy = null, activePolicySinceDate = null;
@@ -247,7 +227,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   const healthN = activeSellD ?? 3;
 
   // =========================================================================
-  // 2. SCORE HEALTH — score bucket × 수익률 단조성 (last 30 days, active timing 기준)
+  // 1. SCORE HEALTH — score bucket × 수익률 단조성 (last 30 days, active timing 기준)
   // =========================================================================
   const recent30All = recs.filter(r => r.recommendation_date >= last30Str);
   const buckets = [
@@ -280,10 +260,10 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   else if (scoreHealthR < -0.3) scoreHealthLabel = 'inverted';
   else scoreHealthLabel = 'broken';
 
-  console.log(`[2. SCORE HEALTH] ${scoreHealthLabel} (r=${scoreHealthR?.toFixed(2)}, timing=D+${healthK}→D+${healthN}, buckets=${bucketMids.length})`);
+  console.log(`[1. SCORE HEALTH] ${scoreHealthLabel} (r=${scoreHealthR?.toFixed(2)}, timing=D+${healthK}→D+${healthN}, buckets=${bucketMids.length})`);
 
   // =========================================================================
-  // 3. OPTIMAL TIMING — walk-forward (k,n) scan
+  // 2. OPTIMAL TIMING — walk-forward (k,n) scan
   //    in-sample: weeks W-9 ~ W-2 (8 weeks)
   //    oos: week W-1 (last completed week)
   // =========================================================================
@@ -363,10 +343,10 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     }
   }
 
-  console.log(`[3. OPTIMAL TIMING] (D+${optimalBuyD}, D+${optimalSellD}) overall=${optimalAvg?.toFixed(2)}% minWk=${optimalMin?.toFixed(2)}% inSample=${inSampleWeeks.length}wk`);
+  console.log(`[2. OPTIMAL TIMING] (D+${optimalBuyD}, D+${optimalSellD}) overall=${optimalAvg?.toFixed(2)}% minWk=${optimalMin?.toFixed(2)}% inSample=${inSampleWeeks.length}wk`);
 
   // =========================================================================
-  // 4. TOP1 ALPHA — last 30 days TOP1 vs TOP3 (current vs optimal timing)
+  // 3. TOP1 ALPHA — last 30 days TOP1 vs TOP3 (current vs optimal timing)
   // =========================================================================
   const recent30Dates = top3Dates.filter(d => d >= last30Str);
   function alphaAt(k, n) {
@@ -384,11 +364,11 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   const top1AlphaCurrent = alphaAt(0, 3); // current default: D+0 매수 D+3 평가
   const top1AlphaOptimal = (optimalBuyD != null) ? alphaAt(optimalBuyD, optimalSellD) : null;
 
-  console.log(`[4. TOP1 ALPHA] current(D+0,D+3)=${top1AlphaCurrent?.toFixed(2)}%p optimal(D+${optimalBuyD},D+${optimalSellD})=${top1AlphaOptimal?.toFixed(2)}%p`);
+  console.log(`[3. TOP1 ALPHA] current(D+0,D+3)=${top1AlphaCurrent?.toFixed(2)}%p optimal(D+${optimalBuyD},D+${optimalSellD})=${top1AlphaOptimal?.toFixed(2)}%p`);
 
   // =========================================================================
-  // 5. active_policy 비교 + 자동 적용 (Phase 3)
-  //    (activeBuyD, activeSellD는 step 1.5에서 이미 읽음)
+  // 4. active_policy 비교 + 자동 적용 (Phase 3)
+  //    (activeBuyD, activeSellD는 step 0에서 이미 읽음)
   // =========================================================================
   let recommendationDiffers = null, consecutiveSame = 0;
   let policyAutoApplied = false;
@@ -417,7 +397,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   if (recommendationDiffers && optimalBuyD != null && optimalSellD != null) {
     // Idempotency: 이번 주 이미 auto-diagnostic이 적용했으면 스킵
     if (activePolicySetBy === 'auto-diagnostic' && activePolicySinceDate === weekStart) {
-      console.log(`[5. AUTO-APPLY] ⏭ 이미 이번 주(${weekStart}) 자동 적용됨, 스킵`);
+      console.log(`[4. AUTO-APPLY] ⏭ 이미 이번 주(${weekStart}) 자동 적용됨, 스킵`);
     } else
     try {
       const { error: updateErr } = await sb.from('active_policy')
@@ -441,23 +421,23 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
           prev_buy_offset_day: activeBuyD,
           prev_sell_offset_day: activeSellD,
         });
-        console.log(`[5. AUTO-APPLY] ✅ 정책 자동 변경: D+${activeBuyD}→D+${activeSellD} ⇒ D+${optimalBuyD}→D+${optimalSellD}`);
+        console.log(`[4. AUTO-APPLY] ✅ 정책 자동 변경: D+${activeBuyD}→D+${activeSellD} ⇒ D+${optimalBuyD}→D+${optimalSellD}`);
         // 적용 후 상태 갱신
         activeBuyD = optimalBuyD;
         activeSellD = optimalSellD;
         recommendationDiffers = false;
       } else {
-        console.warn('[5. AUTO-APPLY] ❌ 정책 변경 실패:', updateErr.message);
+        console.warn('[4. AUTO-APPLY] ❌ 정책 변경 실패:', updateErr.message);
       }
     } catch (e) {
-      console.warn('[5. AUTO-APPLY] ❌ 정책 변경 예외:', e.message);
+      console.warn('[4. AUTO-APPLY] ❌ 정책 변경 예외:', e.message);
     }
   }
 
-  console.log(`[5. POLICY] active=(D+${activeBuyD},D+${activeSellD}) optimal=(D+${optimalBuyD},D+${optimalSellD}) differs=${recommendationDiffers} consecutive=${consecutiveSame}주 autoApplied=${policyAutoApplied}`);
+  console.log(`[4. POLICY] active=(D+${activeBuyD},D+${activeSellD}) optimal=(D+${optimalBuyD},D+${optimalSellD}) differs=${recommendationDiffers} consecutive=${consecutiveSame}주 autoApplied=${policyAutoApplied}`);
 
   // =========================================================================
-  // 6. META-MONITOR — N주 전 권장의 후향 검증
+  // 5. META-MONITOR — N주 전 권장의 후향 검증
   //    "4주 전 진단이 (k,n)을 권장 → 그 후 4주에 적용했다면 어땠을지" 가상 백테스트
   // =========================================================================
   const META_LOOKBACK = 4;
@@ -512,19 +492,16 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
       warnings.push(`meta-monitor: ${META_LOOKBACK}주 전 진단 없음 (데이터 누적 필요)`);
     }
   } catch (e) {
-    console.warn('[6. META] failed:', e.message);
+    console.warn('[5. META] failed:', e.message);
   }
 
-  console.log(`[6. META-MONITOR] ${META_LOOKBACK}주 전 권장(D+${metaPastBuyD},D+${metaPastSellD}): backtest=${metaBacktestAvg?.toFixed(2)}% baseline=${metaBaselineAvg?.toFixed(2)}% alpha=${metaAlpha?.toFixed(2)}%p (n=${metaBacktestN})`);
+  console.log(`[5. META-MONITOR] ${META_LOOKBACK}주 전 권장(D+${metaPastBuyD},D+${metaPastSellD}): backtest=${metaBacktestAvg?.toFixed(2)}% baseline=${metaBaselineAvg?.toFixed(2)}% alpha=${metaAlpha?.toFixed(2)}%p (n=${metaBacktestN})`);
 
   // =========================================================================
   // INSERT into weekly_diagnostics
   // =========================================================================
   const row = {
     week_start: weekStart,
-    regime,
-    strong_signal_t3_avg: strongAvg,
-    strong_signal_n: strongRets.length,
     score_health_corr: scoreHealthR,
     score_health_label: scoreHealthLabel,
     score_bucket_returns: scoreBucketReturns,
@@ -582,7 +559,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     let prevRows = [];
     try {
       const { data: prevData } = await sb.from('weekly_diagnostics')
-        .select('week_start,strong_signal_t3_avg,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,meta_alpha_vs_baseline')
+        .select('week_start,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,meta_alpha_vs_baseline,oos_avg_return')
         .lt('week_start', weekStart)
         .order('week_start', { ascending: false })
         .limit(4);
@@ -644,9 +621,9 @@ function writeOperatingState(row) {
 
 ## 진단 표본
 
-- **강신호 종목 T+3 평균**: ${sign(row.strong_signal_t3_avg)} (n=${row.strong_signal_n})
 - **권장 timing in-sample 평균**: ${sign(row.optimal_avg_return)}
 - **권장 timing 최저주**: ${sign(row.optimal_min_return)}
+- **OOS 검증 수익**: ${sign(row.oos_avg_return)} (n=${row.oos_sample_n ?? 0})
 - **in-sample 기간**: ${row.in_sample_weeks}주 / 표본 ${row.optimal_sample_n}건
 - **평가 대상 추천 수**: ${row.total_recs_evaluated}
 
@@ -702,9 +679,9 @@ function appendWeeklyDiagnosticsLog(row) {
 
 | 항목 | 값 |
 |------|-----|
-| 강신호 T+3 평균 | ${sign(row.strong_signal_t3_avg)} (n=${row.strong_signal_n}) |
 | 권장 timing | D+${row.optimal_buy_d ?? '?'} → D+${row.optimal_sell_d ?? '?'} |
 | in-sample 평균 / 최저주 | ${sign(row.optimal_avg_return)} / ${sign(row.optimal_min_return)} |
+| OOS 검증 | ${sign(row.oos_avg_return)} (n=${row.oos_sample_n ?? 0}) |
 | 점수 건강도 | ${row.score_health_label} (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}) |
 | TOP1 알파 (현재 / 권장) | ${sign(row.top1_alpha_current_timing, '%p')} / ${sign(row.top1_alpha_optimal_timing, '%p')} |
 ${row.warnings?.length ? `| 경고 | ${row.warnings.join('; ')} |\n` : ''}

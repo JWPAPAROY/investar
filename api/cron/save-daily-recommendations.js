@@ -436,7 +436,7 @@ async function getLatestDiagnostic() {
   try {
     const { data, error } = await supabase
       .from('weekly_diagnostics')
-      .select('week_start,regime,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_current_timing,top1_alpha_optimal_timing,warnings,strong_signal_t3_avg,optimal_avg_return,optimal_min_return,active_buy_offset_day,active_sell_offset_day,recommendation_differs,consecutive_same_recommendation')
+      .select('week_start,score_health_label,optimal_buy_d,optimal_sell_d,top1_alpha_current_timing,top1_alpha_optimal_timing,warnings,optimal_avg_return,optimal_min_return,oos_avg_return,oos_sample_n,active_buy_offset_day,active_sell_offset_day,recommendation_differs,consecutive_same_recommendation')
       .order('week_start', { ascending: false })
       .limit(1);
     if (error || !data || !data.length) return null;
@@ -929,11 +929,6 @@ function getTop3FromDb(stocks, field = 'is_top3') {
     });
   if (dbTop3.length > 0) return dbTop3.slice(0, 3);
   return selectAlertTop3(stocks || []).slice(0, 3);
-}
-
-function getRegimeTop3FromDb(stocks) {
-  const top3 = getTop3FromDb(stocks, 'is_top3');
-  return { top3, regime: 'momentum', fallback: false };
 }
 
 /**
@@ -1617,7 +1612,7 @@ module.exports = async (req, res) => {
     // =============================================
     // =============================================
     // 📊 WEEKLY-DIAGNOSTIC 모드: 주간 진단 (일요일 22:00 KST = 13:00 UTC)
-    // Phase 1: 관측 only — 4가지 진단을 weekly_diagnostics 테이블에 INSERT
+    // Phase 1: 관측 only — 3가지 진단을 weekly_diagnostics 테이블에 INSERT
     // =============================================
     if (mode === 'weekly-diagnostic') {
       console.log('📊 주간 진단 모드 시작...');
@@ -1630,7 +1625,7 @@ module.exports = async (req, res) => {
         try {
           const { data } = await supabase
             .from('weekly_diagnostics')
-            .select('week_start,regime,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,score_health_label')
+            .select('week_start,optimal_buy_d,optimal_sell_d,top1_alpha_optimal_timing,score_health_label')
             .lt('week_start', row.week_start)
             .order('week_start', { ascending: false })
             .limit(1);
@@ -1645,7 +1640,6 @@ module.exports = async (req, res) => {
           success: true,
           mode: 'weekly-diagnostic',
           week_start: row.week_start,
-          regime: row.regime,
           score_health: row.score_health_label,
           optimal_buy_d: row.optimal_buy_d,
           optimal_sell_d: row.optimal_sell_d,
@@ -2382,8 +2376,7 @@ module.exports = async (req, res) => {
             .eq('is_active', true)
             .order('total_score', { ascending: false });
 
-          // TOP 3: v3.74 레짐 기반 조회
-          const { top3: prevTop3 } = getRegimeTop3FromDb(prevStocks);
+          const prevTop3 = getTop3FromDb(prevStocks, 'is_top3');
           if (prevTop3.length === 0) continue;
 
           // v3.33: 과거 추천 종목 정보 보완 (종목명 + 시장)
@@ -2603,7 +2596,7 @@ module.exports = async (req, res) => {
           .eq('is_active', true)
           .order('total_score', { ascending: false });
 
-        const { top3 } = getRegimeTop3FromDb(savedStocks);
+        const top3 = getTop3FromDb(savedStocks, 'is_top3');
         if (top3.length === 0) continue;
 
         // v3.33: 종목 정보 보완 (통합 함수)
@@ -2977,7 +2970,7 @@ module.exports = async (req, res) => {
             .eq('is_active', true)
             .order('total_score', { ascending: false });
 
-          const { top3: prevTop3 } = getRegimeTop3FromDb(prevStocks);
+          const prevTop3 = getTop3FromDb(prevStocks, 'is_top3');
           await supplementStockInfo(prevTop3);
 
           for (const s of prevTop3) {
@@ -3397,8 +3390,7 @@ module.exports = async (req, res) => {
           .eq('is_active', true) : { data: null };
 
         if (yestStocks && yestStocks.length > 0) {
-          // v3.74: 레짐 기반 TOP3 조회
-          const { top3: yestTop3 } = getRegimeTop3FromDb(yestStocks);
+          const yestTop3 = getTop3FromDb(yestStocks, 'is_top3');
 
           // v3.33: 종목 정보 보완 (통합 함수)
           await supplementStockInfo(yestTop3);
