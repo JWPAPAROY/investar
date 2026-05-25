@@ -230,11 +230,14 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   // 1.5. active_policy 조기 읽기 (Score Health에서 사용)
   // =========================================================================
   let activeBuyD = null, activeSellD = null;
+  let activePolicySetBy = null, activePolicySinceDate = null;
   try {
-    const { data: ap } = await sb.from('active_policy').select('buy_offset_day,sell_offset_day').eq('id', 1).limit(1);
+    const { data: ap } = await sb.from('active_policy').select('buy_offset_day,sell_offset_day,set_by,since_date').eq('id', 1).limit(1);
     if (ap && ap.length) {
       activeBuyD = ap[0].buy_offset_day;
       activeSellD = ap[0].sell_offset_day;
+      activePolicySetBy = ap[0].set_by;
+      activePolicySinceDate = ap[0].since_date;
     }
   } catch (e) {
     console.warn('[1.5. POLICY READ] skipped:', e.message);
@@ -412,6 +415,10 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
 
   // Phase 3: 자동 적용 — 권장이 현재 정책과 다르면 즉시 active_policy 갱신
   if (recommendationDiffers && optimalBuyD != null && optimalSellD != null) {
+    // Idempotency: 이번 주 이미 auto-diagnostic이 적용했으면 스킵
+    if (activePolicySetBy === 'auto-diagnostic' && activePolicySinceDate === weekStart) {
+      console.log(`[5. AUTO-APPLY] ⏭ 이미 이번 주(${weekStart}) 자동 적용됨, 스킵`);
+    } else
     try {
       const { error: updateErr } = await sb.from('active_policy')
         .update({
