@@ -1110,10 +1110,14 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, ex
       if (supplyParts.length > 0) {
         msg += `   🏛️ 연속매수: ${supplyParts.join(' | ')}\n`;
       }
-      // v3.82: 주도 업종 뱃지
+      // v3.82: 주도 업종 뱃지 / v3.89: 부진 업종 경고 추가
+      // 근거: leading_score<0(KOSPI 대비 뒤처진 섹터) 픽은 D+1→D+10 중앙 -0.76%/승률 41%로 부진 (백테스트 n=68).
+      // 게이트(자동 제외)는 보류 — 매수 판단은 사용자에게 맡기되 정보로 제공.
       const sectorScoreSave = getSectorLeadingScore(stock.sectorName);
       if (sectorScoreSave > 0.5) {
         msg += `   🔥 주도업종 (${stock.sectorName}, +${sectorScoreSave.toFixed(1)}%p)\n`;
+      } else if (sectorScoreSave < -0.5) {
+        msg += `   ⚠️ 부진업종 (${stock.sectorName}, ${sectorScoreSave.toFixed(1)}%p, KOSPI 대비 약세)\n`;
       }
 
       // v3.46: 기대수익 구간 + 손익비
@@ -1213,10 +1217,12 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
       if (supplyPartsA.length > 0) {
         message += `   🏛️ 연속매수: ${supplyPartsA.join(' | ')}\n`;
       }
-      // v3.82: 주도 업종 뱃지
+      // v3.82: 주도 업종 뱃지 / v3.89: 부진 업종 경고 추가 (근거: 부진섹터 픽 D+1→D+10 중앙 -0.76%/승률 41%)
       const sectorScore = getSectorLeadingScore(stock.sector_name);
       if (sectorScore > 0.5) {
         message += `   🔥 주도업종 (${stock.sector_name}, +${sectorScore.toFixed(1)}%p)\n`;
+      } else if (sectorScore < -0.5) {
+        message += `   ⚠️ 부진업종 (${stock.sector_name}, ${sectorScore.toFixed(1)}%p, KOSPI 대비 약세)\n`;
       }
 
       // v3.46: 기대수익 구간 + 손익비
@@ -1851,15 +1857,28 @@ module.exports = async (req, res) => {
         await kisApi.getAccessToken(); // 토큰 준비
 
         // KIS 업종 지수 코드 → 세분화 업종명 매핑
+        // 매칭(하단 upsert): stat.sector_name.includes(kw) || stat.sector_name === name → find()는 첫 매칭 반환이므로
+        //   구체적 항목을 일반 항목보다 먼저 배치해야 함 (예: 운송장비·부품/0015 → 운송·창고/0019 보다 앞).
+        // keywords에 KRX 세분류명(가운뎃점 포함, 예: '전기·전자')을 직접 포함시켜 매핑 누락 방지 (v3.89 수정: 기존 매핑은 반도체 등 68% 누락).
+        // 코드는 getIndexChart 라이브 검증 완료 (0010/0022/0024/0025는 500/빈값 → 상위분류로 폴백).
         const SECTOR_INDEX_MAP = [
-          { code: '0013', name: '전기전자', keywords: ['반도체', '디스플레이', '전자부품', '가전', 'IT부품', 'LED', '2차전지'] },
-          { code: '0015', name: '운수장비', keywords: ['자동차', '조선', '자동차부품', '철도차량'] },
+          { code: '0013', name: '전기전자', keywords: ['전기·전자', '반도체', '디스플레이', '전자부품', 'IT부품', 'LED', '2차전지', '가전'] },
+          { code: '0012', name: '기계', keywords: ['기계·장비', '기계'] },
+          { code: '0015', name: '운수장비', keywords: ['운송장비·부품', '운송장비', '자동차', '조선'] },
+          { code: '0019', name: '운수창고', keywords: ['운송·창고', '운수창고', '운송', '창고', '물류'] },
+          { code: '0016', name: '유통업', keywords: ['유통', '도소매', '상사'] },
+          { code: '0014', name: '의료정밀', keywords: ['의료·정밀기기', '의료정밀', '정밀기기'] },
+          { code: '0009', name: '의약품', keywords: ['제약', '의약품', '바이오'] },
           { code: '0008', name: '화학', keywords: ['화학', '정유', '석유화학', '비료', '플라스틱'] },
-          { code: '0009', name: '의약품', keywords: ['의약품', '바이오', '제약', '의료'] },
-          { code: '0011', name: '철강금속', keywords: ['철강', '비철금속', '금속'] },
+          { code: '0011', name: '철강금속', keywords: ['금속', '비금속', '철강', '비철금속'] },
           { code: '0018', name: '건설업', keywords: ['건설', '시멘트', '건자재'] },
-          { code: '0021', name: '금융업', keywords: ['금융', '은행', '증권', '보험', '카드', '캐피탈'] },
-          { code: '0026', name: '서비스업', keywords: ['서비스', '미디어', '엔터', '게임', '인터넷', '플랫폼', '교육', '레저'] },
+          { code: '0006', name: '섬유의복', keywords: ['섬유·의류', '섬유의복', '의류', '섬유'] },
+          { code: '0005', name: '음식료품', keywords: ['음식료·담배', '음식료', '담배', '식품'] },
+          { code: '0007', name: '종이목재', keywords: ['종이·목재', '종이목재', '종이', '목재'] },
+          { code: '0017', name: '전기가스', keywords: ['전기·가스', '전기가스', '전력', '가스'] },
+          { code: '0020', name: '통신업', keywords: ['통신'] },
+          { code: '0021', name: '금융업', keywords: ['금융', '증권', '보험', '은행', '카드', '캐피탈', '지주'] },
+          { code: '0026', name: '서비스업', keywords: ['IT 서비스', '일반서비스', '오락·문화', '서비스', '미디어', '엔터', '게임', '인터넷', '플랫폼', '교육', '레저', '오락', '문화'] },
         ];
 
         // KOSPI 종합 + 업종 지수 조회 (5일 데이터)
