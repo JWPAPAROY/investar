@@ -306,26 +306,40 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     return weekAvgs;
   }
 
-  // Find (k,n) where ALL in-sample weeks have positive avg, then rank by overall mean
-  const candidates = [];
+  // 모든 유효 (k,n)의 주별 성과 수집 (전주 + 비율 posRatio 포함)
+  const allCands = [];
   for (const k of ksRange) for (const n of nsRange) {
     if (n <= k) continue;
     const wkAvgs = weekRet(inSampleWeeks, k, n, arr => arr.slice(0, 3));
     if (wkAvgs.length < Math.max(4, Math.floor(inSampleWeeks.length * 0.6))) continue;
-    const allPositive = wkAvgs.every(w => w.avg > 0);
-    if (!allPositive) continue;
-    const overall = mean(wkAvgs.map(w => w.avg));
-    const minWk = Math.min(...wkAvgs.map(w => w.avg));
+    const avgs = wkAvgs.map(w => w.avg);
+    const posRatio = avgs.filter(a => a > 0).length / avgs.length;
+    const overall = mean(avgs);
+    const minWk = Math.min(...avgs);
     const totalN = wkAvgs.reduce((s, w) => s + w.n, 0);
-    candidates.push({ k, n, overall, minWk, totalN, weeksMatched: wkAvgs.length });
+    allCands.push({ k, n, overall, minWk, totalN, posRatio, weeksMatched: wkAvgs.length });
   }
-  candidates.sort((a, b) => b.minWk - a.minWk); // robust: maximize the worst week
+
+  // 점진적 완화: 지는 레짐에서 침묵하던 맹점 해소.
+  //  robust(전주 +) → majority(≥70% 주 +) → least_bad(그래도 없으면 전체 중 최저주 최대)
+  //  자동 policy 변경은 robust일 때만(아래 Phase 3) — 덜 나쁜 권고로 휩쏘 방지, 권고 자체는 항상 표시.
+  const POS_MAJORITY = 0.7;
+  let optimalQuality = null;
+  let pool = allCands.filter(c => c.posRatio === 1);            // tier1
+  if (pool.length) optimalQuality = 'robust';
+  else {
+    pool = allCands.filter(c => c.posRatio >= POS_MAJORITY);    // tier2
+    if (pool.length) optimalQuality = 'majority';
+    else if (allCands.length) { pool = allCands.slice(); optimalQuality = 'least_bad'; } // tier3
+  }
+  pool.sort((a, b) => b.minWk - a.minWk); // robust: maximize the worst week
+  const candidates = pool; // raw_json/OOS/meta 하위호환
 
   let optimalBuyD = null, optimalSellD = null, optimalAvg = null, optimalMin = null, optimalN = null;
   let oosAvgReturn = null, oosSampleN = null;
 
   if (candidates.length === 0) {
-    warnings.push('no (k,n) all-positive in in-sample');
+    warnings.push('no (k,n) candidate (in-sample 데이터 부족)');
   } else {
     const best = candidates[0];
     optimalBuyD = best.k;
@@ -333,6 +347,9 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     optimalAvg = best.overall;
     optimalMin = best.minWk;
     optimalN = best.totalN;
+    if (optimalQuality !== 'robust') {
+      warnings.push(`optimal timing quality=${optimalQuality} (전주 +비율 ${Math.round(best.posRatio * 100)}%) — 권고만, 자동적용 보류`);
+    }
 
     // OOS validation
     const oosAvgs = weekRet(oosWeeks, best.k, best.n, arr => arr.slice(0, 3));
@@ -343,7 +360,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     }
   }
 
-  console.log(`[2. OPTIMAL TIMING] (D+${optimalBuyD}, D+${optimalSellD}) overall=${optimalAvg?.toFixed(2)}% minWk=${optimalMin?.toFixed(2)}% inSample=${inSampleWeeks.length}wk`);
+  console.log(`[2. OPTIMAL TIMING] (D+${optimalBuyD}, D+${optimalSellD}) quality=${optimalQuality} overall=${optimalAvg?.toFixed(2)}% minWk=${optimalMin?.toFixed(2)}% inSample=${inSampleWeeks.length}wk`);
 
   // =========================================================================
   // 3. TOP1 ALPHA — last 30 days TOP1 vs TOP3 (current vs optimal timing)
@@ -393,8 +410,11 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     } catch (_) {}
   }
 
-  // Phase 3: 자동 적용 — 권장이 현재 정책과 다르면 즉시 active_policy 갱신
-  if (recommendationDiffers && optimalBuyD != null && optimalSellD != null) {
+  // Phase 3: 자동 적용 — 권장이 현재 정책과 다르면 즉시 active_policy 갱신.
+  //   단 quality='robust'(전주 모두 +)일 때만 자동 변경. majority/least_bad는 권고만(휩쏘 방지).
+  if (recommendationDiffers && optimalBuyD != null && optimalSellD != null && optimalQuality !== 'robust') {
+    console.log(`[4. AUTO-APPLY] ⏸ 권고(D+${optimalBuyD}→D+${optimalSellD})가 현 정책과 다르나 quality=${optimalQuality} → 자동적용 보류(권고만 표시)`);
+  } else if (recommendationDiffers && optimalBuyD != null && optimalSellD != null) {
     // Idempotency: 이번 주 이미 auto-diagnostic이 적용했으면 스킵
     if (activePolicySetBy === 'auto-diagnostic' && activePolicySinceDate === weekStart) {
       console.log(`[4. AUTO-APPLY] ⏭ 이미 이번 주(${weekStart}) 자동 적용됨, 스킵`);
@@ -535,6 +555,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     warnings: warnings.length ? warnings : null,
     raw_json: {
       bucketMids, bucketAvgs,
+      optimalQuality,
       candidatesTop5: candidates.slice(0, 5),
       inSampleWeeksList: inSampleWeeks,
       oosWeeksList: oosWeeks,
