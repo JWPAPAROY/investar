@@ -661,10 +661,26 @@ async function sendTelegramMessage(message) {
 }
 
 /**
+ * v3.90: momentum 레짐 TOP3 시총 플로어 (5조+ 우선 → 부족 시 1조+ 폴백 → 그래도 없으면 원본).
+ * 근거(2026-06-21 성과분석, D+1→D+10): 대형주 주도 급등장에서 마이크로캡(<3천억, 풀의 47%)이
+ *   -4.4%/승20%로 책을 깎음. KOSPI&5조+ +2.8%/승49%, 현 TOP3 내 5조+ +3.8% vs 5조미만 -3.6%.
+ * market_regime은 v3.88에서 탐지 폐기되어 현재 항상 'momentum' → 사실상 상시 적용.
+ *   (레짐 탐지 부활 시 비-momentum 레짐은 자동 우회됨)
+ */
+function applyMomentumCapFloor(eligible, capOf, regimeOf) {
+  if (!eligible || eligible.length === 0) return eligible;
+  if (regimeOf(eligible[0]) !== 'momentum') return eligible; // 비-momentum 레짐 우회
+  let pool = eligible.filter(s => (capOf(s) || 0) >= 5e12);   // 5조+ 우선
+  if (pool.length < 3) pool = eligible.filter(s => (capOf(s) || 0) >= 1e12); // 1조+ 폴백
+  return pool.length ? pool : eligible;                       // TOP3 미달 방지
+}
+
+/**
  * TOP 3 선별
  * v3.86(복귀): tier1(시총≤1조 우선) + 스윗스팟 구간(50-59→60-69→80-89→90+→70-79→45-49) + 수급1차→점수
  *   근거: 동일 데이터(2025-11-03~2026-05-04) 역대전략 비교에서 v376이 D+1→D+10 평균 +11.48%로
  *         2위(v384 +7.62%) 대비 50% 우위. v385(isV2Priority) 성과 최하위(+4.40%)로 복귀 결정.
+ * v3.90: 정렬 직전 momentum 시총 플로어 적용 (applyMomentumCapFloor).
  */
 function selectAlertTop3(stocks) {
   if (!stocks || stocks.length === 0) return [];
@@ -690,6 +706,9 @@ function selectAlertTop3(stocks) {
     if (filtered.length >= 3) { baseEligible = filtered; break; }
     baseEligible = filtered;
   }
+
+  // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백)
+  baseEligible = applyMomentumCapFloor(baseEligible, s => s.market_cap, s => s.market_regime || 'momentum');
 
   // v387: 수급등급(sg) 1차 → 기관매수일 2차 → 스윗스팟 구간 3차 (승률 최대화)
   const bandRank = (score) => {
@@ -879,6 +898,9 @@ function selectSaveTop3(stocks) {
     if (filtered.length >= 3) { baseEligible = filtered; break; }
     baseEligible = filtered;
   }
+
+  // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백)
+  baseEligible = applyMomentumCapFloor(baseEligible, s => s.marketCap, s => s.marketRegime || 'momentum');
 
   // v387: 수급등급(sg) 1차 → 기관매수일 2차 → 스윗스팟 구간 3차 (승률 최대화)
   const bandRank = (score) => {
