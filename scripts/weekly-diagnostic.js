@@ -502,6 +502,9 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   // =========================================================================
   const row = {
     week_start: weekStart,
+    // regime: v3.88에서 개념 폐기. DB 컬럼은 NOT NULL이라 sentinel로 채움
+    // (코드 어디서도 읽지 않음 / 추후 DDL로 DROP NOT NULL 가능)
+    regime: 'deprecated',
     score_health_corr: scoreHealthR,
     score_health_label: scoreHealthLabel,
     score_bucket_returns: scoreBucketReturns,
