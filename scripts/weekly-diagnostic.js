@@ -46,9 +46,9 @@ async function generateDiagnosticAI(row, prevRows) {
 
   const sign = (v, suffix = '%') => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}${suffix}`;
   const healthDesc = {
-    healthy:  `양호 — 점수가 높을수록 수익도 높은 정상 상태 (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}, 기준: r>0.3)`,
-    broken:   `단조성 약화 — 점수와 수익 사이 뚜렷한 상관이 없는 상태 (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}, 기준: -0.3~0.3). 시장 전환기나 표본 부족 시 일시적으로 나타날 수 있음`,
-    inverted: `역전 — 점수가 높을수록 오히려 수익이 낮은 위험 상태 (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}, 기준: r<-0.3)`,
+    healthy:  `양호 — 스윗스팟 선호밴드(50-69 등)가 실제로 더 높은 수익을 내는 정상 상태 (ρ=${row.score_health_corr?.toFixed(2) ?? 'N/A'}, 기준: ρ>0.3)`,
+    broken:   `약화 — 스윗스팟 선호순서와 실제 수익순서 사이 뚜렷한 상관이 없는 상태 (ρ=${row.score_health_corr?.toFixed(2) ?? 'N/A'}, 기준: -0.3~0.3). 시장 전환기나 표본 부족 시 일시적으로 나타날 수 있음`,
+    inverted: `역전 — 스윗스팟 선호밴드가 오히려 더 낮은 수익을 내는 위험 상태 (ρ=${row.score_health_corr?.toFixed(2) ?? 'N/A'}, 기준: ρ<-0.3)`,
     unknown:  `판정 불가 — 표본 부족`,
   };
 
@@ -117,9 +117,9 @@ function generateRuleFallback(row) {
   const sign = (v) => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
   let brief = '';
   // 점수 건강
-  if (row.score_health_label === 'healthy') brief += '점수 모델이 정상 작동 중입니다. ';
-  else if (row.score_health_label === 'broken') brief += '점수 모델의 단조성이 깨져 있어 주의가 필요합니다. ';
-  else if (row.score_health_label === 'inverted') brief += '점수 모델이 역전 상태로, 점수가 높을수록 수익이 낮은 위험 상황입니다. ';
+  if (row.score_health_label === 'healthy') brief += '점수 스윗스팟이 정상 작동 중입니다. ';
+  else if (row.score_health_label === 'broken') brief += '점수 스윗스팟 선호와 실제 수익의 상관이 약해 주의가 필요합니다. ';
+  else if (row.score_health_label === 'inverted') brief += '스윗스팟 역전 상태로, 선호밴드(50-69 등)가 오히려 손실을 내는 위험 상황입니다. ';
   // 검증 수익 (OOS)
   if (row.oos_avg_return != null) {
     brief += row.oos_avg_return >= 0
@@ -230,37 +230,50 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   // 1. SCORE HEALTH — score bucket × 수익률 단조성 (last 30 days, active timing 기준)
   // =========================================================================
   const recent30All = recs.filter(r => r.recommendation_date >= last30Str);
-  const buckets = [
-    { lo: 45, hi: 55, mid: 50 },
-    { lo: 55, hi: 65, mid: 60 },
-    { lo: 65, hi: 75, mid: 70 },
-    { lo: 75, hi: 200, mid: 80 },
+  // v3.92: 스윗스팟-aware 건강도. 점수모델은 단조(높을수록 좋음)가 아니라 비단조 스윗스팟 설계라
+  //   밴드 중간값↔수익 단조 Spearman은 부적합. TOP3 bandRank 의도 선호순서
+  //   (50-59>60-69>80-89>90+>70-79>45-49)가 실제 수익순서와 맞는지(순위상관)로 측정.
+  //   ρ>0 = 스윗스팟 작동(healthy), ρ<0 = 역전(inverted, 선호밴드가 오히려 손실).
+  const srBandRank = (s) => {
+    if (s >= 50 && s <= 59) return 1;
+    if (s >= 60 && s <= 69) return 2;
+    if (s >= 80 && s <= 89) return 3;
+    if (s >= 90) return 4;
+    if (s >= 70 && s <= 79) return 5;
+    return 6; // 45-49
+  };
+  const bands = [
+    { lo: 45, hi: 50, label: '45-49' },
+    { lo: 50, hi: 60, label: '50-59' },
+    { lo: 60, hi: 70, label: '60-69' },
+    { lo: 70, hi: 80, label: '70-79' },
+    { lo: 80, hi: 90, label: '80-89' },
+    { lo: 90, hi: 200, label: '90+' },
   ];
-  const bucketMids = [], bucketAvgs = [];
+  const ssGoodness = [], ssReturns = [];
   const scoreBucketReturns = [];
-  for (const b of buckets) {
+  for (const b of bands) {
     const subset = recent30All.filter(r => (r.total_score||0) >= b.lo && (r.total_score||0) < b.hi);
     const rets = subset.map(r => retFrom(pIdx, r.id, healthK, healthN)).filter(v => v != null);
-    const label = b.hi >= 200 ? `≥${b.lo}` : `${b.lo}-${b.hi}`;
     if (rets.length >= 3) {
       const avg = mean(rets);
-      scoreBucketReturns.push({ label, avg: Math.round(avg * 100) / 100, n: rets.length });
+      scoreBucketReturns.push({ label: b.label, avg: Math.round(avg * 100) / 100, n: rets.length });
       if (rets.length >= 5) {
-        bucketMids.push(b.mid);
-        bucketAvgs.push(avg);
+        ssGoodness.push(7 - srBandRank(b.lo)); // 스윗스팟 선호도(클수록 선호)
+        ssReturns.push(avg);
       }
     } else {
-      scoreBucketReturns.push({ label, avg: null, n: rets.length });
+      scoreBucketReturns.push({ label: b.label, avg: null, n: rets.length });
     }
   }
-  const scoreHealthR = bucketMids.length >= 3 ? spearman(bucketMids, bucketAvgs) : null;
+  const scoreHealthR = ssGoodness.length >= 3 ? spearman(ssGoodness, ssReturns) : null;
   let scoreHealthLabel;
-  if (scoreHealthR == null) { scoreHealthLabel = 'unknown'; warnings.push('score_health insufficient buckets'); }
+  if (scoreHealthR == null) { scoreHealthLabel = 'unknown'; warnings.push('score_health insufficient bands'); }
   else if (scoreHealthR > 0.3) scoreHealthLabel = 'healthy';
   else if (scoreHealthR < -0.3) scoreHealthLabel = 'inverted';
   else scoreHealthLabel = 'broken';
 
-  console.log(`[1. SCORE HEALTH] ${scoreHealthLabel} (r=${scoreHealthR?.toFixed(2)}, timing=D+${healthK}→D+${healthN}, buckets=${bucketMids.length})`);
+  console.log(`[1. SCORE HEALTH] ${scoreHealthLabel} (sweet-spot ρ=${scoreHealthR?.toFixed(2)}, timing=D+${healthK}→D+${healthN}, bands=${ssGoodness.length})`);
 
   // =========================================================================
   // 2. OPTIMAL TIMING — walk-forward (k,n) scan
@@ -554,7 +567,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     meta_alpha_vs_baseline: metaAlpha,
     warnings: warnings.length ? warnings : null,
     raw_json: {
-      bucketMids, bucketAvgs,
+      ssGoodness, ssReturns,
       optimalQuality,
       candidatesTop5: candidates.slice(0, 5),
       inSampleWeeksList: inSampleWeeks,
