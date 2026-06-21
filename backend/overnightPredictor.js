@@ -698,12 +698,31 @@ async function updateActualResult(date) {
     let kospiCloseChange = null, kosdaqCloseChange = null;
     let kospiClosePrice = null, kosdaqClosePrice = null;
 
+    // 전일 거래일의 저장 종가를 변동률 기준선으로 사용.
+    // yahooQuote.change/previousClose는 "Yahoo가 준 마지막 2개 바"로 계산되어
+    // 두 바가 연속 거래일이 아니거나 중복일 때 잘못된 전일 대비를 산출하는 버그가 있었음
+    // (저장 종가 시계열과 12/71행 불일치, 부호 반전 사례 확인). 저장 종가 기준으로
+    // 산출하여 close 시계열과 항상 정합하도록 고정.
+    const getPriorClose = async (field) => {
+      const { data } = await supabase
+        .from('overnight_predictions')
+        .select(field)
+        .lt('prediction_date', date)
+        .not(field, 'is', null)
+        .order('prediction_date', { ascending: false })
+        .limit(1);
+      return data?.[0]?.[field] ?? null;
+    };
+
     try {
       const kospiQuote = await yahooQuote('^KS11');
-      if (kospiQuote.previousClose) {
-        kospiChange = +((kospiQuote.open - kospiQuote.previousClose) / kospiQuote.previousClose * 100).toFixed(3);
-        kospiCloseChange = +kospiQuote.change.toFixed(3);
+      if (kospiQuote.price) {
         kospiClosePrice = +kospiQuote.price.toFixed(2);
+        const priorClose = (await getPriorClose('kospi_close')) || kospiQuote.previousClose;
+        if (priorClose) {
+          kospiCloseChange = +(((kospiClosePrice - priorClose) / priorClose) * 100).toFixed(3);
+          kospiChange = +(((kospiQuote.open - priorClose) / priorClose) * 100).toFixed(3);
+        }
       }
     } catch (e) {
       console.warn('⚠️ KOSPI 데이터 수집 실패:', e.message);
@@ -711,10 +730,13 @@ async function updateActualResult(date) {
 
     try {
       const kosdaqQuote = await yahooQuote('^KQ11');
-      if (kosdaqQuote.previousClose) {
-        kosdaqChange = +((kosdaqQuote.open - kosdaqQuote.previousClose) / kosdaqQuote.previousClose * 100).toFixed(3);
-        kosdaqCloseChange = +kosdaqQuote.change.toFixed(3);
+      if (kosdaqQuote.price) {
         kosdaqClosePrice = +kosdaqQuote.price.toFixed(2);
+        const priorClose = (await getPriorClose('kosdaq_close')) || kosdaqQuote.previousClose;
+        if (priorClose) {
+          kosdaqCloseChange = +(((kosdaqClosePrice - priorClose) / priorClose) * 100).toFixed(3);
+          kosdaqChange = +(((kosdaqQuote.open - priorClose) / priorClose) * 100).toFixed(3);
+        }
       }
     } catch (e) {
       console.warn('⚠️ KOSDAQ 데이터 수집 실패:', e.message);
