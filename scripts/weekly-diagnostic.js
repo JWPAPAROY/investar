@@ -423,10 +423,14 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     } catch (_) {}
   }
 
-  // Phase 3: 자동 적용 — 권장이 현재 정책과 다르면 즉시 active_policy 갱신.
-  //   단 quality='robust'(전주 모두 +)일 때만 자동 변경. majority/least_bad는 권고만(휩쏘 방지).
-  if (recommendationDiffers && optimalBuyD != null && optimalSellD != null && optimalQuality !== 'robust') {
-    console.log(`[4. AUTO-APPLY] ⏸ 권고(D+${optimalBuyD}→D+${optimalSellD})가 현 정책과 다르나 quality=${optimalQuality} → 자동적용 보류(권고만 표시)`);
+  // Phase 3: 자동 적용 — 권장이 현재 정책과 다르면 active_policy 갱신.
+  //   역동성/휩쏘 균형: robust(전주 모두 +)는 즉시, majority(≥70% 주 +)는 2주 연속 동일권고일 때만.
+  //   least_bad(전부 음수)는 권고만(자동변경 안 함). 수동설정도 위 조건 충족 시 자동이 덮어씀.
+  const autoApplyEligible = optimalQuality === 'robust'
+    || (optimalQuality === 'majority' && consecutiveSame >= 2);
+  if (recommendationDiffers && optimalBuyD != null && optimalSellD != null && !autoApplyEligible) {
+    const why = optimalQuality === 'majority' ? `majority지만 연속 ${consecutiveSame}주(<2)` : `quality=${optimalQuality}`;
+    console.log(`[4. AUTO-APPLY] ⏸ 권고(D+${optimalBuyD}→D+${optimalSellD}) ${why} → 자동적용 보류(권고만 표시)`);
   } else if (recommendationDiffers && optimalBuyD != null && optimalSellD != null) {
     // Idempotency: 이번 주 이미 auto-diagnostic이 적용했으면 스킵
     if (activePolicySetBy === 'auto-diagnostic' && activePolicySinceDate === weekStart) {
@@ -438,7 +442,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
           buy_offset_day: optimalBuyD,
           sell_offset_day: optimalSellD,
           set_by: 'auto-diagnostic',
-          change_reason: `주간진단(${weekStart}) 자동적용: D+${optimalBuyD}→D+${optimalSellD} (in-sample avg ${optimalAvg?.toFixed(2)}%, ${consecutiveSame}주 연속 권고)`,
+          change_reason: `주간진단(${weekStart}) 자동적용: D+${optimalBuyD}→D+${optimalSellD} (quality=${optimalQuality}, in-sample avg ${optimalAvg?.toFixed(2)}%, ${consecutiveSame}주 연속 권고)`,
           since_date: weekStart,
         })
         .eq('id', 1);
@@ -450,7 +454,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
           buy_offset_day: optimalBuyD,
           sell_offset_day: optimalSellD,
           set_by: 'auto-diagnostic',
-          change_reason: `주간진단(${weekStart}) 자동적용 (in-sample avg ${optimalAvg?.toFixed(2)}%, min ${optimalMin?.toFixed(2)}%)`,
+          change_reason: `주간진단(${weekStart}) 자동적용 (quality=${optimalQuality}, ${consecutiveSame}주 연속, in-sample avg ${optimalAvg?.toFixed(2)}%, min ${optimalMin?.toFixed(2)}%)`,
           prev_buy_offset_day: activeBuyD,
           prev_sell_offset_day: activeSellD,
         });
