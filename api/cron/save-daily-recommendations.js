@@ -661,15 +661,44 @@ async function sendTelegramMessage(message) {
 }
 
 /**
+ * v3.91: 시장 레짐 탐지 (KOSPI−KOSDAQ 폭 신호로 v3.88에서 죽은 market_regime 부활).
+ * 직전 10거래일 누적 (KOSPI − KOSDAQ) 스프레드 ≥ 0 → 'momentum'(대형주 협소장), < 0 → 'broad'(소형 참여).
+ * 근거(2026-06-21 캘리브레이션, 추천일 직전 10거래일 스프레드 vs 대형−소형 D+1→D+10):
+ *   spread<0: 소형 +4.6% > 대형 +3.3% (플로어 해로움) / spread≥0: 대형 +3~9%p 우위(플로어 이득). 0에서 부호 전환.
+ * 데이터는 overnight_predictions(kospi_close/kosdaq_close, 매일 저장)에서 조회 — 추가 수집 불필요, 지연 0.
+ */
+async function detectMarketRegime() {
+  try {
+    const { data } = await supabase
+      .from('overnight_predictions')
+      .select('prediction_date,kospi_close,kosdaq_close')
+      .lt('prediction_date', '2027-01-01')
+      .not('kospi_close', 'is', null)
+      .not('kosdaq_close', 'is', null)
+      .order('prediction_date', { ascending: false })
+      .limit(11); // 최신 + 직전 10거래일
+    if (!data || data.length < 6) return 'momentum'; // 데이터 부족 시 보수적으로 플로어 ON
+    const latest = data[0], base = data[data.length - 1];
+    const kp = (latest.kospi_close / base.kospi_close - 1) * 100;
+    const kq = (latest.kosdaq_close / base.kosdaq_close - 1) * 100;
+    const spread = kp - kq;
+    console.log(`📐 레짐 탐지: KOSPI−KOSDAQ ${data.length - 1}일 스프레드 ${spread >= 0 ? '+' : ''}${spread.toFixed(1)}%p → ${spread >= 0 ? 'momentum(대형/협소)' : 'broad(소형참여)'}`);
+    return spread >= 0 ? 'momentum' : 'broad';
+  } catch (e) {
+    console.warn('detectMarketRegime 실패, momentum fallback:', e.message);
+    return 'momentum';
+  }
+}
+
+/**
  * v3.90: momentum 레짐 TOP3 시총 플로어 (5조+ 우선 → 부족 시 1조+ 폴백 → 그래도 없으면 원본).
  * 근거(2026-06-21 성과분석, D+1→D+10): 대형주 주도 급등장에서 마이크로캡(<3천억, 풀의 47%)이
  *   -4.4%/승20%로 책을 깎음. KOSPI&5조+ +2.8%/승49%, 현 TOP3 내 5조+ +3.8% vs 5조미만 -3.6%.
- * market_regime은 v3.88에서 탐지 폐기되어 현재 항상 'momentum' → 사실상 상시 적용.
- *   (레짐 탐지 부활 시 비-momentum 레짐은 자동 우회됨)
+ * v3.91: regime(detectMarketRegime)이 'broad'면 플로어 우회 — 소형주 참여장에선 플로어가 해로움(캘리브레이션).
  */
-function applyMomentumCapFloor(eligible, capOf, regimeOf) {
+function applyMomentumCapFloor(eligible, capOf, regime) {
   if (!eligible || eligible.length === 0) return eligible;
-  if (regimeOf(eligible[0]) !== 'momentum') return eligible; // 비-momentum 레짐 우회
+  if (regime !== 'momentum') return eligible;                // broad 레짐 우회
   let pool = eligible.filter(s => (capOf(s) || 0) >= 5e12);   // 5조+ 우선
   if (pool.length < 3) pool = eligible.filter(s => (capOf(s) || 0) >= 1e12); // 1조+ 폴백
   return pool.length ? pool : eligible;                       // TOP3 미달 방지
@@ -682,8 +711,9 @@ function applyMomentumCapFloor(eligible, capOf, regimeOf) {
  *         2위(v384 +7.62%) 대비 50% 우위. v385(isV2Priority) 성과 최하위(+4.40%)로 복귀 결정.
  * v3.90: 정렬 직전 momentum 시총 플로어 적용 (applyMomentumCapFloor).
  */
-function selectAlertTop3(stocks) {
+function selectAlertTop3(stocks, regime) {
   if (!stocks || stocks.length === 0) return [];
+  const rg = regime || stocks[0]?.market_regime || 'momentum';
 
   // 공통 자격 (80-89 + 이격도 ≥120 결합 패널티 유지)
   const isCommonEligible = (s) => {
@@ -707,8 +737,8 @@ function selectAlertTop3(stocks) {
     baseEligible = filtered;
   }
 
-  // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백)
-  baseEligible = applyMomentumCapFloor(baseEligible, s => s.market_cap, s => s.market_regime || 'momentum');
+  // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백) / v3.91: regime 조건부
+  baseEligible = applyMomentumCapFloor(baseEligible, s => s.market_cap, rg);
 
   // v387: 수급등급(sg) 1차 → 기관매수일 2차 → 스윗스팟 구간 3차 (승률 최대화)
   const bandRank = (score) => {
@@ -872,8 +902,9 @@ function selectWhaleStocks(stocks, top3) {
  * v3.86(복귀): SAVE 모드 TOP 3 선별 (selectAlertTop3과 동일 로직, camelCase)
  *  - tier1(시총≤1조) + 스윗스팟 구간 + 수급1차→점수
  */
-function selectSaveTop3(stocks) {
+function selectSaveTop3(stocks, regime) {
   if (!stocks || stocks.length === 0) return [];
+  const rg = regime || stocks[0]?.marketRegime || 'momentum';
 
   const dispOf = (s) => s.overheatingV2?.disparity || 100;
   const hasBuyWhaleOf = (s) => (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
@@ -899,8 +930,8 @@ function selectSaveTop3(stocks) {
     baseEligible = filtered;
   }
 
-  // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백)
-  baseEligible = applyMomentumCapFloor(baseEligible, s => s.marketCap, s => s.marketRegime || 'momentum');
+  // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백) / v3.91: regime 조건부
+  baseEligible = applyMomentumCapFloor(baseEligible, s => s.marketCap, rg);
 
   // v387: 수급등급(sg) 1차 → 기관매수일 2차 → 스윗스팟 구간 3차 (승률 최대화)
   const bandRank = (score) => {
@@ -3212,6 +3243,9 @@ module.exports = async (req, res) => {
 
     // Step 3: Supabase에 저장 (today는 위에서 이미 선언됨)
 
+    // v3.91: 당일 시장 레짐 탐지 (KOSPI−KOSDAQ 폭) — 저장 + TOP3 시총 플로어 조건부 적용
+    const marketRegime = await detectMarketRegime();
+
     const recommendations = filteredStocks.map(stock => {
       // 고래 정보 추출
       const buyWhales = (stock.advancedAnalysis?.indicators?.whale || []).filter(w => w.type?.includes('매수'));
@@ -3246,6 +3280,7 @@ module.exports = async (req, res) => {
         total_score: stock.totalScore || 0,
         market: stock.market || null, // v3.32: 시장 구분 (KOSPI/KOSDAQ)
         sector_name: stock.sectorName || null, // v3.68: 업종명 (bstp_kor_isnm)
+        market_regime: marketRegime, // v3.91: 당일 레짐 (momentum=대형협소 / broad=소형참여)
 
         // 기본 정보
         change_rate: stock.changeRate || 0,
@@ -3315,7 +3350,7 @@ module.exports = async (req, res) => {
     });
 
     // v3.35: TOP3 선별 후 DB 저장 전에 마킹
-    const saveTop3Codes = selectSaveTop3(stocks).slice(0, 3).map(s => s.stockCode);
+    const saveTop3Codes = selectSaveTop3(stocks, marketRegime).slice(0, 3).map(s => s.stockCode);
 
     // v3.37: v2 TOP3 선별 (Supply 기반 필터 — 기관/외국인 수급 + v2 총점)
     const v2Top3Codes = stocks
@@ -3405,7 +3440,7 @@ module.exports = async (req, res) => {
     let tgSent = false;
     try {
       // 1. 내일 TOP 3 선정
-      const saveTop3 = selectSaveTop3(stocks);
+      const saveTop3 = selectSaveTop3(stocks, marketRegime);
       console.log(`📱 TOP 3 후보: ${saveTop3.length}개 - ${saveTop3.map(s => s.stockName + '(' + s.totalScore + ')').join(', ')}`);
 
       // 2. 전 거래일 추천 종목의 당일 성과 분석 (오늘 종가 기준)
