@@ -683,6 +683,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 - `stock_expected_returns`: 종목별 유사 매칭 기대수익 (v3.66)
 - `overnight_predictions`: 해외 지수 기반 시장 방향 예측 + 적중률 (v3.47)
 - `sector_outlook_stats`: 업종별 해외전망 버킷별 승률/수익률 + 모멘텀 상관계수 (v3.69)
+- `market_flow_daily`: 전 상장종목 일별 수급+가격 (v3.93, "풀 밖 수급-우선 신호" 검증용. 수집: `scripts/collect-market-flow.js`, GitHub Actions 평일 17:50 KST. 스키마/설계: `supabase-market-flow.sql`)
 - `success_patterns`: +10% 달성 종목 지표 특징
 - `recommendation_statistics` (뷰): 종목별 성과 통계
 - `overall_performance` (뷰): 전체 성과 요약
