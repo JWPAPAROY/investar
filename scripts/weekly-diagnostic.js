@@ -330,7 +330,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     const overall = mean(avgs);
     const minWk = Math.min(...avgs);
     const totalN = wkAvgs.reduce((s, w) => s + w.n, 0);
-    allCands.push({ k, n, overall, minWk, totalN, posRatio, weeksMatched: wkAvgs.length });
+    allCands.push({ k, n, overall, minWk, totalN, posRatio, weeksMatched: wkAvgs.length, weeks: wkAvgs.map(w => w.week) });
   }
 
   // 점진적 완화: 지는 레짐에서 침묵하던 맹점 해소.
@@ -362,6 +362,12 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     optimalN = best.totalN;
     if (optimalQuality !== 'robust') {
       warnings.push(`optimal timing quality=${optimalQuality} (전주 +비율 ${Math.round(best.posRatio * 100)}%) — 권고만, 자동적용 보류`);
+    }
+    // v3.92: 최신 in-sample 주가 주별 표본<3으로 제외되면 권고가 과거 주에 동결됨을 명시
+    //   (2026-07-06 발견: 6/28·7/5 진단 수치가 소수점까지 동일 — 최신 주 탈락으로 유효 주 집합 불변)
+    const latestInSampleWk = inSampleWeeks[inSampleWeeks.length - 1];
+    if (latestInSampleWk && best.weeks && !best.weeks.includes(latestInSampleWk)) {
+      warnings.push(`최신 in-sample 주(${latestInSampleWk}) 표본<3으로 권고 산출에서 제외 — 권고가 최근 레짐 미반영일 수 있음`);
     }
 
     // OOS validation

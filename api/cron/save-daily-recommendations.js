@@ -666,6 +666,9 @@ async function sendTelegramMessage(message) {
  * 근거(2026-06-21 캘리브레이션, 추천일 직전 10거래일 스프레드 vs 대형−소형 D+1→D+10):
  *   spread<0: 소형 +4.6% > 대형 +3.3% (플로어 해로움) / spread≥0: 대형 +3~9%p 우위(플로어 이득). 0에서 부호 전환.
  * 데이터는 overnight_predictions(kospi_close/kosdaq_close, 매일 저장)에서 조회 — 추가 수집 불필요, 지연 0.
+ * v3.92: broad는 "KOSPI 10일 누적 상승 + 소형주 초과"일 때만. 캘리브레이션이 상승장 데이터였는데
+ *   폭락장의 spread<0은 소형주 랠리가 아니라 "대형주가 더 빠지는 위험회피"(2026-07-02~03 실사례:
+ *   KOSPI 8일 -16% 중 broad 판정 → 플로어 OFF → 넥스트아이 185억 등 소형주 픽). 하락장 spread<0은 momentum 유지.
  */
 async function detectMarketRegime() {
   try {
@@ -682,8 +685,10 @@ async function detectMarketRegime() {
     const kp = (latest.kospi_close / base.kospi_close - 1) * 100;
     const kq = (latest.kosdaq_close / base.kosdaq_close - 1) * 100;
     const spread = kp - kq;
-    console.log(`📐 레짐 탐지: KOSPI−KOSDAQ ${data.length - 1}일 스프레드 ${spread >= 0 ? '+' : ''}${spread.toFixed(1)}%p → ${spread >= 0 ? 'momentum(대형/협소)' : 'broad(소형참여)'}`);
-    return spread >= 0 ? 'momentum' : 'broad';
+    // v3.92: 하락장(kp≤0)의 spread<0은 위험회피이지 소형주 랠리가 아님 → momentum(플로어 유지)
+    const regime = (spread < 0 && kp > 0) ? 'broad' : 'momentum';
+    console.log(`📐 레짐 탐지: KOSPI−KOSDAQ ${data.length - 1}일 스프레드 ${spread >= 0 ? '+' : ''}${spread.toFixed(1)}%p, KOSPI 누적 ${kp >= 0 ? '+' : ''}${kp.toFixed(1)}% → ${regime}${regime === 'momentum' && spread < 0 ? '(하락장 spread<0, broad 억제)' : ''}`);
+    return regime;
   } catch (e) {
     console.warn('detectMarketRegime 실패, momentum fallback:', e.message);
     return 'momentum';
@@ -691,17 +696,21 @@ async function detectMarketRegime() {
 }
 
 /**
- * v3.90: momentum 레짐 TOP3 시총 플로어 (5조+ 우선 → 부족 시 1조+ 폴백 → 그래도 없으면 원본).
+ * v3.90: momentum 레짐 TOP3 시총 플로어 (5조+ 우선 → 부족 시 1조+ 폴백).
  * 근거(2026-06-21 성과분석, D+1→D+10): 대형주 주도 급등장에서 마이크로캡(<3천억, 풀의 47%)이
  *   -4.4%/승20%로 책을 깎음. KOSPI&5조+ +2.8%/승49%, 현 TOP3 내 5조+ +3.8% vs 5조미만 -3.6%.
  * v3.91: regime(detectMarketRegime)이 'broad'면 플로어 우회 — 소형주 참여장에선 플로어가 해로움(캘리브레이션).
+ * v3.92: 원본 폴백 제거 — 1조+ 후보가 없으면 무픽(빈 배열). 폴백이 플로어가 배제하려던 소형주를
+ *   그대로 통과시켰음(2026-07-06 점검: 6/22 나노캠텍 275억 D+1→D+10 -19.1% 완성, 7/2 넥스트아이 185억).
+ *   후보 전멸로 자연 무픽이던 6/23이 -8.9% 폭락일 = 무픽이 옳았음. "추천 없음"도 풀이 나쁘다는 신호.
  */
 function applyMomentumCapFloor(eligible, capOf, regime) {
   if (!eligible || eligible.length === 0) return eligible;
   if (regime !== 'momentum') return eligible;                // broad 레짐 우회
   let pool = eligible.filter(s => (capOf(s) || 0) >= 5e12);   // 5조+ 우선
   if (pool.length < 3) pool = eligible.filter(s => (capOf(s) || 0) >= 1e12); // 1조+ 폴백
-  return pool.length ? pool : eligible;                       // TOP3 미달 방지
+  if (!pool.length) console.log('📵 momentum 레짐 1조+ 후보 없음 → 무픽 (소형주 폴백 제거, v3.92)');
+  return pool;
 }
 
 /**
