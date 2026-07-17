@@ -5,6 +5,14 @@
 ## 📝 변경 이력
 
 ### v3.94 (2026-07-17)
+- **🚨 수급 신호가 반대 방향으로 계산되고 있었음 (시스템 최대 결함)**: `kisApi.getInvestorData()`는 **오름차순**([0]=가장 오래된 날, 마지막=최신)을 반환하는데, `checkInstitutionalFlow()`가 `[0]`부터 순회하며 첫 비매수일에 `break` → **"연속 순매수일"을 가장 오래된 날부터** 세고 있었다. 스트릭은 오늘부터 거꾸로 세야 의미가 있으므로 정반대. (원인: `chartData`는 내림차순인데 `investorData`만 오름차순인 비대칭)
+  - 실측(대형주 10종목): **8종목에서 수급일수가 틀림**. LG전자 4일/4일→0일/0일, 삼성전자 1일/1일→0일/0일, 현대모비스 3일/5일→0일/5일.
+  - `institutionDays`/`foreignDays`는 **TOP3 정렬 1차 키(supplyRank)**이자 **자격 필터(≥3일)**. 수정 시 10종목 중 **8종목의 수급등급이 변경**, 4종목은 자격 자체가 뒤집힘(NAVER·셀트리온·현대모비스가 최하등급 1 → 최상등급 5).
+  - ⚠️ **v3.87 정렬(504개 조합 전수탐색, 승률 71%)이 이 오염된 신호 위에서 검증됐다.** 근거 재검증 필요.
+  - ⚠️ DB `institution_buy_days`/`foreign_buy_days` 1,213행이 전부 이 로직 산출값. KIS가 30일치만 제공하므로 그 이전은 복원 불가.
+- **파생: D-5 기관 진입 가속이 축퇴 상태였음**: `calculateStateAtDay()`가 `investorData.slice(daysAgo)`를 하는데 오름차순이라 "가장 오래된 N개 제외"가 됐다(chartData는 내림차순이라 같은 slice가 올바름). 5일치만 조회하므로 `slice(5)`는 **항상 빈 배열** → `d5State.institutionalBuyDays`가 영구히 0 → CLAUDE.md의 `D-0 < D-5 → -2 감소`는 **한 번도 발동한 적 없고** 모든 종목이 "신규 진입"으로 보였다. 조회를 5→10일로 늘리고(호출 수 동일) 슬라이스를 `slice(0, length - daysAgo)`로 수정. 수정 후 `{d5Days:1, d0Days:0, score:-2, trend:'decreasing'}` 정상 산출 확인.
+- **`backfill-investor-days.js`의 lookahead 수정**: `countConsecutiveBuyDays()`가 `i++`로 순회 → 오름차순에서 추천일 **이후(미래)** 데이터를 셌다. 호출부 주석("closestIdx부터 과거로 계산")과 반대. 추천 시점에 알 수 없던 정보가 피처로 들어가는 lookahead였고, 이 스크립트가 DB에 수급일수를 써왔다. `i--`로 수정.
+- **`checkInstitutionalFlow` 관측 범위 5→10일**: 연속매수일 산출 범위가 넓어져 DB 값 범위가 0~5 → 0~10으로 바뀐다. supplyRank 임계값(≥2)·자격(≥3)은 불변이나, 2차 정렬키(기관매수일 내림차순)의 분해능이 올라간다. 과거 값(0~5 캡)과 직접 비교 시 주의.
 - **웹과 텔레그램이 서로 다른 TOP3를 내보내고 있었음 → 통일**: `screening.js:selectTop3`(웹 `/api/screening/recommend` → 프론트 `top3Meta` 경로)가 **v3.85에 멈춰 있었다**.
   - 정렬이 폐기된 `isV2Priority → total_score → 수급`. CLAUDE.md는 v3.86에서 "v385(isV2Priority) 성과 최하위(+4.40%)로 복귀 결정"이라 기록했으나 웹 경로엔 미반영.
   - **`applyMomentumCapFloor`(v3.90~3.92)가 아예 없었다** → 텔레그램이 무픽인 날에도 웹은 마이크로캡을 추천. 2026-07-17 실측: 웹 TOP3 = 삼성공조(1,104억)·파세코(1,606억) — 둘 다 1조 플로어 탈락 대상이고, v3.92가 "나노캠텍 -19.1%" 때문에 제거한 바로 그 종류. 무픽은 "풀이 나쁘다"는 신호인데 웹만 그 신호를 무력화했다.

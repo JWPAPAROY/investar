@@ -699,26 +699,29 @@ function checkInstitutionalFlow(investorData) {
     };
   }
 
-  // 연속 순매수일 계산
+  // 연속 순매수일 계산 — 최신일부터 과거로 세다가 첫 비매수일에 중단.
+  //
+  // ⚠️ v3.94 버그 수정: kisApi.getInvestorData()는 **오름차순**(investorData[0]=가장 오래된 날,
+  //   마지막=최신)을 반환하는데, 여기서 [0]부터 순회해 **가장 오래된 날부터** 스트릭을 세고 있었다.
+  //   연속 매수 스트릭은 오늘부터 거꾸로 세야 의미가 있으므로 정반대였다.
+  //   실측(2026-07-17, 대형주 10종목): 8종목에서 수급일수가 틀렸다.
+  //     LG전자 4일/4일(코드) vs 0일/0일(실제), 삼성전자 1일/1일 vs 0일/0일 등.
+  //   institutionDays/foreignDays는 TOP3 정렬 1차 키(supplyRank)이자 자격 필터(>=3일)라
+  //   수급 신호 전체가 오염돼 있었다. (chartData는 내림차순, investorData는 오름차순 —
+  //   이 비대칭이 원인. 순서 가정을 바꾸려면 이 파일과 volumeDnaExtractor를 함께 볼 것.)
   let institutionConsecutive = 0;
   let foreignConsecutive = 0;
 
-  for (const day of investorData) {
-    const instNet = day.institution?.netBuyQty || parseInt(day.institution_net_buy || 0);
-    if (instNet > 0) {
-      institutionConsecutive++;
-    } else {
-      break;
-    }
+  for (let i = investorData.length - 1; i >= 0; i--) {
+    const instNet = investorData[i].institution?.netBuyQty || parseInt(investorData[i].institution_net_buy || 0);
+    if (instNet > 0) institutionConsecutive++;
+    else break;
   }
 
-  for (const day of investorData) {
-    const foreignNet = day.foreign?.netBuyQty || parseInt(day.foreign_net_buy || 0);
-    if (foreignNet > 0) {
-      foreignConsecutive++;
-    } else {
-      break;
-    }
+  for (let i = investorData.length - 1; i >= 0; i--) {
+    const foreignNet = investorData[i].foreign?.netBuyQty || parseInt(investorData[i].foreign_net_buy || 0);
+    if (foreignNet > 0) foreignConsecutive++;
+    else break;
   }
 
   const institutionBuying = institutionConsecutive >= 3;

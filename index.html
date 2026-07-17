@@ -593,6 +593,8 @@
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
       const [defenseTop3Recommendations, setDefenseTop3Recommendations] = useState([]); // v3.34: 방어 TOP 3
       const [activePolicy, setActivePolicy] = useState(null); // Phase 2-3: 현재 매매 정책
+      // v3.94: KRX 휴장일 목록 (API 제공). 매수/매도일 계산에 사용 — 하드코딩 금지.
+      const [krxHolidays, setKrxHolidays] = useState([]);
       const [latestDiagnostic, setLatestDiagnostic] = useState(null); // Phase 2-3: 최신 주간 진단
       const [diagnosticHistory, setDiagnosticHistory] = useState(null); // Phase 2-4: 시계열 12주
       const [policyHistory, setPolicyHistory] = useState([]); // Phase 2-4: 정책 변경 이력
@@ -617,14 +619,22 @@
       const entryViewLabel = entryView === 'd0' ? 'D+0 (추천일 종가)'
         : `운영 진단 D+${activePolicy?.buy_offset_day ?? '?'} 매수`;
 
-      // Phase 2-3: 평일 N거래일 후 날짜 (휴일 미반영 — 대략 가이드)
+      // N거래일 후 날짜 (주말 + KRX 휴장일 제외)
+      // v3.94: 이전엔 주말만 건너뛰고 휴장일을 반영하지 않아 "대략 가이드"였다. 휴장일이 끼면
+      //   실제 매수/매도일과 어긋난 날짜를 표시했다. 목록은 API(krxHolidays)로 받는다 —
+      //   여기에 복사해두면 backend/marketCalendar.js와 어긋나므로 절대 하드코딩하지 말 것.
+      //   서버측 대응 함수는 marketCalendar.js의 addTradingDays().
       const addBusinessDays = (baseDate, n) => {
         const d = new Date(baseDate);
         let added = 0;
-        while (added < n) {
+        let guard = 0;
+        while (added < n && guard++ < 400) {
           d.setDate(d.getDate() + 1);
           const day = d.getDay();
-          if (day !== 0 && day !== 6) added++;
+          if (day === 0 || day === 6) continue;
+          const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          if (krxHolidays.includes(iso)) continue;
+          added++;
         }
         return d;
       };
@@ -780,6 +790,7 @@
             setTop3Recommendations(result.top3 || []); // 🆕 TOP 3 추천 종목 저장
             setDefenseTop3Recommendations(result.defenseTop3 || []); // v3.34
             setActivePolicy(result.activePolicy || null); // Phase 2-3
+            setKrxHolidays(result.krxHolidays || []); // v3.94: 매수/매도일 계산용
             setLatestDiagnostic(result.latestDiagnostic || null); // Phase 2-3
             setScreeningMetadata(result.metadata || null);
             setScreeningDuration(((Date.now() - startTime) / 1000).toFixed(1));

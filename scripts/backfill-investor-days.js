@@ -132,19 +132,26 @@ async function main() {
  * 특정 인덱스부터 과거로 연속 매수일 계산
  * investorData[startIdx]가 해당일, startIdx+1이 하루 전
  */
+/**
+ * startIdx(추천일) 시점 기준 연속 순매수일 — 그날부터 **과거로** 센다.
+ *
+ * ⚠️ v3.94 버그 수정: kisApi.getInvestorData()는 오름차순(뒤로 갈수록 최신)인데
+ *   `i++`로 순회해 추천일 **이후(미래)** 데이터를 세고 있었다. 호출부 주석은
+ *   "closestIdx부터 과거로 연속 매수일 계산"이라 의도는 과거였다.
+ *   즉 추천 시점에 알 수 없던 미래 정보가 피처로 들어가는 lookahead였고,
+ *   이 스크립트가 institution_buy_days/foreign_buy_days를 DB에 써왔다.
+ */
 function countConsecutiveBuyDays(investorData, startIdx) {
   let instDays = 0;
   let foreignDays = 0;
 
-  // 기관 연속 매수일
-  for (let i = startIdx; i < investorData.length; i++) {
+  for (let i = startIdx; i >= 0; i--) {
     const instNet = investorData[i].institution?.netBuyQty || 0;
     if (instNet > 0) instDays++;
     else break;
   }
 
-  // 외국인 연속 매수일
-  for (let i = startIdx; i < investorData.length; i++) {
+  for (let i = startIdx; i >= 0; i--) {
     const foreignNet = investorData[i].foreign?.netBuyQty || 0;
     if (foreignNet > 0) foreignDays++;
     else break;

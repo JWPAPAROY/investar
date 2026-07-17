@@ -4,6 +4,7 @@
 
 const screener = require('../../backend/screening');
 const supabase = require('../../backend/supabaseClient');
+const { KRX_HOLIDAYS } = require('../../backend/marketCalendar');
 
 module.exports = async function handler(req, res) {
   // CORS 헤더
@@ -161,6 +162,10 @@ module.exports = async function handler(req, res) {
       predictionScore: prediction?.score ?? null,  // 업종 뱃지 버킷 결정에 사용된 score
       activePolicy,                                // Phase 2-3: 현재 매매 정책
       latestDiagnostic,                            // Phase 2-3: 최신 주간 진단
+      // v3.94: 프론트의 매수/매도일 표시(addBusinessDays)가 주말만 건너뛰고 휴장일은
+      //   반영하지 않아 "대략 가이드"에 머물렀다. 목록을 내려보내 정확히 계산하게 한다.
+      //   프론트에 목록을 복사해두면 marketCalendar.js와 어긋나므로 반드시 API로 전달할 것.
+      krxHolidays: [...KRX_HOLIDAYS],
       metadata: result.metadata,
       timestamp: new Date().toISOString()
     };

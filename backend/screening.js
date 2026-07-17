@@ -228,8 +228,15 @@ class StockScreener {
     }
 
     // D-N일 기준으로 데이터 슬라이스
+    // ⚠️ chartData는 내림차순([0]=오늘)이라 slice(daysAgo)가 "최신 N개 제외" = N일 전 시점.
+    //    investorData는 오름차순([0]=가장 오래된 날)이라 같은 slice가 "가장 오래된 N개 제외"가
+    //    되어 정반대였다. 5일치만 조회하므로 slice(5)는 항상 빈 배열 → d5State가 영구히 0,
+    //    "D-5 대비 기관 진입 가속"(-2~+5) 비교가 축퇴돼 모든 종목이 "신규 진입"으로 보였다.
+    //    (v3.94 수정) 오름차순에서 N일 전 시점 = 뒤(최신)에서 N개를 잘라낸다.
     const slicedChartData = chartData.slice(daysAgo);
-    const slicedInvestorData = investorData ? investorData.slice(daysAgo) : [];
+    const slicedInvestorData = investorData
+      ? investorData.slice(0, Math.max(0, investorData.length - daysAgo))
+      : [];
 
     // 1. 거래량 평균 (최근 5일)
     const recent5 = slicedChartData.slice(0, 5);
@@ -249,9 +256,12 @@ class StockScreener {
     const leadingScore = Math.min(volumeRatio * 5, 80); // 0-80점 추정
 
     // 4. 기관/외국인 순매수 상태
+    // v3.94: 오름차순이므로 최신일(뒤)부터 과거로 세다가 첫 비매수일에 중단 (최대 5일).
+    //   기존엔 slice(0,5) = 가장 오래된 5일을 앞에서부터 세고 있었다.
     let institutionalBuyDays = 0;
     if (slicedInvestorData && slicedInvestorData.length > 0) {
-      for (const day of slicedInvestorData.slice(0, 5)) {
+      for (let i = slicedInvestorData.length - 1; i >= 0 && institutionalBuyDays < 5; i--) {
+        const day = slicedInvestorData[i];
         const institutionNet = parseInt(day.institution?.netBuyQty || day.institution_net_buy || 0);
         const foreignNet = parseInt(day.foreign?.netBuyQty || day.foreign_net_buy || 0);
         if (institutionNet + foreignNet > 0) {
@@ -642,7 +652,9 @@ class StockScreener {
             return null;
           });
         }),
-        kisApi.getInvestorData(stockCode, 5).catch(e => { console.warn(`⚠️ 투자자 데이터 실패 [${stockCode}]: ${e.message}`); return null; })
+        // v3.94: 5 → 10일. D-5 시점 상태(calculateStateAtDay(…, 5))가 5일치를 필요로 하는데
+        //   5일만 받아서 D-5 수급이 항상 비었다("기관 진입 가속" 비교가 축퇴). 호출 수는 동일.
+        kisApi.getInvestorData(stockCode, 10).catch(e => { console.warn(`⚠️ 투자자 데이터 실패 [${stockCode}]: ${e.message}`); return null; })
       ]);
 
       // getCurrentPrice 또는 chartData가 없으면 스킵

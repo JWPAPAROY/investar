@@ -97,10 +97,23 @@ ETF 필터링 키워드: `ETF, KODEX, TIGER, KBSTAR, ARIRANG, ACE, plus, unicorn
 |-----|-----------|------|
 | `getCurrentPrice()` | 현재가, 거래량, 시가총액 | Base Score 시총 보정, 현재가 기준 |
 | `getDailyChart(30)` | 최근 30일 OHLCV (내림차순, [0]=최신) | 모든 지표 계산의 기반 |
-| `getInvestorData(5)` | 최근 5일 기관/외국인 순매수 | 기관 진입 가속 점수 |
+| `getInvestorData(10)` | 최근 10일 기관/외국인 순매수 | 수급등급 + 기관 진입 가속 점수 |
 
-**주의**: chartData는 **내림차순** 정렬. `chartData[0]` = 오늘, `chartData[29]` = 30일 전.
-`slice(0, N)` = 최근 N개, `slice(-N)` = 가장 오래된 N개 (사용 금지).
+**⚠️ 정렬 방향이 API마다 다르다 — 이 비대칭이 v3.94에서 시스템 최대 결함의 원인이었다.**
+
+| API | 정렬 | `[0]` | 최신 데이터 위치 |
+|-----|------|-------|-----------------|
+| `getDailyChart()` | **내림차순** | 오늘 | `[0]` |
+| `getInvestorData()` | **오름차순** | 가장 오래된 날 | **마지막** |
+
+- chartData: `slice(0, N)` = 최근 N개, `slice(N)` = "N일 전 시점". `slice(-N)` 사용 금지.
+- investorData: **최신은 뒤에 있다.** 연속 순매수일은 `for (let i = len-1; i >= 0; i--)`로 세야 하고,
+  "N일 전 시점"은 `slice(0, len - N)`이다. 앞에서부터 세면 **가장 오래된 날부터 세는 것**이 된다.
+- v3.94 이전엔 `checkInstitutionalFlow`가 앞에서부터 세어 수급일수가 10종목 중 8종목에서 틀렸고
+  (TOP3 정렬 1차 키), `calculateStateAtDay`의 `investorData.slice(daysAgo)`는 항상 빈 배열이 되어
+  "D-5 대비 기관 진입 가속"이 축퇴돼 있었다. 순서 가정을 바꾸려면 `advancedIndicators.js`,
+  `screening.js`, `volumeDnaExtractor.js`(뒤에서부터 순회 — 오름차순 가정), `collect-market-flow.js`
+  (날짜 맵이라 무관)를 **함께** 확인할 것.
 
 ### Phase 3: 지표 분석
 
@@ -532,11 +545,14 @@ z-score(ticker)      = (변동률 - 60일평균) / 60일표준편차
 
 | 스코어 | 신호 | 이모지 |
 |--------|------|--------|
-| ≥ +1.4 | strong_bullish | 🟢🟢 |
-| +0.15 ~ +1.4 | mild_bullish | 🟢 |
+| ≥ +1.4 | strong_bullish | 🔴🔴 |
+| +0.15 ~ +1.4 | mild_bullish | 🔴 |
 | -0.4 ~ +0.15 | neutral | ⚪ |
-| -2.0 ~ -0.4 | mild_bearish | 🔴 |
-| < -2.0 | strong_bearish | 🔴🔴 |
+| -2.0 ~ -0.4 | mild_bearish | 🔵 |
+| < -2.0 | strong_bearish | 🔵🔵 |
+
+> **한국 관례(빨강=상승, 파랑=하락)를 따른다.** 서구 관례(초록=상승)와 반대이므로 주의.
+> 정의는 `overnightPredictor.js`의 `SIGNAL_TABLE` 한 곳뿐이며, 임계점(1.4/0.15/-0.4/-2.0)도 여기서 관리.
 
 임계점은 54건 적중률 시뮬레이션 기반 재조정 (2026-04-06). neutral 구간 축소(-0.8→-0.4, +0.2→+0.15)로 기존 0% → 80% 적중률 개선. flat 판정 ±0.2% → ±1.0% 완화. direction_lean 모드(neutral도 score 부호 방향 적중 인정)
 
