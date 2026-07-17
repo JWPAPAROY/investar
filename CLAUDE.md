@@ -23,10 +23,12 @@
 investar/
 ├── api/                          # Vercel Serverless Functions
 │   ├── screening/
-│   │   ├── recommend.js         # 종합집계 API
-│   │   └── [category].js       # 카테고리별 스크리닝 (레거시)
+│   │   ├── recommend.js         # 종합집계 API (TOP3는 텔레그램/DB와 동일 경로, v3.94)
+│   │   ├── analyze.js           # 종목 분석 (최대 15개)
+│   │   └── prediction.js        # 해외 지수 기반 전망
 │   ├── patterns/
-│   │   └── index.js             # 성공 패턴 분석 + 수집
+│   │   ├── index.js             # 성공 패턴 분석 + 수집
+│   │   └── volume-dna.js        # 거래량 DNA API
 │   ├── recommendations/
 │   │   ├── performance.js       # 성과 추적 API
 │   │   ├── save.js              # 추천 저장 API
@@ -42,7 +44,8 @@ investar/
 │   ├── top3Ranking.js           # TOP3 순위(🥇🥈🥉) 단일 출처 (v387 정렬은 여기서만)
 │   ├── kisApi.js                # KIS OpenAPI 클라이언트
 │   ├── screening.js             # 스크리닝 엔진 (점수 계산 핵심)
-│   ├── leadingIndicators.js     # 선행지표 통합 (패턴+DNA)
+│   ├── marketRegime.js          # momentum/broad 레짐 판정 (시총 플로어 스위치)
+│   ├── similarityMatcher.js     # 종목별 유사 매칭 (기대수익)
 │   ├── volumeIndicators.js      # 거래량 지표 (OBV, VWAP, MFI)
 │   ├── advancedIndicators.js    # 고급 지표 (고래, 탈출속도, 비대칭)
 │   ├── smartPatternMining.js    # D-5 선행 패턴 마이닝

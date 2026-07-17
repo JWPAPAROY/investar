@@ -14,6 +14,18 @@
 
 const screener = require('../../backend/screening');
 
+// ── 공용 모듈 (v3.94: 사본 드리프트 방지 — 각 로직의 단일 출처) ──
+// marketCalendar: KRX 거래일/휴장일. 이 파일과 performance.js에 사본이 있어 어긋났었다.
+// top3Ranking   : v387 정렬 + 시총 플로어. 여기·selectAlertTop3·screening.js에 흩어져 있었다.
+// marketRegime  : momentum/broad 판정. 여기에만 있어 웹 경로가 플로어를 못 받았다.
+const {
+  isKRXHoliday, isTradingDay, filterTradingDays, getTodayDateKST, addCalendarDays,
+} = require('../../backend/marketCalendar');
+const {
+  sortByTop3Order, resolveTop3Order, applyMomentumCapFloor, DB_ACCESSORS, SCREENING_ACCESSORS,
+} = require('../../backend/top3Ranking');
+const { detectMarketRegime } = require('../../backend/marketRegime');
+
 
 const supabase = require('../../backend/supabaseClient');
 const kisApi = require('../../backend/kisApi');
@@ -675,48 +687,7 @@ async function sendTelegramMessage(message) {
  *   폭락장의 spread<0은 소형주 랠리가 아니라 "대형주가 더 빠지는 위험회피"(2026-07-02~03 실사례:
  *   KOSPI 8일 -16% 중 broad 판정 → 플로어 OFF → 넥스트아이 185억 등 소형주 픽). 하락장 spread<0은 momentum 유지.
  */
-async function detectMarketRegime() {
-  try {
-    const { data } = await supabase
-      .from('overnight_predictions')
-      .select('prediction_date,kospi_close,kosdaq_close')
-      .lt('prediction_date', '2027-01-01')
-      .not('kospi_close', 'is', null)
-      .not('kosdaq_close', 'is', null)
-      .order('prediction_date', { ascending: false })
-      .limit(11); // 최신 + 직전 10거래일
-    if (!data || data.length < 6) return 'momentum'; // 데이터 부족 시 보수적으로 플로어 ON
-    const latest = data[0], base = data[data.length - 1];
-    const kp = (latest.kospi_close / base.kospi_close - 1) * 100;
-    const kq = (latest.kosdaq_close / base.kosdaq_close - 1) * 100;
-    const spread = kp - kq;
-    // v3.92: 하락장(kp≤0)의 spread<0은 위험회피이지 소형주 랠리가 아님 → momentum(플로어 유지)
-    const regime = (spread < 0 && kp > 0) ? 'broad' : 'momentum';
-    console.log(`📐 레짐 탐지: KOSPI−KOSDAQ ${data.length - 1}일 스프레드 ${spread >= 0 ? '+' : ''}${spread.toFixed(1)}%p, KOSPI 누적 ${kp >= 0 ? '+' : ''}${kp.toFixed(1)}% → ${regime}${regime === 'momentum' && spread < 0 ? '(하락장 spread<0, broad 억제)' : ''}`);
-    return regime;
-  } catch (e) {
-    console.warn('detectMarketRegime 실패, momentum fallback:', e.message);
-    return 'momentum';
-  }
-}
 
-/**
- * v3.90: momentum 레짐 TOP3 시총 플로어 (5조+ 우선 → 부족 시 1조+ 폴백).
- * 근거(2026-06-21 성과분석, D+1→D+10): 대형주 주도 급등장에서 마이크로캡(<3천억, 풀의 47%)이
- *   -4.4%/승20%로 책을 깎음. KOSPI&5조+ +2.8%/승49%, 현 TOP3 내 5조+ +3.8% vs 5조미만 -3.6%.
- * v3.91: regime(detectMarketRegime)이 'broad'면 플로어 우회 — 소형주 참여장에선 플로어가 해로움(캘리브레이션).
- * v3.92: 원본 폴백 제거 — 1조+ 후보가 없으면 무픽(빈 배열). 폴백이 플로어가 배제하려던 소형주를
- *   그대로 통과시켰음(2026-07-06 점검: 6/22 나노캠텍 275억 D+1→D+10 -19.1% 완성, 7/2 넥스트아이 185억).
- *   후보 전멸로 자연 무픽이던 6/23이 -8.9% 폭락일 = 무픽이 옳았음. "추천 없음"도 풀이 나쁘다는 신호.
- */
-function applyMomentumCapFloor(eligible, capOf, regime) {
-  if (!eligible || eligible.length === 0) return eligible;
-  if (regime !== 'momentum') return eligible;                // broad 레짐 우회
-  let pool = eligible.filter(s => (capOf(s) || 0) >= 5e12);   // 5조+ 우선
-  if (pool.length < 3) pool = eligible.filter(s => (capOf(s) || 0) >= 1e12); // 1조+ 폴백
-  if (!pool.length) console.log('📵 momentum 레짐 1조+ 후보 없음 → 무픽 (소형주 폴백 제거, v3.92)');
-  return pool;
-}
 
 /**
  * TOP 3 선별
@@ -930,25 +901,18 @@ function selectSaveTop3(stocks, regime) {
   return sortByTop3Order(baseEligible, SCREENING_ACCESSORS).slice(0, 3);
 }
 
+/**
+ * DB에 저장된 TOP3를 실제 순위대로 반환.
+ *
+ * v3.94: "점수 1차 → 수급 2차"(v3.83)로 정렬하면서 주석은 "selectSaveTop3/selectAlertTop3과
+ *   동일"이라 주장하고 있었으나 사실이 아니었다. 그쪽은 v387(수급→기관→스윗스팟)이다.
+ *   이 함수는 알림(08:00)·추적 메시지가 쓰므로, 15:35 결산이 v387 순서로 매긴 🥇🥈🥉가
+ *   다음날 아침엔 점수 순서로 뒤바뀌어 표시될 수 있었다 — 같은 3종목의 메달이 달라짐.
+ *   resolveTop3Order: 저장된 top3_rank(사실)를 우선, 없으면(과거 행) v387로 재구성.
+ */
 function getTop3FromDb(stocks, field = 'is_top3') {
-  const dbTop3 = (stocks || [])
-    .filter(s => s[field])
-    .sort((a, b) => {
-      // v3.83: 점수 1차 → 수급 2차 (selectSaveTop3/selectAlertTop3과 동일, 수급1차 롤백)
-      const scoreDiff = (b.total_score || 0) - (a.total_score || 0);
-      if (scoreDiff !== 0) return scoreDiff;
-      const supplyRank = (s) => {
-        const inst = s.institution_buy_days || 0;
-        const frgn = s.foreign_buy_days || 0;
-        if (frgn >= 2 && inst < 2) return 5;
-        if (inst >= 2 && frgn >= 2) return 4;
-        if (inst >= 2) return 3;
-        if (frgn >= 1) return 2;
-        return 1;
-      };
-      return supplyRank(b) - supplyRank(a);
-    });
-  if (dbTop3.length > 0) return dbTop3.slice(0, 3);
+  const dbTop3 = (stocks || []).filter(s => s[field]);
+  if (dbTop3.length > 0) return resolveTop3Order(dbTop3, DB_ACCESSORS).slice(0, 3);
   return selectAlertTop3(stocks || []).slice(0, 3);
 }
 
@@ -1475,21 +1439,6 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null, expectations 
   return msg;
 }
 
-/**
- * 날짜/휴장일 유틸은 backend/marketCalendar.js 공용 모듈에서 가져온다 (v3.94).
- * 이전엔 이 파일과 performance.js에 KRX_HOLIDAYS 사본이 각각 있어 한쪽만 갱신되는
- * 드리프트가 발생했다 (2026-07-17 제헌절 누락). 휴장일 추가는 marketCalendar.js에서만.
- */
-const {
-  isKRXHoliday,
-  isTradingDay,
-  filterTradingDays,
-  getTodayDateKST,
-  addCalendarDays,
-} = require('../../backend/marketCalendar');
-
-// TOP3 정렬(🥇🥈🥉)은 backend/top3Ranking.js 단일 출처 (v3.94).
-const { sortByTop3Order, DB_ACCESSORS, SCREENING_ACCESSORS } = require('../../backend/top3Ranking');
 
 /**
  * top3_rank 컬럼 존재 여부 (v3.94).

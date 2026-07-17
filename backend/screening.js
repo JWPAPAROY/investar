@@ -1,6 +1,10 @@
 const kisApi = require('./kisApi');
 const volumeIndicators = require('./volumeIndicators');
 const advancedIndicators = require('./advancedIndicators');
+// v3.94: TOP3 정렬·시총 플로어·레짐은 공용 모듈 단일 출처. 이 파일의 selectTop3는
+//   v3.85(폐기된 isV2Priority 정렬)에 멈춰 있었고 시총 플로어도 빠져 있었다.
+const { sortByTop3Order, applyMomentumCapFloor, SCREENING_ACCESSORS } = require('./top3Ranking');
+const { detectMarketRegime } = require('./marketRegime');
 const smartPatternMiner = require('./smartPatternMining');
 
 /**
@@ -1748,7 +1752,7 @@ class StockScreener {
     const finalResults = limit ? results.slice(0, limit) : results;
 
     // TOP 3 선정 (전체 결과에서 선정)
-    const top3 = this.selectTop3(results);
+    const top3 = await this.selectTop3(results);
 
     return {
       stocks: finalResults,
@@ -1840,8 +1844,8 @@ class StockScreener {
    * @param {Array} allStocks - 전체 종목 배열
    * @returns {Array} - TOP 3 종목 (최대 3개)
    */
-  selectTop3(allStocks) {
-    console.log(`\n🔍 TOP 3 선정 시작 (v3.85)...`);
+  async selectTop3(allStocks) {
+    console.log(`\n🔍 TOP 3 선정 시작 (v3.94: 텔레그램/DB 경로와 통일)...`);
     console.log(`  전체 종목: ${allStocks.length}개`);
 
     // v3.85: 공통 자격 — 80-89 + 이격도 ≥120 결합 패널티 (16건 손절률 50% 데이터 기반)
@@ -1876,33 +1880,17 @@ class StockScreener {
     }
     console.log(`  └─ TOP 3 후보: ${baseEligible.length}개 (이격도 < ${usedTier})`);
 
-    // v3.85: V2 정렬 — 50-69점 고래단독 1순위 → 점수 → 수급 tiebreak
-    // 데이터 검증: 발동일(37.5%) +8.32%p 알파, 미발동일은 V0와 동일
-    const isV2Priority = (s) => {
-      const score = s.totalScore || 0;
-      const inRange = score >= 50 && score <= 69;
-      const hasWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-      const inst = s.institutionalFlow?.institutionDays || 0;
-      const frgn = s.institutionalFlow?.foreignDays || 0;
-      const isSolo = hasWhale && inst < 2 && frgn < 2;
-      return inRange && isSolo ? 1 : 0;
-    };
-    const top3 = [...baseEligible].sort((a, b) => {
-      const v2Diff = isV2Priority(b) - isV2Priority(a);
-      if (v2Diff !== 0) return v2Diff;
-      const scoreDiff = (b.totalScore || 0) - (a.totalScore || 0);
-      if (scoreDiff !== 0) return scoreDiff;
-      const supplyRank = (s) => {
-        const inst = s.institutionalFlow?.institutionDays || 0;
-        const frgn = s.institutionalFlow?.foreignDays || 0;
-        if (frgn >= 2 && inst < 2) return 5;
-        if (inst >= 2 && frgn >= 2) return 4;
-        if (inst >= 2) return 3;
-        if (frgn >= 1) return 2;
-        return 1;
-      };
-      return supplyRank(b) - supplyRank(a);
-    }).slice(0, 3);
+    // v3.94: 텔레그램/DB 경로(selectSaveTop3)와 통일.
+    //   이전엔 여기만 v3.85(isV2Priority → total_score → 수급)에 멈춰 있었다. CLAUDE.md는
+    //   v3.86에서 "v385(isV2Priority) 성과 최하위(+4.40%)로 복귀 결정"이라며 폐기했는데
+    //   웹 경로에는 반영되지 않아, 폐기된 전략이 프론트엔드 TOP3를 계속 만들고 있었다.
+    //   또 applyMomentumCapFloor(v3.90~3.92)가 빠져 있어 텔레그램이 무픽인 날에도 웹은
+    //   마이크로캡을 추천했다(2026-07-17 확인: 삼성공조 1,104억 / 파세코 1,606억 —
+    //   1조 플로어 탈락 대상). 무픽은 "풀이 나쁘다"는 신호인데 웹만 그 신호를 무력화했다.
+    const regime = await detectMarketRegime();
+    baseEligible = applyMomentumCapFloor(baseEligible, s => s.marketCap, regime);
+    const top3 = sortByTop3Order(baseEligible, SCREENING_ACCESSORS).slice(0, 3);
+    console.log(`  └─ TOP 3 확정: ${top3.length}개 (레짐 ${regime}${top3.length === 0 ? ' — 무픽' : ''})`);
 
     // top3Meta 추가
     const result = top3.map((stock, i) => {

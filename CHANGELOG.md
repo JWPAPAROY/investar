@@ -5,6 +5,14 @@
 ## 📝 변경 이력
 
 ### v3.94 (2026-07-17)
+- **웹과 텔레그램이 서로 다른 TOP3를 내보내고 있었음 → 통일**: `screening.js:selectTop3`(웹 `/api/screening/recommend` → 프론트 `top3Meta` 경로)가 **v3.85에 멈춰 있었다**.
+  - 정렬이 폐기된 `isV2Priority → total_score → 수급`. CLAUDE.md는 v3.86에서 "v385(isV2Priority) 성과 최하위(+4.40%)로 복귀 결정"이라 기록했으나 웹 경로엔 미반영.
+  - **`applyMomentumCapFloor`(v3.90~3.92)가 아예 없었다** → 텔레그램이 무픽인 날에도 웹은 마이크로캡을 추천. 2026-07-17 실측: 웹 TOP3 = 삼성공조(1,104억)·파세코(1,606억) — 둘 다 1조 플로어 탈락 대상이고, v3.92가 "나노캠텍 -19.1%" 때문에 제거한 바로 그 종류. 무픽은 "풀이 나쁘다"는 신호인데 웹만 그 신호를 무력화했다.
+  - `backend/marketRegime.js` 신설(레짐 판정이 save-daily 안에만 있어 웹이 못 씀), `applyMomentumCapFloor`를 `top3Ranking.js`로 이동. selectTop3는 async로 전환.
+- **`getTop3FromDb`가 제5의 정렬을 쓰고 있었음**: "점수 1차 → 수급 2차"(v3.83)로 정렬하면서 주석은 "selectSaveTop3/selectAlertTop3과 동일"이라 주장. 알림(08:00)·추적 메시지가 이 함수를 쓰므로 **15:35 결산이 매긴 🥇🥈🥉가 다음날 아침엔 다른 순서로 표시될 수 있었다**. `resolveTop3Order`로 교체(저장된 `top3_rank` 우선, 없으면 v387 재구성).
+- **배점표 대조 결과 — CLAUDE.md와 코드 완전 일치** (거래량비율/VPD/시총/되돌림/연속상승/Base cap/등급컷/과열). 다만 코드 내 주석이 부패: `calculateTotalScore` 위 "거래량 비율 0-3점, OBV 0-3, VWAP 0-3, 비대칭 0-4"(v3.23 이전), `getRecommendation` 위 "Radar Scoring 0-92점 (Base 17 + Momentum 45 + Trend 40)"(v3.21) — 실제와 무관.
+- **문서-실제 불일치 정정**: `leadingIndicators.js`(구조도에 있으나 미존재, 실제는 `similarityMatcher.js`), `api/screening/[category].js`(미존재), `check-today.js`(To-Do #3 참조, `.gitignore`의 `check-*.js`로 유실 — `performance.js:492~568`에 `diagnosis`로 이미 구현됨).
+- **죽은 코드 확인(미삭제)**: `calcVolumeAccelerationScore`·`calcVPDImprovementScore`(호출 0), `selectSidewaysAlertTop3`·`selectSidewaysSaveTop3`(호출 0, ~104줄), `screenByCategory`(호출 0, `[category].js` 부재). 뒤 셋은 정렬 사본을 품고 있어 부활 시 드리프트 위험.
 - **`backend/top3Ranking.js` 신설 — TOP3 순위(🥇🥈🥉) 단일 출처**: v387 정렬(수급등급→기관매수일→스윗스팟)이 `selectSaveTop3`(camelCase)·`selectAlertTop3`(snake_case)에 각각 복사돼 있었고, `weekly-diagnostic.js`는 제3의 기준(`total_score` 내림차순)으로 순위를 재구성하고 있었다. 스윗스팟 밴드는 50-59점을 90+점보다 선호하므로 점수 정렬과 순서가 뒤집힌다 → **실측 57%의 날에 진단의 TOP1 ≠ 실제 🥇**(2026-06-01~, n=23). TOP1 알파 진단이 존재한 적 없는 종목을 측정하고 있었음. 리팩터 동등성 검증 완료(43일 전부 일치 — 추천 동작 불변). (k,n) 스캔·Score Health는 TOP3 3개를 통째로 평균 내므로 영향 없음.
 - **`top3_rank` 저장 (`supabase-top3-rank.sql`)**: 순위가 저장되지 않아 사후 재구성에 의존했다. 정렬 로직이 v376→v384→v385→v387로 바뀌어 왔으므로 재구성으로는 "그날 실제 순서"를 복원할 수 없다 → 사실로 저장. 과거는 NULL 유지(백필하면 그날 보여진 순서와 달라짐), 분석은 `resolveTop3Order()`가 저장된 순위 우선·없으면 현재 comparator로 일관 평가. 컬럼 존재를 런타임 감지(`supportsTop3Rank`)해 마이그레이션 전에도 배포 안전.
 - **주간진단 "현재 정책"이 하드코딩 `(0,3)`이었음**: 컬럼명(`top1_alpha_current_timing`)과 텔레그램 라벨은 "현재 정책 (D+0매수)"라 말하는데 실제 `active_policy`는 D+1→D+10(2026-05-05~). Score Health는 이미 active_policy를 따랐으므로 TOP1 알파도 통일. CLAUDE.md v3.89 "평가는 active_policy 지평으로 — D+3 평가 금지" 위반이었음.

@@ -87,12 +87,38 @@ function resolveTop3Order(stocks, get = DB_ACCESSORS) {
   return sortByTop3Order(list, get);
 }
 
+/**
+ * momentum 레짐 TOP3 시총 플로어 (5조+ 우선 → 부족 시 1조+ 폴백 → 그래도 없으면 무픽).
+ *
+ * 근거(2026-06-21 성과분석, D+1→D+10): 대형주 주도 급등장에서 마이크로캡(<3천억, 풀의 47%)이
+ *   -4.4%/승20%로 책을 깎음. KOSPI&5조+ +2.8%/승49%, TOP3 내 5조+ +3.8% vs 5조미만 -3.6%.
+ * v3.91: regime이 'broad'면 우회 — 소형주 참여장에선 플로어가 해로움.
+ * v3.92: 원본 폴백 제거 — 1조+ 후보가 없으면 무픽(빈 배열). 폴백이 플로어가 배제하려던
+ *   소형주를 그대로 통과시켰음(6/22 나노캠텍 275억 D+1→D+10 -19.1%). 후보 전멸로 자연
+ *   무픽이던 6/23이 -8.9% 폭락일 = 무픽이 옳았음. "추천 없음"도 풀이 나쁘다는 신호.
+ * v3.94: save-daily-recommendations.js 안에만 있어 웹 경로(selectTop3)가 적용받지 못했다.
+ *   공용 모듈로 이동 — 웹/텔레그램/DB가 같은 TOP3를 보도록.
+ *
+ * @param {Array} eligible - 자격 필터를 통과한 후보
+ * @param {Function} capOf - 종목 → 시가총액(원)
+ * @param {'momentum'|'broad'} regime
+ */
+function applyMomentumCapFloor(eligible, capOf, regime) {
+  if (!eligible || eligible.length === 0) return eligible;
+  if (regime !== 'momentum') return eligible;                 // broad 레짐 우회
+  let pool = eligible.filter(s => (capOf(s) || 0) >= 5e12);   // 5조+ 우선
+  if (pool.length < 3) pool = eligible.filter(s => (capOf(s) || 0) >= 1e12); // 1조+ 폴백
+  if (!pool.length) console.log('📵 momentum 레짐 1조+ 후보 없음 → 무픽 (소형주 폴백 제거, v3.92)');
+  return pool;
+}
+
 module.exports = {
   ORDER_VERSION,
   bandRank,
   supplyRank,
   sortByTop3Order,
   resolveTop3Order,
+  applyMomentumCapFloor,
   DB_ACCESSORS,
   SCREENING_ACCESSORS,
 };
