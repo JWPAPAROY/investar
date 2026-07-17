@@ -886,23 +886,10 @@ module.exports = async (req, res) => {
 };
 
 // === v3.71: 장중 모멘텀 분석 핸들러 ===
-const KRX_HOLIDAYS = new Set([
-  '2025-01-01', '2025-01-28', '2025-01-29', '2025-01-30',
-  '2025-03-01', '2025-03-03', '2025-05-01', '2025-05-05', '2025-05-06',
-  '2025-06-06', '2025-08-15', '2025-10-03', '2025-10-06', '2025-10-07',
-  '2025-10-08', '2025-10-09', '2025-12-25',
-  '2026-01-01', '2026-02-16', '2026-02-17', '2026-02-18',
-  '2026-03-02', '2026-05-01', '2026-05-05', '2026-05-25',
-  '2026-08-17', '2026-09-24', '2026-09-25', '2026-10-05', '2026-10-09', '2026-12-25',
-]);
-
-function isTradingDay(dateStr) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const utcDate = new Date(Date.UTC(y, m - 1, d));
-  const day = utcDate.getUTCDay();
-  if (day === 0 || day === 6) return false;
-  return !KRX_HOLIDAYS.has(dateStr);
-}
+// v3.94: 여기 있던 KRX_HOLIDAYS 사본은 제거. save-daily-recommendations.js의 목록과
+//   따로 관리되다 실제로 어긋났다(2026-06-03 지방선거·07-17 제헌절 등 4건 누락).
+//   휴장일 추가는 backend/marketCalendar.js에서만.
+const { isTradingDay } = require('../../backend/marketCalendar');
 
 async function handleMomentum(req, res, apiStartTime) {
   const kstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);

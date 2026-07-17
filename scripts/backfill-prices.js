@@ -9,6 +9,7 @@
 require('dotenv').config();
 const supabase = require('../backend/supabaseClient');
 const kisApi = require('../backend/kisApi');
+const { tradingDaysSince } = require('../backend/marketCalendar');
 
 async function main() {
   console.log('📊 수익률 추적 데이터 백필 시작\n');
@@ -79,9 +80,10 @@ async function main() {
         // 추천일부터 이후 모든 거래일에 대해 수익률 계산
         for (let i = startIdx; i < sorted.length; i++) {
           const day = sorted[i];
-          const recDate = new Date(rec.recommendation_date);
-          const trackDate = new Date(day.date.slice(0, 4) + '-' + day.date.slice(4, 6) + '-' + day.date.slice(6, 8));
-          const daysSince = Math.floor((trackDate - recDate) / (1000 * 60 * 60 * 24));
+          const trackDateStr = day.date.slice(0, 4) + '-' + day.date.slice(4, 6) + '-' + day.date.slice(6, 8);
+          // v3.94: 달력일 → 거래일 기준 (backend/marketCalendar). 달력일로 세면 금요일 추천의 D+1,
+          //   수·목요일 추천의 D+10이 주말에 떨어져 행 자체가 존재하지 않게 된다.
+          const daysSince = tradingDaysSince(rec.recommendation_date, trackDateStr);
 
           const cumReturn = recPrice > 0
             ? ((day.close - recPrice) / recPrice * 100)

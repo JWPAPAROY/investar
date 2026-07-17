@@ -38,6 +38,7 @@ investar/
 ├── api/koreainvestment/          # 한국투자증권 OpenAPI 공식 문서 (카테고리별)
 │
 ├── backend/                      # 백엔드 로직
+│   ├── marketCalendar.js        # KRX 거래일/휴장일 단일 출처 (휴장일 추가는 여기서만)
 │   ├── kisApi.js                # KIS OpenAPI 클라이언트
 │   ├── screening.js             # 스크리닝 엔진 (점수 계산 핵심)
 │   ├── leadingIndicators.js     # 선행지표 통합 (패턴+DNA)
@@ -684,6 +685,14 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 ### 테이블 구조
 - `screening_recommendations`: 추천 종목 이력 (20개+ 지표 포함)
 - `recommendation_daily_prices`: 일별 가격 추적 + 체크포인트별 거래량 (volume_t1~t4)
+  - **`days_since_recommendation`은 거래일 기준** (v3.94). 추천일=0, 다음 거래일=1.
+    주말/휴장일은 세지 않으므로 요일과 무관하게 D+N이 항상 존재한다.
+    v3.93까지는 달력일이라 금요일 추천의 D+1(토), 수·목요일 추천의 D+10(토·일) 행이
+    아예 없었고, `weekly-diagnostic`이 `pIdx[recId][k]`로 직접 인덱싱하는 탓에 해당 건이
+    조용히 탈락 → active_policy(D+1→D+10) 평가가 월·화 추천(≈39%)만으로 이뤄졌었음.
+    계산은 `backend/marketCalendar.js`의 `tradingDaysSince()` 하나만 사용할 것.
+  - ⚠️ `performance.js` **응답**의 동명 필드는 단순 "추천 후 N일 경과" 표시용 달력일로,
+    DB 컬럼과 의미가 다르다. 정책 D+N 조회는 프론트에서 `daysSince`(DB 컬럼 유래)를 쓴다.
 - `expected_return_stats`: 등급×고래별 기대수익 통계 (v3.46)
 - `stock_expected_returns`: 종목별 유사 매칭 기대수익 (v3.66)
 - `overnight_predictions`: 해외 지수 기반 시장 방향 예측 + 적중률 (v3.47)
@@ -869,7 +878,13 @@ SQL 파일: `supabase-weekly-diagnostics.sql`, `supabase-active-policy.sql`, `su
 - **검증 결과**: 같은 업종 TOP3 동시 선정 시 대안 없어 전부 하락한 사례 확인 (2026-03-03). 다른 업종 대안 있을 때 TOP1 하락→대안 상승 55%.
 - **v3.89 업데이트 (2026-05-31 성과 진단)**: TOP3 손익의 67~69%가 전기·전자(반도체) 편중, 비반도체는 3개월 내내 매달 손실(중앙 -1~-2%/승률 30~35%) → **단일 구조적 리스크 = 반도체 편중**. 단, v3.82 leading_score 매핑 버그로 반도체 등 68%가 leading_score=0 처리돼 주도업종 뱃지가 무력했음을 발견·수정(매핑 32%→98%). `⚠️ 부진업종` 경고 뱃지 추가(leading_score<-0.5). **섹터 게이트(자동 제외)는 보류** — leading_score(1~3일 초과수익)는 임계값 0("뒤처진 섹터 회피")만 약하게 유효, 1.0+ 조이면 추격매수로 역전. 느린 추세(20~60일) 신호 재검토는 다른 레짐 데이터 확보 후. 평가는 active_policy 지평(D+1→D+10)으로 — D+3 평가 금지.
 
-### 3. 오늘의 동향(check-today.js) 로직 진단 결합 (진행 예정)
+### 3. 오늘의 동향 로직 진단 결합 (진행 예정)
+
+> ⚠️ **2026-07-17 확인**: 아래가 참조하는 `check-today.js`는 리포에도 로컬에도 없음.
+> `.gitignore`의 `check-*.js` 패턴에 걸려 커밋된 적이 없고 유실된 것으로 보임.
+> 다만 `performance.js:492~568`에 `diagnosis`(당일 동향 진단)가 이미 구현돼 응답에 실려
+> 나가고 있으므로, 이 항목은 "유실된 파일 복원"이 아니라 **기존 `diagnosis` 로직을
+> 텔레그램 결산 메시지로 확장**하는 것으로 재정의해야 함.
 
 - **내용**: `check-today.js`의 당일 동향 분석 로직을 텔레그램 결산(`save`) 메시지 코멘트 및 웹 프론트엔드 통찰력 배지로 통합
 - **세부 작업**:

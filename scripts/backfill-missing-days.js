@@ -9,6 +9,7 @@
 require('dotenv').config();
 const supabase = require('../backend/supabaseClient');
 const kisApi = require('../backend/kisApi');
+const { tradingDaysSince } = require('../backend/marketCalendar');
 
 async function main() {
   console.log('📊 누락 day 백필 시작\n');
@@ -129,9 +130,10 @@ async function main() {
         const tradingDays = []; // [{daysSince, chartEntry}]
         for (let i = startIdx; i < sorted.length; i++) {
           const day = sorted[i];
-          const dayDate = new Date(day.date.slice(0, 4) + '-' + day.date.slice(4, 6) + '-' + day.date.slice(6, 8));
-          const recDate = new Date(rec.recommendation_date);
-          const daysSince = Math.floor((dayDate - recDate) / (1000 * 60 * 60 * 24));
+          const dayStr = day.date.slice(0, 4) + '-' + day.date.slice(4, 6) + '-' + day.date.slice(6, 8);
+          // v3.94: 위 주석대로 "day 1 = 다음 거래일"이 원래 의도였으나 계산은 달력일이었다.
+          //   의도대로 거래일 기준으로 정정 (backend/marketCalendar).
+          const daysSince = tradingDaysSince(rec.recommendation_date, dayStr);
           tradingDays.push({ daysSince, day, prevClose: i > 0 ? sorted[i - 1].close : null });
         }
 

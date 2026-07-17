@@ -1517,90 +1517,24 @@ function formatTrackMessage(dayResults, timeStr, sentiment = null, expectations 
 }
 
 /**
- * 오늘 날짜 구하기 (KST 기준)
+ * 날짜/휴장일 유틸은 backend/marketCalendar.js 공용 모듈에서 가져온다 (v3.94).
+ * 이전엔 이 파일과 performance.js에 KRX_HOLIDAYS 사본이 각각 있어 한쪽만 갱신되는
+ * 드리프트가 발생했다 (2026-07-17 제헌절 누락). 휴장일 추가는 marketCalendar.js에서만.
  */
-function getTodayDateKST() {
-  const now = new Date();
-  const kstOffset = 9 * 60 * 60 * 1000;
-  const kstNow = new Date(now.getTime() + kstOffset);
-  return kstNow.toISOString().slice(0, 10);
-}
-
-/**
- * KRX 휴장일 목록 (2025-2026)
- * 주말은 vercel.json cron에서 이미 제외 (1-5), 여기서는 공휴일만 관리
- * 매년 초 KRX 휴장일 공지 확인 후 업데이트 필요
- */
-const KRX_HOLIDAYS = new Set([
-  // 2025
-  '2025-01-01', // 신정
-  '2025-01-28', '2025-01-29', '2025-01-30', // 설 연휴
-  '2025-03-01', // 삼일절
-  '2025-03-03', // 삼일절 대체휴일
-  '2025-05-01', // 근로자의 날
-  '2025-05-05', // 어린이날
-  '2025-05-06', // 부처님오신날
-  '2025-06-06', // 현충일
-  '2025-08-15', // 광복절
-  '2025-10-03', // 개천절
-  '2025-10-06', '2025-10-07', '2025-10-08', // 추석 연휴
-  '2025-10-09', // 한글날
-  '2025-12-25', // 크리스마스
-  // 2026
-  '2026-01-01', // 신정
-  '2026-02-16', '2026-02-17', '2026-02-18', // 설 연휴
-  '2026-03-02', // 삼일절 대체휴일
-  '2026-05-01', // 근로자의 날
-  '2026-05-05', // 어린이날
-  '2026-05-25', // 부처님오신날
-  '2026-06-03', // 제9회 전국동시지방선거
-  '2026-07-17', // 제헌절 (2026년 공휴일 재지정)
-  '2026-08-17', // 광복절 대체휴일
-  '2026-09-24', '2026-09-25', // 추석 연휴
-  '2026-09-28', // 추석 대체휴일 (연휴 9/26이 토요일과 겹침)
-  '2026-10-05', // 개천절 대체휴일
-  '2026-10-09', // 한글날
-  '2026-12-25', // 크리스마스
-  '2026-12-31', // 연말 휴장일
-]);
-
-function isKRXHoliday(dateStr) {
-  return KRX_HOLIDAYS.has(dateStr);
-}
-
-/**
- * 거래일 여부 판별 (주말 + KRX 공휴일 제외)
- * v3.43: getUTCDay() 사용 — Vercel(UTC 서버)에서 getDay()는 로컬 타임존 기반이라
- *        KST +09:00 날짜가 UTC로 전날로 변환되어 요일이 틀려지는 버그 수정
- */
-function isTradingDay(dateStr) {
-  // dateStr은 'YYYY-MM-DD' 형태의 KST 날짜
-  // UTC 자정으로 파싱하여 요일 판별 (KST 날짜 자체의 요일을 구하기 위함)
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const utcDate = new Date(Date.UTC(y, m - 1, d));
-  const day = utcDate.getUTCDay();
-  if (day === 0 || day === 6) return false;
-  return !KRX_HOLIDAYS.has(dateStr);
-}
-
-/**
- * 날짜 배열에서 거래일만 필터링
- */
-function filterTradingDays(dates) {
-  return dates.filter(d => isTradingDay(d));
-}
+const {
+  isKRXHoliday,
+  isTradingDay,
+  filterTradingDays,
+  getTodayDateKST,
+  addCalendarDays,
+} = require('../../backend/marketCalendar');
 
 /**
  * 어제 날짜 구하기 (KST 기준)
+ * v3.94: setDate()는 서버 로컬 타임존 기반이라 UTC 서버 밖에서 어긋났음 → addCalendarDays 사용.
  */
 function getYesterdayDateKST() {
-  const now = new Date();
-  // UTC+9 적용
-  const kstOffset = 9 * 60 * 60 * 1000;
-  const kstNow = new Date(now.getTime() + kstOffset);
-  // 하루 전
-  kstNow.setDate(kstNow.getDate() - 1);
-  return kstNow.toISOString().slice(0, 10);
+  return addCalendarDays(getTodayDateKST(), -1);
 }
 
 module.exports = async (req, res) => {

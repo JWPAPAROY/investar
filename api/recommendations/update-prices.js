@@ -7,6 +7,7 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const kisApi = require('../../backend/kisApi');
+const { isTradingDay, getTodayDateKST, tradingDaysSince } = require('../../backend/marketCalendar');
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회 가능)
 const supabaseUrl = process.env.SUPABASE_URL || '';
@@ -40,7 +41,9 @@ module.exports = async (req, res) => {
 
   try {
     const startTime = Date.now();
-    const today = new Date().toISOString().slice(0, 10);
+    // v3.94: UTC 날짜(new Date().toISOString())를 쓰고 있었음. 16:05 KST cron에서는 우연히
+    //   UTC 날짜와 일치해 드러나지 않았으나, 00:00~09:00 KST 실행 시 전날로 기록된다.
+    const today = getTodayDateKST();
 
     // 수동 가격 업데이트 모드: ?stockCode=001440&price=31750
     const manualStockCode = req.query.stockCode;
@@ -95,6 +98,15 @@ module.exports = async (req, res) => {
         updated: recs.length,
         stocks: recs.map(r => ({ name: r.stock_name, return: ((manualPrice - r.recommended_price) / r.recommended_price * 100).toFixed(2) + '%' }))
       });
+    }
+
+    // v3.94: 휴장일 가드. 이 파일에는 가드가 없어 휴장일에도 cron이 돌았고, 장이 안 열려
+    //   전 거래일 종가가 그대로 복제된 "유령 관측"이 기록됐다 (2026-06-03 지방선거일 703행).
+    //   유령 행은 days_since_recommendation 한 칸을 차지해 이후 D+N을 전부 하루씩 밀어버린다.
+    //   수동 모드(?stockCode=&price=)는 위에서 이미 반환되므로 영향 없음.
+    if (!isTradingDay(today)) {
+      console.log(`🏖️ 오늘(${today})은 휴장일 — 가격 업데이트 건너뜀`);
+      return res.status(200).json({ success: true, message: `Not a trading day (${today}) — skipped`, skipped: true });
     }
 
     console.log(`\n📊 [${today}] 추천 종목 가격 업데이트 시작...\n`);
@@ -210,10 +222,14 @@ module.exports = async (req, res) => {
           return null;
         }
 
-        // 경과일 계산
-        const recDate = new Date(rec.recommendation_date);
-        const todayDate = new Date(today);
-        const daysSince = Math.floor((todayDate - recDate) / (1000 * 60 * 60 * 24));
+        // 경과 거래일 계산 (D+N의 N)
+        // v3.94: 달력일 차이를 쓰고 있었으나 행은 거래일에만 생기므로 D+N에 구멍이 났다.
+        //   실측(2026-04-01~07-05, n=2131): 금요일 추천의 D+1 존재율 0%(토요일),
+        //   수·목요일 추천의 D+10 존재율 0%(토·일). weekly-diagnostic이 pIdx[recId][k]로
+        //   직접 인덱싱하므로 해당 건은 조용히 탈락했고, active_policy(D+1→D+10) 평가가
+        //   월·화 추천(≈39%)만으로 이뤄지고 있었다. 거래일 기준이면 요일과 무관하게 항상 존재.
+        //   프론트엔드가 표시하는 "평일 N일 후"와도 이제 일치한다.
+        const daysSince = tradingDaysSince(rec.recommendation_date, today);
 
         // 누적 수익률 계산
         const cumulativeReturn = rec.recommended_price > 0
