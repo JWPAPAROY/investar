@@ -1,15 +1,22 @@
 /**
- * 매일 추천 종목 자동 저장 & 알림 Cron (v3.32)
+ * 결산/알림/추적 + 텔레그램 웹훅 Cron (mode 통합 — Vercel 12함수 한도 회피)
  *
- * 모드:
- * - save  (15:35 KST): 스크리닝 + Supabase 저장 + 내일 TOP 3 알림
- * - alert (08:30 KST): 전날 SAVE TOP 3 알림 + D-2부터 과거 성과
- * - track (10:00/11:30/13:30/15:00 KST): TOP 3 장중 주가 추적
+ * 모드별 스케줄 (실행 주체가 다름 — CLAUDE.md "텔레그램 알림 시스템" 참고):
+ *   Cloudflare Workers (investar-cron, 정시 실행)
+ *     - alert            08:00 KST 평일 : 전날 SAVE TOP3 알림 + 해외 전망
+ *     - save             15:35 KST 평일 : 스크리닝 → Supabase 저장 + 결산 메시지
+ *   Vercel (vercel.json crons, 딜레이 가능)
+ *     - night-futures    04:55 KST      : 야간선물 종가 캐시
+ *     - track&time=1..4  10:00 / 11:30 / 13:30 / 14:30 KST : 장중 주가 추적
+ *     - post-market      16:20 KST      : 패턴 수집 → 기대수익 산출
+ *     - weekly-diagnostic 일 22:00 KST  : 주간 진단 + active_policy 자동 적용
+ *   텔레그램 웹훅 (수동): /알림 /추적 /결산 /진단 /policy /도움
  *
- * TOP 3 선별 전략:
- * - 1순위: 매수고래 + 황금구간(50-89점)
- * - 2순위: 매수고래 + 70점+
- * - 3순위: 매수고래 + 40점+
+ * TOP 3 선별: backend/top3Ranking.js 단일 출처 (v387: 수급등급 → 기관매수일 → 스윗스팟).
+ *   자격 필터 + momentum 레짐 시총 플로어(5조+ → 1조+ → 무픽)를 거친 뒤 정렬한다.
+ *
+ * ⚠️ v3.94 정정: 여기 있던 주석은 v3.32 시절 것으로 실제와 달랐다.
+ *   ("alert 08:30", "TOP3 선별: 1순위 매수고래 + 황금구간(50-89점)" — 폐기된 전략)
  */
 
 const screener = require('../../backend/screening');
@@ -730,137 +737,6 @@ function selectAlertTop3(stocks, regime) {
 }
 
 /**
- * v3.73: 횡보장 TOP 3 선별 (ALERT용 - DB snake_case)
- * MFI<93, RSI<82, 등락률≥5%, 듀얼수급 우선
- */
-function selectSidewaysAlertTop3(stocks) {
-  if (!stocks || stocks.length === 0) return [];
-
-  const eligible = stocks.filter(s => {
-    const instDays = s.institution_buy_days || 0;
-    const frgnDays = s.foreign_buy_days || 0;
-    const hasSupply = s.whale_detected || instDays >= 2 || frgnDays >= 2;
-    const mfi = s.mfi ?? 100;
-    const rsi = s.rsi ?? 100;
-    const changeRate = Math.abs(s.change_rate || 0);
-    return hasSupply &&
-      s.recommendation_grade !== '과열' &&
-      mfi < 93 && rsi < 82 &&
-      changeRate < 25;  // v3.81: changeRate >= 5 제거 (풀 고갈 방지)
-  });
-
-  const getDualScore = (s) => {
-    const inst = s.institution_buy_days || 0;
-    const frgn = s.foreign_buy_days || 0;
-    if (frgn >= 2 && inst < 2) return 5;  // v3.76: 외인 단독 최우선
-    if (inst >= 2 && frgn >= 2) return 4;
-    if (inst >= 2) return 3;
-    if (frgn >= 1) return 2;
-    return 1;
-  };
-
-  const top3 = [];
-  const mcCap = s => (s.market_cap || 0) / 100000000;
-
-  const addFromPool = (pool) => {
-    const sorted = pool
-      .filter(s => !top3.some(t => t.stock_code === s.stock_code))
-      .sort((a, b) => {
-        const dualDiff = getDualScore(b) - getDualScore(a);
-        if (dualDiff !== 0) return dualDiff;
-        return b.total_score - a.total_score;
-      });
-    for (const s of sorted) {
-      if (top3.length >= 3) break;
-      top3.push(s);
-    }
-  };
-
-  // 1순위: 시총 1조 이하 + 50-59점 (스윗스팟)
-  addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.total_score >= 50 && s.total_score <= 59));
-  // 2순위: 시총 1조 이하 + 60-69점
-  if (top3.length < 3) addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.total_score >= 60 && s.total_score <= 69));
-  // 3순위: 시총 무관 + 50-69점
-  if (top3.length < 3) addFromPool(eligible.filter(s => s.total_score >= 50 && s.total_score <= 69));
-  // 4순위: 점수 확대 40-79
-  if (top3.length < 3) addFromPool(eligible.filter(s => s.total_score >= 40 && s.total_score <= 79));
-
-  return top3;
-}
-
-/**
- * v3.73: 횡보장 TOP 3 선별 (SAVE용 - 스크리닝 결과 camelCase)
- */
-function selectSidewaysSaveTop3(stocks) {
-  if (!stocks || stocks.length === 0) return [];
-
-  const eligible = stocks.filter(s => {
-    const flow = s.institutionalFlow;
-    const instDays = flow?.institutionDays || 0;
-    const frgnDays = flow?.foreignDays || 0;
-    const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-    const hasSupply = hasBuyWhale || instDays >= 2 || frgnDays >= 2;
-    const isOverheated = s.recommendation?.grade === '과열';
-    const mfi = s.volumeIndicators?.mfi ?? 100;
-    const rsi = s.overheatingV2?.rsi ?? 100;
-    const changeRate = Math.abs(s.changeRate || 0);
-    return hasSupply && !isOverheated && mfi < 93 && rsi < 82 && changeRate < 25;  // v3.81: changeRate >= 5 제거
-  });
-
-  const getDualScore = (s) => {
-    const inst = s.institutionalFlow?.institutionDays || 0;
-    const frgn = s.institutionalFlow?.foreignDays || 0;
-    if (frgn >= 2 && inst < 2) return 5;  // v3.76: 외인 단독 최우선
-    if (inst >= 2 && frgn >= 2) return 4;
-    if (inst >= 2) return 3;
-    if (frgn >= 1) return 2;
-    return 1;
-  };
-
-  const top3 = [];
-  const mcCap = s => (s.marketCap || 0) / 100000000;
-
-  const addFromPool = (pool) => {
-    const sorted = pool
-      .filter(s => !top3.some(t => t.stockCode === s.stockCode))
-      .sort((a, b) => {
-        const dualDiff = getDualScore(b) - getDualScore(a);
-        if (dualDiff !== 0) return dualDiff;
-        return b.totalScore - a.totalScore;
-      });
-    for (const s of sorted) {
-      if (top3.length >= 3) break;
-      top3.push(s);
-    }
-  };
-
-  addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.totalScore >= 50 && s.totalScore <= 59));
-  if (top3.length < 3) addFromPool(eligible.filter(s => mcCap(s) <= 10000 && s.totalScore >= 60 && s.totalScore <= 69));
-  if (top3.length < 3) addFromPool(eligible.filter(s => s.totalScore >= 50 && s.totalScore <= 69));
-  if (top3.length < 3) addFromPool(eligible.filter(s => s.totalScore >= 40 && s.totalScore <= 79));
-
-  return top3;
-}
-
-/**
- * 고래 감지 종목 선별 (TOP 3에 포함되지 않은 종목)
- * 승률 89%, 평균 +4.30% (14일 실적 기준)
- */
-function selectWhaleStocks(stocks, top3) {
-  if (!stocks || stocks.length === 0) return [];
-
-  const top3Codes = (top3 || []).map(s => s.stock_code);
-
-  // 고래 감지 종목 (과열 포함, TOP 3 제외)
-  return stocks
-    .filter(s =>
-      s.whale_detected &&
-      !top3Codes.includes(s.stock_code)
-    )
-    .sort((a, b) => b.total_score - a.total_score);
-}
-
-/**
  * v3.86(복귀): SAVE 모드 TOP 3 선별 (selectAlertTop3과 동일 로직, camelCase)
  *  - tier1(시총≤1조) + 스윗스팟 구간 + 수급1차→점수
  */
@@ -1151,7 +1027,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, ex
 }
 
 /**
- * v3.27: ALERT 메시지 (아침 08:30)
+ * ALERT 메시지 (아침 08:00 KST — Cloudflare Workers "0 23 * * sun-thu")
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
 function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, expectations = [], prediction = null, diagnostic = null, activePolicy = null) {
@@ -1454,14 +1330,6 @@ async function supportsTop3Rank() {
   if (!error) console.log('✅ top3_rank 컬럼 감지 — 순위 저장 활성');
   else console.log('ℹ️ top3_rank 컬럼 없음 — 순위 저장 건너뜀 (supabase-top3-rank.sql 미적용)');
   return _hasTop3Rank;
-}
-
-/**
- * 어제 날짜 구하기 (KST 기준)
- * v3.94: setDate()는 서버 로컬 타임존 기반이라 UTC 서버 밖에서 어긋났음 → addCalendarDays 사용.
- */
-function getYesterdayDateKST() {
-  return addCalendarDays(getTodayDateKST(), -1);
 }
 
 module.exports = async (req, res) => {
@@ -2227,7 +2095,7 @@ module.exports = async (req, res) => {
     }
 
     // =============================================
-    // 🔔 ALERT 모드: 아침 알림 (08:30 KST)
+    // 🔔 ALERT 모드: 아침 알림 (08:00 KST)
     // v3.30: 전날 SAVE 결과 사용 + D-2부터 과거 성과
     // =============================================
     if (mode === 'alert') {

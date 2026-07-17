@@ -12,7 +12,18 @@
 - **`getTop3FromDb`가 제5의 정렬을 쓰고 있었음**: "점수 1차 → 수급 2차"(v3.83)로 정렬하면서 주석은 "selectSaveTop3/selectAlertTop3과 동일"이라 주장. 알림(08:00)·추적 메시지가 이 함수를 쓰므로 **15:35 결산이 매긴 🥇🥈🥉가 다음날 아침엔 다른 순서로 표시될 수 있었다**. `resolveTop3Order`로 교체(저장된 `top3_rank` 우선, 없으면 v387 재구성).
 - **배점표 대조 결과 — CLAUDE.md와 코드 완전 일치** (거래량비율/VPD/시총/되돌림/연속상승/Base cap/등급컷/과열). 다만 코드 내 주석이 부패: `calculateTotalScore` 위 "거래량 비율 0-3점, OBV 0-3, VWAP 0-3, 비대칭 0-4"(v3.23 이전), `getRecommendation` 위 "Radar Scoring 0-92점 (Base 17 + Momentum 45 + Trend 40)"(v3.21) — 실제와 무관.
 - **문서-실제 불일치 정정**: `leadingIndicators.js`(구조도에 있으나 미존재, 실제는 `similarityMatcher.js`), `api/screening/[category].js`(미존재), `check-today.js`(To-Do #3 참조, `.gitignore`의 `check-*.js`로 유실 — `performance.js:492~568`에 `diagnosis`로 이미 구현됨).
-- **죽은 코드 확인(미삭제)**: `calcVolumeAccelerationScore`·`calcVPDImprovementScore`(호출 0), `selectSidewaysAlertTop3`·`selectSidewaysSaveTop3`(호출 0, ~104줄), `screenByCategory`(호출 0, `[category].js` 부재). 뒤 셋은 정렬 사본을 품고 있어 부활 시 드리프트 위험.
+- **죽은 코드 705줄 제거**: 호출 0회 확인 후 삭제 (`screening.js` 2058→1502줄, `save-daily` 3519→3380줄).
+  - 정렬 사본 보유(부활 시 드리프트 위험): `selectSidewaysTop3`(124줄)·`selectSidewaysAlertTop3`(59)·`selectSidewaysSaveTop3`(54)·`screenByCategory`(61, `[category].js` 부재)
+  - v3.23/v3.24에서 개념이 제거됐으나 함수만 남아 있던 것: `calcVolumeAccelerationScore`·`calcVPDImprovementScore`·`calcPatternStrengtheningScore`·`analyzeShortTermVolumeMomentum`·`analyzeInstitutionalAccumulation`·`analyzeVolatilityContraction`·`analyzeVPDStrengthening`
+  - 기타: `findGradualAccumulationStocks`·`selectWhaleStocks`·`getYesterdayDateKST`
+  - `clearCache`는 캐시 유틸이라 보존. 삭제 후 로드·단위검증(무픽/스윗스팟/수급우선) 통과.
+- **주석 부패 정리**: CLAUDE.md는 정확했으나 **코드 바로 옆 주석이 실제와 달라** 읽는 사람을 오도했다.
+  - `calculateTotalScore`: "거래량 0-3 / OBV 0-3 / VWAP 0-3 / 비대칭 0-4"(v3.21) → 실제 거래량 0-8, OBV·VWAP·비대칭은 Base 미반영
+  - `getRecommendation`: "0-92점 (Base 17 + Momentum 45 + Trend 40 + MultiSignal 6)", 과열 "RSI>80 AND 이격도>115"(v3.21) → 실제 0-100, 과열 RSI>85 AND 이격도>120
+  - `calculate5DayMomentum`: "0-45점, VPD 개선도 0-20점"(v3.20) → 실제 0-30, VPD는 v3.23에서 제거
+  - `calculateTrendScore`: "0-40점 + 이미 제거된 4개 컴포넌트"(v3.20) → 실제 0-15
+  - `save-daily` 파일 헤더: "alert 08:30", "TOP3 선별: 1순위 매수고래 + 황금구간(50-89점)"(v3.32, 폐기된 전략) → 실제 08:00 / v387
+- **CLAUDE.md cron 표 정정**: track 4회차가 **15:00이 아니라 14:30 KST**(`vercel.json` `30 5 * * 1-5` = 05:30 UTC).
 - **`backend/top3Ranking.js` 신설 — TOP3 순위(🥇🥈🥉) 단일 출처**: v387 정렬(수급등급→기관매수일→스윗스팟)이 `selectSaveTop3`(camelCase)·`selectAlertTop3`(snake_case)에 각각 복사돼 있었고, `weekly-diagnostic.js`는 제3의 기준(`total_score` 내림차순)으로 순위를 재구성하고 있었다. 스윗스팟 밴드는 50-59점을 90+점보다 선호하므로 점수 정렬과 순서가 뒤집힌다 → **실측 57%의 날에 진단의 TOP1 ≠ 실제 🥇**(2026-06-01~, n=23). TOP1 알파 진단이 존재한 적 없는 종목을 측정하고 있었음. 리팩터 동등성 검증 완료(43일 전부 일치 — 추천 동작 불변). (k,n) 스캔·Score Health는 TOP3 3개를 통째로 평균 내므로 영향 없음.
 - **`top3_rank` 저장 (`supabase-top3-rank.sql`)**: 순위가 저장되지 않아 사후 재구성에 의존했다. 정렬 로직이 v376→v384→v385→v387로 바뀌어 왔으므로 재구성으로는 "그날 실제 순서"를 복원할 수 없다 → 사실로 저장. 과거는 NULL 유지(백필하면 그날 보여진 순서와 달라짐), 분석은 `resolveTop3Order()`가 저장된 순위 우선·없으면 현재 comparator로 일관 평가. 컬럼 존재를 런타임 감지(`supportsTop3Rank`)해 마이그레이션 전에도 배포 안전.
 - **주간진단 "현재 정책"이 하드코딩 `(0,3)`이었음**: 컬럼명(`top1_alpha_current_timing`)과 텔레그램 라벨은 "현재 정책 (D+0매수)"라 말하는데 실제 `active_policy`는 D+1→D+10(2026-05-05~). Score Health는 이미 active_policy를 따랐으므로 TOP1 알파도 통일. CLAUDE.md v3.89 "평가는 active_policy 지평으로 — D+3 평가 금지" 위반이었음.

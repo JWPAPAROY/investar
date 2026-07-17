@@ -165,237 +165,17 @@ class StockScreener {
   }
 
   /**
-   * v3.36: 단기 거래량 모멘텀 (0-15점)
-   * 최근 3일 평균 vs 이전 7일 평균 비교
-   * analyzeVolumeAcceleration(30일 장기)과 다른 시간축
-   */
-  analyzeShortTermVolumeMomentum(chartData) {
-    if (!chartData || chartData.length < 10) {
-      return { score: 0, ratio: 0, trend: 'insufficient_data' };
-    }
-
-    const recent3 = chartData.slice(0, 3);
-    const prev7 = chartData.slice(3, 10);
-
-    const avgRecent = recent3.reduce((sum, d) => sum + d.volume, 0) / recent3.length;
-    const avgPrev = prev7.reduce((sum, d) => sum + d.volume, 0) / prev7.length;
-
-    if (avgPrev === 0) return { score: 0, ratio: 0, trend: 'no_volume' };
-
-    const ratio = avgRecent / avgPrev;
-
-    let score = 0;
-    let trend = 'flat';
-
-    if (ratio > 2.0) { score = 15; trend = 'strong_surge'; }
-    else if (ratio > 1.5) { score = 11; trend = 'moderate_surge'; }
-    else if (ratio > 1.2) { score = 7; trend = 'mild_surge'; }
-    else if (ratio > 1.0) { score = 4; trend = 'slight_increase'; }
-
-    return {
-      score,
-      ratio: parseFloat(ratio.toFixed(2)),
-      trend,
-      details: { avgRecent: Math.round(avgRecent), avgPrev: Math.round(avgPrev) }
-    };
-  }
-
-  /**
-   * 기관/외국인 장기 매집 (Institutional Accumulation) 분석 (0-5점)
-   * investorData에서 장기 매수 패턴 감지
-   */
-  analyzeInstitutionalAccumulation(investorData) {
-    if (!investorData || investorData.length === 0) {
-      return { score: 0, detected: false, strength: 'none', days: 0 };
-    }
-
-    // v3.18: 총 매수일 카운트 (연속 아닌 전체), 기관/외국인 개별 추적
-    let combinedBuyDays = 0;
-    let institutionBuyDays = 0;
-    let foreignBuyDays = 0;
-    let totalNetBuy = 0;
-
-    for (const day of investorData) {
-      const institutionNet = parseInt(day.institution?.netBuyQty || day.institution_net_buy || 0);
-      const foreignNet = parseInt(day.foreign?.netBuyQty || day.foreign_net_buy || 0);
-
-      if (institutionNet > 0) institutionBuyDays++;
-      if (foreignNet > 0) foreignBuyDays++;
-      if (institutionNet + foreignNet > 0) {
-        combinedBuyDays++;
-        totalNetBuy += (institutionNet + foreignNet);
-      }
-    }
-
-    const bestSingleCount = Math.max(institutionBuyDays, foreignBuyDays);
-
-    // 점수 부여
-    let score = 0;
-    let strength = 'none';
-
-    if (combinedBuyDays >= 4) {
-      score = 5;
-      strength = 'strong';
-    } else if (combinedBuyDays >= 3) {
-      score = 4;
-      strength = 'moderate';
-    } else if (combinedBuyDays >= 2) {
-      score = 3;
-      strength = 'mild';
-    } else if (bestSingleCount >= 3) {
-      score = 2;
-      strength = 'single_accumulation';
-    } else if (bestSingleCount >= 2) {
-      score = 1;
-      strength = 'weak';
-    }
-
-    return {
-      score,
-      detected: score > 0,
-      strength,
-      days: combinedBuyDays,
-      institutionBuyDays,
-      foreignBuyDays,
-      totalNetBuy
-    };
-  }
-
-  /**
-   * 변동성 수축 (Volatility Contraction) 분석 (0-10점) 🆕 NEW
-   * 볼린저밴드 수축 = 급등 전조 신호
+   * 30일 추세 점수 계산 (Trend Score, 0-15점) — v3.23 기준
    *
-   * v3.9: Gemini 제안 - 선행 지표 추가
-   */
-  analyzeVolatilityContraction(chartData) {
-    if (!chartData || chartData.length < 25) {
-      return { score: 0, detected: false, trend: 'insufficient_data' };
-    }
-
-    // 최근 5일 vs 과거 20일 가격 변동폭 비교
-    const recent5 = chartData.slice(0, 5);
-    const old20 = chartData.slice(5, 25);
-
-    // 각 구간의 평균 일간 변동률 계산
-    const calcAvgDailyRange = (slice) => {
-      const ranges = slice.map(d => ((d.high - d.low) / d.low) * 100);
-      return ranges.reduce((sum, r) => sum + r, 0) / ranges.length;
-    };
-
-    const recentVolatility = calcAvgDailyRange(recent5);
-    const oldVolatility = calcAvgDailyRange(old20);
-
-    // 변동성 수축 비율
-    const contractionRatio = recentVolatility / oldVolatility;
-
-    let score = 0;
-    let trend = 'expanding';
-
-    // 변동성이 수축할수록 높은 점수 (급등 전조!)
-    // v3.18: 안정/소폭확장도 인정 (기존 기준이 너무 엄격하여 전원 0점)
-    if (contractionRatio <= 0.5) {
-      score = 10;
-      trend = 'strong_contraction';
-    } else if (contractionRatio <= 0.7) {
-      score = 8;
-      trend = 'moderate_contraction';
-    } else if (contractionRatio <= 0.85) {
-      score = 6;
-      trend = 'mild_contraction';
-    } else if (contractionRatio <= 1.0) {
-      score = 4;
-      trend = 'stable';
-    } else if (contractionRatio <= 1.2) {
-      score = 2;
-      trend = 'mild_expansion';
-    }
-
-    return {
-      score: parseFloat(score.toFixed(2)),
-      detected: score > 0,
-      trend,
-      details: {
-        recentVolatility: parseFloat(recentVolatility.toFixed(2)),
-        oldVolatility: parseFloat(oldVolatility.toFixed(2)),
-        contractionRatio: parseFloat(contractionRatio.toFixed(2))
-      }
-    };
-  }
-
-  /**
-   * VPD 강화 추세 (VPD Strengthening) 분석 (0-5점)
-   * 최근 VPD가 과거보다 개선되었는지 확인
-   */
-  analyzeVPDStrengthening(chartData) {
-    if (!chartData || chartData.length < 15) {
-      return { score: 0, detected: false, trend: 'insufficient_data' };
-    }
-
-    // Recent 5 days VPD vs Old 10 days VPD 비교
-    const recent5 = chartData.slice(0, 5);
-    const old10 = chartData.slice(10, 20);
-
-    // 각 구간의 평균 거래량 비율 계산
-    const calcAvgVolumeRatio = (slice) => {
-      const avgVol = slice.reduce((sum, d) => sum + d.volume, 0) / slice.length;
-      const latest = slice[0];
-      return latest.volume / avgVol;
-    };
-
-    const recentVolumeRatio = calcAvgVolumeRatio(recent5);
-    const oldVolumeRatio = calcAvgVolumeRatio(old10);
-
-    // 가격 변동률 계산
-    const calcAvgPriceChange = (slice) => {
-      const start = slice[slice.length - 1];
-      const end = slice[0];
-      return Math.abs((end.close - start.close) / start.close);
-    };
-
-    const recentPriceChange = calcAvgPriceChange(recent5);
-    const oldPriceChange = calcAvgPriceChange(old10);
-
-    // VPD = 거래량 증가 - 가격 변동
-    // 거래량은 늘었지만 가격은 덜 움직였다 = VPD 강화
-    const recentVPD = recentVolumeRatio - recentPriceChange;
-    const oldVPD = oldVolumeRatio - oldPriceChange;
-    const vpdImprovement = recentVPD - oldVPD;
-
-    let score = 0;
-    let trend = 'flat';
-
-    if (vpdImprovement > 0.5) {
-      score = 5; // VPD 대폭 개선
-      trend = 'strong_improvement';
-    } else if (vpdImprovement > 0.2) {
-      score = 3; // VPD 개선
-      trend = 'moderate_improvement';
-    } else if (vpdImprovement > 0) {
-      score = 1; // VPD 약간 개선
-      trend = 'weak_improvement';
-    }
-
-    return {
-      score,
-      detected: score > 0,
-      trend,
-      details: {
-        recentVPD: parseFloat(recentVPD.toFixed(2)),
-        oldVPD: parseFloat(oldVPD.toFixed(2)),
-        improvement: parseFloat(vpdImprovement.toFixed(2))
-      }
-    };
-  }
-
-  /**
-   * 30일 추세 점수 계산 (Trend Score) (0-40점)
-   * KIS API 30일 제한 내에서 매집 패턴 분석
+   * analyzeVolumeAcceleration(30일 4구간 거래량 가속)을 재사용해 0-15점으로 cap.
+   * v3.23에서 나머지 3개 컴포넌트(변동성 수축 / 기관 장기매집 / VPD 강화)는 제거됐고,
+   * 반환값의 해당 필드는 하위호환용 더미('removed_v3.23')다.
    *
-   * v3.20: 기여도 기반 리밸런싱 (Radar Scoring Track 2)
-   * - 거래량 점진 증가: 0-20점 (유지)
-   * - 변동성 수축: 0-5점 (10→5 축소, 구조적 한계)
-   * - 기관/외국인 장기 매집: 0-8점 (5→8 확대)
-   * - VPD 강화 추세: 0-7점 (5→7 확대)
+   * ⚠️ 같은 지표가 Momentum(0-15)에도 들어가 100점 중 30점이 한 신호에서 나온다.
+   *    CLAUDE.md v2 설계 노트 참고("거래량 가속: r=-0.10, v1 배점 0-30 중복").
+   *
+   * ⚠️ v3.94 정정: 여기 있던 주석은 v3.20 시절 것("0-40점", 이미 제거된 4개 컴포넌트 배점)
+   *    으로 실제와 무관했다. 배점 변경 시 CLAUDE.md와 함께 갱신할 것.
    */
   calculateTrendScore(chartData, investorData) {
     if (!chartData || chartData.length < 25) {
@@ -490,118 +270,6 @@ class StockScreener {
       priceChange,
       leadingScore,
       institutionalBuyDays
-    };
-  }
-
-  /**
-   * 1. 거래량 가속도 점수 (0-15점)
-   * D-5일 평균 vs D-0일 평균 비교
-   */
-  calcVolumeAccelerationScore(d5State, d0State) {
-    if (!d5State || !d0State) {
-      return { score: 0, ratio: 0, trend: 'unknown' };
-    }
-
-    const ratio = d0State.avgVolume / d5State.avgVolume;
-    let score = 0;
-    let trend = 'flat';
-
-    if (ratio >= 3.0) {
-      score = 15; // 3배 증가 - 폭발적 시작!
-      trend = 'explosive';
-    } else if (ratio >= 2.0) {
-      score = 10; // 2배 증가 - 강한 시작
-      trend = 'strong';
-    } else if (ratio >= 1.5) {
-      score = 5; // 1.5배 증가 - 조용한 시작
-      trend = 'moderate';
-    } else if (ratio < 0.7) {
-      score = -5; // 거래량 감소 - 페널티
-      trend = 'declining';
-    }
-
-    return {
-      score,
-      ratio: parseFloat(ratio.toFixed(2)),
-      trend,
-      d5Volume: Math.round(d5State.avgVolume),
-      d0Volume: Math.round(d0State.avgVolume)
-    };
-  }
-
-  /**
-   * 2. VPD 개선도 점수 (0-10점)
-   * D-5일 VPD vs D-0일 VPD 비교
-   */
-  calcVPDImprovementScore(d5State, d0State) {
-    if (!d5State || !d0State) {
-      return { score: 0, improvement: 0, trend: 'unknown' };
-    }
-
-    const improvement = d0State.vpd - d5State.vpd;
-    let score = 0;
-    let trend = 'flat';
-
-    // 음수→양수 전환 (가장 중요!)
-    if (d5State.vpd < 0 && d0State.vpd > 0) {
-      score = 10;
-      trend = 'reversal'; // 전환 신호!
-    } else if (improvement >= 2.0) {
-      score = 7; // 대폭 개선
-      trend = 'strong_improvement';
-    } else if (improvement >= 1.0) {
-      score = 5; // 개선
-      trend = 'improvement';
-    } else if (improvement >= 0.5) {
-      score = 3; // 약간 개선
-      trend = 'slight_improvement';
-    } else if (improvement < -1.0) {
-      score = -5; // 악화 - 페널티
-      trend = 'deterioration';
-    }
-
-    return {
-      score,
-      improvement: parseFloat(improvement.toFixed(2)),
-      trend,
-      d5VPD: parseFloat(d5State.vpd.toFixed(2)),
-      d0VPD: parseFloat(d0State.vpd.toFixed(2))
-    };
-  }
-
-  /**
-   * 3. 선행 지표 강화 점수 (0-10점)
-   * D-5일 선행점수 vs D-0일 선행점수 비교
-   */
-  calcPatternStrengtheningScore(d5State, d0State) {
-    if (!d5State || !d0State || d5State.leadingScore === 0) {
-      return { score: 0, ratio: 0, trend: 'unknown' };
-    }
-
-    const ratio = d0State.leadingScore / d5State.leadingScore;
-    let score = 0;
-    let trend = 'flat';
-
-    if (ratio >= 2.0) {
-      score = 10; // 2배 강화 - 패턴 형성!
-      trend = 'pattern_forming';
-    } else if (ratio >= 1.5) {
-      score = 7; // 1.5배 강화
-      trend = 'strengthening';
-    } else if (ratio >= 1.2) {
-      score = 4; // 1.2배 강화
-      trend = 'slight_strengthening';
-    } else if (ratio < 0.8) {
-      score = -3; // 약화 - 페널티
-      trend = 'weakening';
-    }
-
-    return {
-      score,
-      ratio: parseFloat(ratio.toFixed(2)),
-      trend,
-      d5Score: parseFloat(d5State.leadingScore.toFixed(1)),
-      d0Score: parseFloat(d0State.leadingScore.toFixed(1))
     };
   }
 
@@ -875,12 +543,19 @@ class StockScreener {
   }
 
   /**
-   * 5일 변화율 종합 점수 계산 (Momentum Score) (0-45점)
-   * v3.20: 기여도 기반 리밸런싱 (Radar Scoring Track 2)
-   * - 거래량 가속도: 0-15점 (18→15 축소)
-   * - VPD 개선도: 0-20점 (12→20 확대, 핵심 철학 지표)
-   * - 기관 진입 가속: 0-10점 (5→10 확대)
-   * - 선행 지표 강화: 제거 (Volume Acceleration과 중복)
+   * 5일 모멘텀 점수 계산 (Momentum Score, 0-30점) — v3.23 기준
+   * D-5일 vs D-0일 비교로 "지금 막 시작되는" 종목을 포착.
+   *
+   * - 거래량 가속도:   0-15점 (analyzeVolumeAcceleration 재사용, 30일 4구간)
+   * - 연속 상승일:     0-10점 (≥4일 10 / ≥3일 7 / ≥2일 4)
+   * - 기관 진입 가속: -2~+5점 (calcInstitutionalEntryScore)
+   * - 당일 급등 페널티 (calculateDailyRisePenalty) 적용 후 max(0, x)
+   *
+   * VPD 개선도는 v3.23에서 완전 제거(VPD는 Base Score에만 반영). 반환값의
+   * vpdImprovement는 하위호환용 더미('removed_v3.23')다.
+   *
+   * ⚠️ v3.94 정정: 여기 있던 주석은 v3.20 시절 것("0-45점", "VPD 개선도 0-20점")으로
+   *    실제와 무관했다. 배점 변경 시 CLAUDE.md와 함께 갱신할 것.
    */
   calculate5DayMomentum(chartData, investorData) {
     if (!chartData || chartData.length < 10) {
@@ -1337,8 +1012,8 @@ class StockScreener {
         crashCheck, // 🆕 v3.13: 지속적 폭락 감지
         scoreBreakdown, // 신규: 가점/감점 상세 내역
         trendAnalysis, // 추세 분석 (5일 일자별)
-        momentumScore, // ⭐ 변화율 점수 (D-5 vs D-0, 0-40점)
-        trendScore, // ⭐ 추세 점수 (30일 모멘텀, 0-20점)
+        momentumScore, // ⭐ 모멘텀 점수 (D-5 vs D-0, 0-30점)
+        trendScore, // ⭐ 추세 점수 (30일 거래량 가속, 0-15점)
         overheating, // Phase 4C 과열 정보 추가
         radarScore, // Radar Scoring 상세
         overheatingV2, // v3.10.0: 과열 감지 v2 (RSI + 이격도)
@@ -1357,17 +1032,19 @@ class StockScreener {
   }
 
   /**
-   * 기본 점수 계산 (Base Score) v3.10.0 - Radar Scoring
-   * 급등 '예정' 종목 발굴에 최적화
+   * 기본 점수 계산 (Base Score, 0-25점) — v3.23 기준
+   * 급등 '예정' 종목 발굴에 최적화. 배점 근거는 CLAUDE.md "점수 체계 상세" 참고.
    *
-   * v3.21: 5일 거래량 변동율 점수 추가 (품질 체크, 0-17점)
-   * - 거래량 비율: 0-3점
-   * - OBV 추세: 0-3점
-   * - VWAP 모멘텀: 0-3점 (이진→단계별 거리 기반)
-   * - 비대칭 비율: 0-4점 (매수세만 가점, 매도세 0점)
-   * - VPD raw: 0-3점 (핵심 철학 지표 직접 반영)
-   * - 5일 거래량 변동율: 0-2점 🆕 (단기 거래량 추세)
-   * - 되돌림 페널티: -2~0점
+   * - 거래량 비율: 0-8점  (1.0~2.0배 황금구간 8 / 2~3배 5 / 3~5배 2 / 그 외 0)
+   * - VPD raw:    0-7점  (≥3.0→7 / ≥2.0→5 / ≥1.0→4 / ≥0.5→2 / >0→1)
+   * - 시총 보정: -5~+7점 (≥1조 +7 / ≥5천억 +5 / ≥3천억 +2 / <3천억 -2 / <1천억 -5)
+   * - 되돌림 페널티: -3~0점 (30일 고점 대비 ≥20% -3 / ≥15% -2 / ≥10% -1)
+   * - 연속 상승일:  0-5점  (≥4일 +5 / ≥3일 +3 / ≥2일 +1)
+   * → 합산 후 min(max(x, 0), 25)
+   *
+   * ⚠️ v3.94 정정: 여기 있던 주석은 v3.21 시절 것(거래량 0-3, OBV 0-3, VWAP 0-3,
+   *   비대칭 0-4, 5일 변동율 0-2)으로 실제 코드와 무관했다. OBV/VWAP/비대칭/5일변동율은
+   *   Base Score에 반영되지 않는다. 배점 변경 시 이 주석과 CLAUDE.md를 함께 갱신할 것.
    */
   calculateTotalScore(volumeAnalysis, advancedAnalysis, trendScore = null, chartData = null, currentPrice = null, volumePriceDivergence = null, trendAnalysis = null, marketCap = null) {
     let baseScore = 0;
@@ -1448,18 +1125,17 @@ class StockScreener {
   }
 
   /**
-   * 추천 등급 산출 v3.21 - Radar Scoring + 7-Tier Grade System
+   * 추천 등급 산출 — v3.23 기준
    *
-   * Radar Scoring: 0-92점 (Base 17 + Momentum 45 + Trend 40 + MultiSignal 6) [v3.21]
+   * 총점(0-100) = Base(0-25) + Whale(0/15/30) + Momentum(0-30) + Trend(0-15) + SignalAdj
    *
-   * 7-Tier Grade System (Priority Order):
-   * - 과열 (priority 0): RSI > 80 AND 이격도 > 115
-   * - S+: 90점+ (이론적 최고)
-   * - S: 75-89 points
-   * - A: 60-74 points
-   * - B: 45-59 points
-   * - C: 30-44 points
-   * - D: <30 points
+   * 등급 (과열이 최우선, 점수 무관):
+   * - 과열: RSI > 85 AND 20일 이격도 > 120  → detectOverheatingV2
+   * - S+ : ≥90 / S: 75-89 / A: 60-74 / B: 45-59 / C: 30-44 / D: <30
+   *
+   * ⚠️ v3.94 정정: 여기 있던 주석은 v3.21 시절 것으로 실제와 전혀 달랐다.
+   *   ("0-92점 (Base 17 + Momentum 45 + Trend 40 + MultiSignal 6)", 과열 "RSI>80 AND 이격도>115")
+   *   등급/과열 기준 변경 시 이 주석과 CLAUDE.md를 함께 갱신할 것.
    */
   getRecommendation(score, tier, overheating, overheatingV2 = null) {
     let grade, text, color, tooltip;
@@ -1577,52 +1253,6 @@ class StockScreener {
       tooltip,
       timingWarning // v3.12 NEW
     };
-  }
-
-  /**
-   * 조용한 누적 패턴 종목 찾기 (거래량 점진 증가)
-   * 거래량 급증이 아닌 "서서히" 증가하는 패턴 - 급등 전조
-   */
-  async findGradualAccumulationStocks(market = 'ALL', targetCount = 10) {
-    console.log('🐌 조용한 누적 패턴 종목 탐색 시작...');
-
-    const { codes: allStocks } = await kisApi.getAllStockList(market);
-    const gradualStocks = [];
-    let scanned = 0;
-
-    // 전체 종목 중 랜덤하게 샘플링하여 효율성 높이기
-    const shuffled = [...allStocks].sort(() => Math.random() - 0.5);
-
-    for (const stockCode of shuffled) {
-      if (gradualStocks.length >= targetCount) break;
-      if (scanned >= 100) break; // 최대 100개만 스캔
-
-      try {
-        scanned++;
-        const chartData = await kisApi.getDailyChart(stockCode, 30);
-
-        // advancedIndicators에서 gradualAccumulation만 검사
-        const advancedIndicators = require('./advancedIndicators');
-        const gradualCheck = advancedIndicators.detectGradualAccumulation(chartData);
-
-        if (gradualCheck.detected) {
-          gradualStocks.push(stockCode);
-          console.log(`  ✅ [${gradualStocks.length}/${targetCount}] 조용한 누적 발견: ${stockCode}`);
-        }
-
-        // API 호출 간격
-        await new Promise(resolve => setTimeout(resolve, 200));
-
-        if (scanned % 10 === 0) {
-          console.log(`  📊 스캔: ${scanned}개, 발견: ${gradualStocks.length}/${targetCount}`);
-        }
-      } catch (error) {
-        // 에러 무시하고 계속 진행
-      }
-    }
-
-    console.log(`✅ 조용한 누적 ${gradualStocks.length}개 발견 (스캔: ${scanned}개)`);
-    return gradualStocks;
   }
 
   /**
@@ -1773,67 +1403,6 @@ class StockScreener {
   }
 
   /**
-   * 특정 카테고리 필터링 (Vercel stateless 환경 대응)
-   */
-  async screenByCategory(category, market = 'ALL', limit) {
-    console.log(`🔍 ${category} 카테고리 스크리닝 시작${limit ? ` (최대 ${limit}개)` : ' (전체 조회)'}...`);
-
-    const { codes: stockList } = await kisApi.getAllStockList(market);
-    const results = [];
-    let analyzed = 0;
-    let found = 0;
-
-    // 카테고리별 필터 함수 (v3.22: 매집 제거, 고래만 유지)
-    const categoryFilters = {
-      'whale': (analysis) => analysis.advancedAnalysis.indicators.whale.length > 0
-    };
-
-    const filterFn = categoryFilters[category] || (() => true);
-
-    // 조건에 맞는 종목을 찾을 때까지 분석 (최대 전체 리스트)
-    // limit이 없으면 전체 스캔, 있으면 limit 개수까지만
-    for (let i = 0; i < stockList.length && (limit ? found < limit : true); i++) {
-      const stockCode = stockList[i];
-
-      try {
-        const analysis = await this.analyzeStock(stockCode);
-        analyzed++;
-
-        if (analysis && filterFn(analysis)) {
-          results.push(analysis);
-          found++;
-          console.log(`✅ [${found}${limit ? `/${limit}` : ''}] ${analysis.stockName} - ${category} 조건 충족`);
-        }
-
-        // API 호출 간격 (200ms)
-        await new Promise(resolve => setTimeout(resolve, 200));
-
-        // 진행률 로그
-        if (analyzed % 10 === 0) {
-          console.log(`📊 분석: ${analyzed}개, 발견: ${found}${limit ? `/${limit}` : ''}개`);
-        }
-      } catch (error) {
-        console.error(`❌ 분석 실패 [${stockCode}]:`, error.message);
-      }
-    }
-
-    // 점수 기준 내림차순 정렬
-    results.sort((a, b) => b.totalScore - a.totalScore);
-
-    console.log(`✅ ${category} 스크리닝 완료! ${analyzed}개 분석, ${found}개 발견`);
-
-    return {
-      stocks: results,
-      metadata: {
-        category,
-        totalAnalyzed: analyzed,
-        totalFound: found,
-        returned: results.length
-      }
-    };
-  }
-
-  /**
    * TOP 3 추천 종목 선정 (v3.38 스윗스팟 우선순위)
    *
    * v3.84: 점수 내림차순 단순 정렬 — 스윗스팟 구간 우선순위 및 tier1 시총 우선 제거.
@@ -1918,130 +1487,6 @@ class StockScreener {
     }
 
     return result;
-  }
-
-  /**
-   * v3.73: 횡보장 전략 TOP 3 선별
-   * 시장 중립 시 강화 필터: MFI<93, RSI<82, 등락률≥5%, 듀얼수급 우선
-   */
-  selectSidewaysTop3(allStocks) {
-    console.log(`\n⚖️ 횡보장 TOP 3 선정 시작...`);
-
-    const getMfi = (s) => {
-      // MFI는 volumeAnalysis.indicators.mfi에 위치
-      return s.volumeAnalysis?.indicators?.mfi ?? 100;
-    };
-
-    const isEligible = (s) => {
-      const flow = s.institutionalFlow;
-      const instDays = flow?.institutionDays || 0;
-      const foreignDays = flow?.foreignDays || 0;
-      const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-      const hasSupply = hasBuyWhale || instDays >= 2 || foreignDays >= 2;
-      const isOverheated = s.recommendation?.grade === '과열';
-      const mfi = getMfi(s);
-      const rsi = s.overheatingV2?.rsi ?? 100;
-      const changeRate = Math.abs(s.changeRate || 0);
-      return hasSupply && !isOverheated && mfi < 93 && rsi < 82 && changeRate < 25;  // v3.81: changeRate >= 5 제거
-    };
-
-    const getDualScore = (s) => {
-      const flow = s.institutionalFlow;
-      const inst = flow?.institutionDays || 0;
-      const frgn = flow?.foreignDays || 0;
-      if (frgn >= 2 && inst < 2) return 5;  // v3.76: 외인 단독 최우선
-      if (inst >= 2 && frgn >= 2) return 4;  // 쌍방
-      if (inst >= 2) return 3;                // 기관
-      if (frgn >= 1) return 2;                // 외인 1일
-      return 1;
-    };
-
-    const addMeta = (stock, priority) => {
-      const currentPrice = stock.currentPrice || 0;
-      return {
-        ...stock,
-        sidewaysTop3Meta: {
-          priority,
-          mfi: getMfi(stock),
-          rsi: stock.overheatingV2?.rsi ?? 0,
-          stopLoss: {
-            loss5: Math.floor(currentPrice * 0.95),
-            loss7: Math.floor(currentPrice * 0.93)
-          }
-        }
-      };
-    };
-
-    // 기본 필터 통과 종목
-    const eligible = allStocks.filter(isEligible);
-    const mcCap = s => (s.marketCap || 0) / 100000000;
-
-    // 디버그: 탈락 사유 출력
-    if (eligible.length === 0) {
-      console.log(`  ⚠️ 횡보장 필터 전원 탈락. 상위 5개 탈락 사유:`);
-      allStocks.slice(0, 5).forEach(s => {
-        const flow = s.institutionalFlow;
-        const inst = flow?.institutionDays || 0;
-        const frgn = flow?.foreignDays || 0;
-        const hasBuyWhale = (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-        const reasons = [];
-        if (!(hasBuyWhale || inst >= 2 || frgn >= 2)) reasons.push('수급X');
-        if (s.recommendation?.grade === '과열') reasons.push('과열');
-        if (getMfi(s) >= 93) reasons.push(`MFI=${getMfi(s).toFixed(0)}`);
-        if ((s.overheatingV2?.rsi ?? 100) >= 82) reasons.push(`RSI=${(s.overheatingV2?.rsi ?? 100).toFixed(0)}`);
-        if (Math.abs(s.changeRate || 0) < 5) reasons.push(`등락${Math.abs(s.changeRate||0).toFixed(1)}%<5`);
-        if (Math.abs(s.changeRate || 0) >= 25) reasons.push('등락≥25');
-        console.log(`    ${s.stockName}: ${reasons.join(', ')}`);
-      });
-    }
-
-    const top3 = [];
-
-    const addFromPool = (pool, priority) => {
-      const sorted = pool
-        .filter(s => !top3.some(t => t.stockCode === s.stockCode))
-        .sort((a, b) => {
-          // 1차: 듀얼수급 점수
-          const dualDiff = getDualScore(b) - getDualScore(a);
-          if (dualDiff !== 0) return dualDiff;
-          // 2차: sweet-spot 점수
-          return b.totalScore - a.totalScore;
-        });
-      for (const s of sorted) {
-        if (top3.length >= 3) break;
-        top3.push(addMeta(s, priority));
-      }
-    };
-
-    // 1순위: 시총 1조 이하 + 50-59점 (스윗스팟)
-    const tier1 = eligible.filter(s => mcCap(s) <= 10000 && s.totalScore >= 50 && s.totalScore <= 59);
-    addFromPool(tier1, 1);
-
-    // 2순위: 시총 1조 이하 + 60-69점
-    if (top3.length < 3) {
-      const tier1b = eligible.filter(s => mcCap(s) <= 10000 && s.totalScore >= 60 && s.totalScore <= 69);
-      addFromPool(tier1b, 2);
-    }
-
-    // 3순위: 시총 무관 + 50-69점
-    if (top3.length < 3) {
-      const tier2 = eligible.filter(s => s.totalScore >= 50 && s.totalScore <= 69);
-      addFromPool(tier2, 3);
-    }
-
-    // 4순위: 점수 범위 확대 (40-79)
-    if (top3.length < 3) {
-      const tier3 = eligible.filter(s => s.totalScore >= 40 && s.totalScore <= 79);
-      addFromPool(tier3, 4);
-    }
-
-    console.log(`⚖️ 횡보장 TOP 3 선정 완료: ${top3.length}개 (후보 ${eligible.length}개)`);
-    top3.forEach((s, i) => {
-      const flow = s.institutionalFlow;
-      console.log(`  ${i + 1}. ${s.stockName} (${s.totalScore}점, MFI=${getMfi(s).toFixed(0)}, RSI=${(s.overheatingV2?.rsi||0).toFixed(0)}, 기관${flow?.institutionDays || 0}일/외인${flow?.foreignDays || 0}일) P${s.sidewaysTop3Meta.priority}`);
-    });
-
-    return top3;
   }
 
   /**
