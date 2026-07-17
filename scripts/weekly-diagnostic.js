@@ -11,6 +11,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { resolveTop3Order, DB_ACCESSORS } = require('../backend/top3Ranking');
 const fs = require('fs');
 const path = require('path');
 
@@ -284,8 +285,13 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   const top3Dates = [...new Set(recs.filter(r => r.is_top3).map(r => r.recommendation_date))].sort();
   const ranked = new Map();
   for (const d of top3Dates) {
-    ranked.set(d, recs.filter(r => r.is_top3 && r.recommendation_date === d)
-      .sort((a, b) => (b.total_score||0) - (a.total_score||0)));
+    // v3.94: total_score 내림차순으로 순위를 재구성하고 있었으나 이는 실제 🥇와 다르다.
+    //   실제 정렬은 v387(수급등급→기관매수일→스윗스팟)이고, 스윗스팟은 50-59를 90+보다
+    //   선호하므로 점수 정렬과 순서가 뒤집힌다 — 실측 57%의 날에 TOP1이 불일치했고,
+    //   TOP1 알파 진단이 존재한 적 없는 종목을 측정하고 있었다.
+    //   resolveTop3Order: top3_rank(저장된 사실)가 있으면 그것을, 없으면 v387로 재구성.
+    ranked.set(d, resolveTop3Order(
+      recs.filter(r => r.is_top3 && r.recommendation_date === d), DB_ACCESSORS));
   }
   const dateToWeek = (d) => weekStartOf(d);
   const weekDates = new Map(); // week → [dates]
@@ -397,10 +403,14 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     if (t1Rets.length < 3 || t3Rets.length < 5) return null;
     return mean(t1Rets) - mean(t3Rets);
   }
-  const top1AlphaCurrent = alphaAt(0, 3); // current default: D+0 매수 D+3 평가
+  // v3.94: (0,3) 하드코딩이었다. 컬럼명(top1_alpha_current_timing)과 텔레그램 라벨은
+  //   "현재 정책"이라 말하는데 실제 active_policy는 D+1→D+10(2026-05-05~)이라 다른 값을
+  //   현재 정책이라고 보고하고 있었다. Score Health는 이미 active_policy를 따르므로(healthK/N)
+  //   같은 기준으로 통일. CLAUDE.md v3.89 "평가는 active_policy 지평으로 — D+3 평가 금지"와도 일치.
+  const top1AlphaCurrent = alphaAt(healthK, healthN);
   const top1AlphaOptimal = (optimalBuyD != null) ? alphaAt(optimalBuyD, optimalSellD) : null;
 
-  console.log(`[3. TOP1 ALPHA] current(D+0,D+3)=${top1AlphaCurrent?.toFixed(2)}%p optimal(D+${optimalBuyD},D+${optimalSellD})=${top1AlphaOptimal?.toFixed(2)}%p`);
+  console.log(`[3. TOP1 ALPHA] current(D+${healthK},D+${healthN})=${top1AlphaCurrent?.toFixed(2)}%p optimal(D+${optimalBuyD},D+${optimalSellD})=${top1AlphaOptimal?.toFixed(2)}%p`);
 
   // =========================================================================
   // 4. active_policy 비교 + 자동 적용 (Phase 3)

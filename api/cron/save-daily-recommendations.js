@@ -254,8 +254,13 @@ function formatWeeklyDiagnosticMessage(row, prev) {
   msg += `\n`;
 
   // 3. TOP1 알파
+  // v3.94: "D+0매수"가 하드코딩돼 있었으나 실제 active_policy는 D+1→D+10이라 사실과 달랐다.
+  //   진단이 active_policy 기준으로 산출하므로 라벨도 실제 정책을 찍는다.
+  const curTimingLabel = (row.active_buy_offset_day != null && row.active_sell_offset_day != null)
+    ? `D+${row.active_buy_offset_day}매수→D+${row.active_sell_offset_day}매도`
+    : '기준 미상';
   msg += `<b>3. TOP1 알파</b> (TOP1 - TOP3 평균)\n`;
-  msg += `   현재 정책 (D+0매수): ${pSign(row.top1_alpha_current_timing)}\n`;
+  msg += `   현재 정책 (${curTimingLabel}): ${pSign(row.top1_alpha_current_timing)}\n`;
   msg += `   권장 정책 (D+${row.optimal_buy_d}매수→D+${row.optimal_sell_d}매도): ${pSign(row.top1_alpha_optimal_timing)}\n`;
   if (row.top1_alpha_current_timing != null && row.top1_alpha_optimal_timing != null) {
     const gap = row.top1_alpha_optimal_timing - row.top1_alpha_current_timing;
@@ -749,31 +754,8 @@ function selectAlertTop3(stocks, regime) {
   // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백) / v3.91: regime 조건부
   baseEligible = applyMomentumCapFloor(baseEligible, s => s.market_cap, rg);
 
-  // v387: 수급등급(sg) 1차 → 기관매수일 2차 → 스윗스팟 구간 3차 (승률 최대화)
-  const bandRank = (score) => {
-    if (score >= 50 && score <= 59) return 1;
-    if (score >= 60 && score <= 69) return 2;
-    if (score >= 80 && score <= 89) return 3;
-    if (score >= 90) return 4;
-    if (score >= 70 && score <= 79) return 5;
-    return 6; // 45-49
-  };
-  const supplyRank = (s) => {
-    const inst = s.institution_buy_days || 0;
-    const frgn = s.foreign_buy_days || 0;
-    if (frgn >= 2 && inst < 2) return 5;
-    if (inst >= 2 && frgn >= 2) return 4;
-    if (inst >= 2) return 3;
-    if (frgn >= 1) return 2;
-    return 1;
-  };
-  return [...baseEligible].sort((a, b) => {
-    const sd = supplyRank(b) - supplyRank(a);
-    if (sd !== 0) return sd;
-    const id = (b.institution_buy_days || 0) - (a.institution_buy_days || 0);
-    if (id !== 0) return id;
-    return bandRank(a.total_score || 0) - bandRank(b.total_score || 0);
-  }).slice(0, 3);
+  // v387 정렬은 backend/top3Ranking.js 단일 출처 (v3.94).
+  return sortByTop3Order(baseEligible, DB_ACCESSORS).slice(0, 3);
 }
 
 /**
@@ -942,33 +924,10 @@ function selectSaveTop3(stocks, regime) {
   // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백) / v3.91: regime 조건부
   baseEligible = applyMomentumCapFloor(baseEligible, s => s.marketCap, rg);
 
-  // v387: 수급등급(sg) 1차 → 기관매수일 2차 → 스윗스팟 구간 3차 (승률 최대화)
-  const bandRank = (score) => {
-    if (score >= 50 && score <= 59) return 1;
-    if (score >= 60 && score <= 69) return 2;
-    if (score >= 80 && score <= 89) return 3;
-    if (score >= 90) return 4;
-    if (score >= 70 && score <= 79) return 5;
-    return 6; // 45-49
-  };
-  const supplyRank = (s) => {
-    const inst = s.institutionalFlow?.institutionDays || 0;
-    const frgn = s.institutionalFlow?.foreignDays || 0;
-    if (frgn >= 2 && inst < 2) return 5;
-    if (inst >= 2 && frgn >= 2) return 4;
-    if (inst >= 2) return 3;
-    if (frgn >= 1) return 2;
-    return 1;
-  };
-  return [...baseEligible].sort((a, b) => {
-    const sd = supplyRank(b) - supplyRank(a);
-    if (sd !== 0) return sd;
-    const inst_a = a.institutionalFlow?.institutionDays || 0;
-    const inst_b = b.institutionalFlow?.institutionDays || 0;
-    const id = inst_b - inst_a;
-    if (id !== 0) return id;
-    return bandRank(a.totalScore || 0) - bandRank(b.totalScore || 0);
-  }).slice(0, 3);
+  // v387 정렬(수급등급 → 기관매수일 → 스윗스팟)은 backend/top3Ranking.js 단일 출처.
+  // v3.94: 여기와 selectAlertTop3에 같은 정렬이 복사돼 있었고 weekly-diagnostic은
+  //   total_score 내림차순이라는 제3의 기준을 쓰고 있었다(실제 🥇와 57% 불일치).
+  return sortByTop3Order(baseEligible, SCREENING_ACCESSORS).slice(0, 3);
 }
 
 function getTop3FromDb(stocks, field = 'is_top3') {
@@ -1528,6 +1487,25 @@ const {
   getTodayDateKST,
   addCalendarDays,
 } = require('../../backend/marketCalendar');
+
+// TOP3 정렬(🥇🥈🥉)은 backend/top3Ranking.js 단일 출처 (v3.94).
+const { sortByTop3Order, DB_ACCESSORS, SCREENING_ACCESSORS } = require('../../backend/top3Ranking');
+
+/**
+ * top3_rank 컬럼 존재 여부 (v3.94).
+ * 마이그레이션(supabase-top3-rank.sql) 적용 전에도 배포가 깨지지 않도록 런타임 감지.
+ * 컬럼이 생기면 자동으로 저장이 시작된다. 마이그레이션 정착 후 이 함수는 제거 가능.
+ */
+let _hasTop3Rank = null;
+async function supportsTop3Rank() {
+  if (_hasTop3Rank !== null) return _hasTop3Rank;
+  if (!supabase) return false;
+  const { error } = await supabase.from('screening_recommendations').select('top3_rank').limit(1);
+  _hasTop3Rank = !error;
+  if (!error) console.log('✅ top3_rank 컬럼 감지 — 순위 저장 활성');
+  else console.log('ℹ️ top3_rank 컬럼 없음 — 순위 저장 건너뜀 (supabase-top3-rank.sql 미적용)');
+  return _hasTop3Rank;
+}
 
 /**
  * 어제 날짜 구하기 (KST 기준)
@@ -3314,8 +3292,18 @@ module.exports = async (req, res) => {
       .slice(0, 3)
       .map(s => s.stockCode);
 
+    // v3.94: top3_rank(🥇=1, 🥈=2, 🥉=3) 저장.
+    //   순위가 저장되지 않아 분석 코드가 total_score로 재구성했고 실제 🥇와 57% 어긋났다.
+    //   정렬 로직은 버전마다 바뀌므로(v376→v384→v387…) 사후 재구성으로는 "그날 실제 순서"를
+    //   복원할 수 없다 → 사실로 남긴다. saveTop3Codes는 이미 v387 순서 배열.
+    //   컬럼 미존재 시(마이그레이션 전) 조용히 건너뛴다 — supabase-top3-rank.sql 참고.
+    const canRank = await supportsTop3Rank();
     for (const rec of recommendations) {
-      if (saveTop3Codes.includes(rec.stock_code)) rec.is_top3 = true;
+      const rankIdx = saveTop3Codes.indexOf(rec.stock_code);
+      if (rankIdx >= 0) {
+        rec.is_top3 = true;
+        if (canRank) rec.top3_rank = rankIdx + 1;
+      }
       if (v2Top3Codes.includes(rec.stock_code)) rec.is_top3_v2 = true;
       if (rec.is_top3) rec.is_active = true;
     }

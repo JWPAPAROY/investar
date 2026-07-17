@@ -5,6 +5,12 @@
 ## 📝 변경 이력
 
 ### v3.94 (2026-07-17)
+- **`backend/top3Ranking.js` 신설 — TOP3 순위(🥇🥈🥉) 단일 출처**: v387 정렬(수급등급→기관매수일→스윗스팟)이 `selectSaveTop3`(camelCase)·`selectAlertTop3`(snake_case)에 각각 복사돼 있었고, `weekly-diagnostic.js`는 제3의 기준(`total_score` 내림차순)으로 순위를 재구성하고 있었다. 스윗스팟 밴드는 50-59점을 90+점보다 선호하므로 점수 정렬과 순서가 뒤집힌다 → **실측 57%의 날에 진단의 TOP1 ≠ 실제 🥇**(2026-06-01~, n=23). TOP1 알파 진단이 존재한 적 없는 종목을 측정하고 있었음. 리팩터 동등성 검증 완료(43일 전부 일치 — 추천 동작 불변). (k,n) 스캔·Score Health는 TOP3 3개를 통째로 평균 내므로 영향 없음.
+- **`top3_rank` 저장 (`supabase-top3-rank.sql`)**: 순위가 저장되지 않아 사후 재구성에 의존했다. 정렬 로직이 v376→v384→v385→v387로 바뀌어 왔으므로 재구성으로는 "그날 실제 순서"를 복원할 수 없다 → 사실로 저장. 과거는 NULL 유지(백필하면 그날 보여진 순서와 달라짐), 분석은 `resolveTop3Order()`가 저장된 순위 우선·없으면 현재 comparator로 일관 평가. 컬럼 존재를 런타임 감지(`supportsTop3Rank`)해 마이그레이션 전에도 배포 안전.
+- **주간진단 "현재 정책"이 하드코딩 `(0,3)`이었음**: 컬럼명(`top1_alpha_current_timing`)과 텔레그램 라벨은 "현재 정책 (D+0매수)"라 말하는데 실제 `active_policy`는 D+1→D+10(2026-05-05~). Score Health는 이미 active_policy를 따랐으므로 TOP1 알파도 통일. CLAUDE.md v3.89 "평가는 active_policy 지평으로 — D+3 평가 금지" 위반이었음.
+- **⚠️ 위 수정 + D+N 정정의 결과로 진단 결론 2개가 뒤집힘** (2026-07-13주 dry-run):
+  - `score_health`: 4주 연속 `healthy` → **`inverted`(ρ=-0.80)**. 최선호 밴드 50-59가 -16.77%로 전 구간 최악, 최하 선호 45-49가 -9.31%로 최선. 기존 `healthy`는 편향 표본(월·화 39%)이 만든 착시였음. 단 전 구간이 음수인 폭락 윈도우라 신호 역전이 아니라 베타일 수 있음(표본 n=5~26).
+  - `top1_alpha_current_timing`: 4주 연속 음수(-0.25~-1.58) → **+1.15%p**. 실제 🥇는 TOP3 평균을 상회. To-Do #4("TOP2 최하위, TOP3>TOP1")의 전제 재검토 필요.
 - **D+N을 거래일 기준으로 정정 (평가 표본 61% 누락 수정)**: `update-prices.js`가 `days_since_recommendation`을 달력일 차이로 계산했으나 행은 거래일에만 생성 → D+N에 구조적 구멍. 실측(2026-04-01~07-05, n=2131): **금요일 추천의 D+1 존재율 0%**(토요일), **수·목요일 추천의 D+10 존재율 0%**(토·일). `weekly-diagnostic.js`가 `pIdx[recId][k]`로 직접 인덱싱해 해당 건이 에러 없이 탈락 → **active_policy(D+1→D+10) 평가가 월·화 추천(≈39%)만으로 수행되고 있었음**. 요일 편향이라 무작위 누락이 아님. `backfill-missing-days.js`의 주석("day 1 = 다음 거래일")이 원래 의도가 거래일 기준이었음을 확인시켜줌 — 구현만 달력일로 어긋나 있었다. 기존 90,492행 중 73,109행(81%)이 재번호 대상 → `scripts/renumber-trading-days.js`(멱등).
 - **`backend/marketCalendar.js` 신설 — 거래일/휴장일 단일 출처**: `save-daily-recommendations.js`와 `performance.js`에 `KRX_HOLIDAYS` 사본이 각각 있어 한쪽만 갱신되는 드리프트가 실제 발생(후자에 4건 누락). 두 사본 제거 후 모듈로 통일. `tradingDaysSince()` / `addTradingDays()` / `getTodayDateKST()` 제공.
 - **`update-prices.js` 휴장일 가드 추가**: 가드가 없어 휴장일에도 실행 → 전 거래일 종가가 복제된 "유령 관측"이 누적(주말 5,938행 + 휴장일 3,475행 = 9,413행, 전체 가격행의 10.4%). 유령 행은 D+N 한 칸을 차지해 이후 전부 하루씩 밀어버림. 주말분은 v3.43 타임존 수정 이전 잔재(2025-12-06~2026-02-08), 휴장일분은 이번까지 계속 누적.
