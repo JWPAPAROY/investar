@@ -5,6 +5,31 @@
  *      현재 시장에서 같은 패턴을 가진 종목을 찾아내는 시스템
  *
  * 핵심 철학: "거래량이 주가에 선행한다"
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 🚨 v3.94 (2026-07-17): 이 파일은 **시간축이 뒤집힌 채** 동작한다. (보류 — 미수정)
+ *
+ * 이 파일은 chartData가 **오름차순**이라 가정하지만, kisApi.getDailyChart()는
+ * **내림차순**([0]=최신)을 반환하고 filterByDateRange()는 필터만 할 뿐 정렬하지 않는다.
+ *
+ *   calculateSegmentedAverage():
+ *     const early = data.slice(0, earlyEnd);   // ← 내림차순에선 **최신** 구간이다
+ *     const late  = data.slice(midEnd);        // ← 실제로는 **가장 오래된** 구간이다
+ *     if (avgLate > avgMid && avgMid > avgEarly) trend = 'accelerating';
+ *
+ * → early/mid/late가 뒤집혀 **'accelerating'(거래량 가속) 판정이 실제로는 감속을 의미한다.**
+ *   가중 평균(overall = early*0.2 + mid*0.3 + late*0.5)의 "후반 50%" 가중치도 실제로는
+ *   가장 오래된 구간에 실린다. data[i-1](prevVolume)은 실제로는 다음날이고,
+ *   slice(-5)는 가장 오래된 5개다(CLAUDE.md가 금지한 패턴).
+ *
+ * ⚠️ smartPatternMining.js와 달리 **이 모듈은 살아 있다** — 프론트엔드(index.html)가
+ *   /api/patterns/volume-dna 를 호출한다. 즉 사용자에게 뒤집힌 분석이 표시된다.
+ *   다만 점수·TOP3에는 반영되지 않으므로 추천 자체를 오염시키지는 않는다.
+ *
+ * 보류 사유와 재개 조건은 CLAUDE.md "3-3. 선행 지표" 및 To-Do #6-A(깔때기 뒤집기) 참고.
+ * 고칠 때는 입력을 오름차순으로 정규화(`[...chartData].reverse()`)하는 편이 안전하다 —
+ * 이 파일 전체가 오름차순 전제로 쓰여 있기 때문이다.
+ * ══════════════════════════════════════════════════════════════════════════
  */
 
 const kisApi = require('./kisApi');

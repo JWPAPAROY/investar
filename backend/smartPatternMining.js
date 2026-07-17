@@ -9,6 +9,27 @@ const volumeIndicators = require('./volumeIndicators');
  * Phase 1 필터: 거래량 증가율 상위 50개 (API 순위 활용)
  * Phase 2 필터: 10거래일 대비 종가 15% 이상 상승
  * Phase 3 필터: 고가 대비 10% 이상 되돌림 제외
+ *
+ * ══════════════════════════════════════════════════════════════════════════
+ * 🚨 v3.94 (2026-07-17): 이 파일은 **시간축이 뒤집힌 채** 작성돼 있다. 되살리기 전에 읽을 것.
+ *
+ * 이 파일은 chartData가 **오름차순**이라 가정하지만, kisApi.getDailyChart()는
+ * **내림차순**([0]=최신)을 반환한다.
+ *
+ *   const tenDaysAgo = chartData[i - 10];   // ← 내림차순에서 i-10은 "더 최신"이다
+ *   const today      = chartData[i];        // ← 실제로는 "더 과거"다
+ *   returnRate = (today.close - tenDaysAgo.close) / tenDaysAgo.close * 100;
+ *
+ * → 시간을 거꾸로 계산하므로 **하락을 급등으로 판정한다.**
+ *   실측: 삼성전자 7/2 286,000 → 7/16 255,000 (−10.8% 하락)을 returnRate +12.16%로 라벨링.
+ * → preSurgeData = slice(surgeIndex-5, surgeIndex)도 "급등 직전 5일"이 아니라 **급등 이후 5일**이다.
+ *
+ * 현재 **점수에 반영되지 않는다**(외부 호출은 loadSavedPatterns 하나뿐이며, screening.js가
+ * this.savedPatterns에 담아둘 뿐 읽지 않는다). CLAUDE.md가 말하는 leadingIndicators 통합은
+ * 존재하지 않는다. 그래서 실害는 없으나, **고치지 않고 되살리면 즉시 반대 신호를 학습한다.**
+ *
+ * 보류 사유와 재개 조건은 CLAUDE.md "3-3. 선행 지표" 및 To-Do #6-A(깔때기 뒤집기) 참고.
+ * ══════════════════════════════════════════════════════════════════════════
  */
 class SmartPatternMiner {
   constructor() {

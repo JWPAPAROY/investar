@@ -5,6 +5,13 @@
 ## 📝 변경 이력
 
 ### v3.94 (2026-07-17)
+- **선행 지표 모듈 2종이 시간축 역방향 — 문서 정정 후 보류 (To-Do #6-B)**: `chartData`는 내림차순인데 두 파일 모두 오름차순을 가정하고 작성됐다.
+  - `smartPatternMining.js`(945줄, **죽은 코드**): `tenDaysAgo = chartData[i-10]`가 내림차순에선 더 최신 → 시간을 거꾸로 계산해 **하락을 급등으로 판정**. 실측: 삼성전자 7/2 286,000→7/16 255,000(−10.8%)을 `returnRate +12.16%` 급등으로 라벨링. `preSurgeData = slice(surgeIndex-5, surgeIndex)`도 "급등 직전 5일"이 아니라 **급등 이후 5일**. 외부 호출은 `loadSavedPatterns` 하나뿐이고 `screening.js`가 `this.savedPatterns`에 담아둘 뿐 읽지 않아 **점수 미반영** → 실害 없음.
+  - `volumeDnaExtractor.js`(631줄, **살아 있음** — 프론트 → `/api/patterns/volume-dna`): `calculateSegmentedAverage()`의 `early = slice(0, ...)`가 내림차순에선 최신 구간 → **`accelerating`(가속) 판정이 실제로는 감속**. 사용자에게 뒤집힌 분석이 표시되나 점수·TOP3 미반영이라 추천은 오염되지 않음.
+  - **CLAUDE.md의 "`screening.js`에서 `leadingIndicators` 모듈로 통합 호출"은 사실이 아니다** — 그 모듈은 존재하지 않고 선행 지표는 점수에 전혀 반영되지 않는다. 문서에만 있던 기능.
+  - 보류: 고쳐도 검증할 데이터가 없고(올바른 수급 이력 38거래일), 목표가 To-Do #6-A(깔때기 뒤집기)와 동일해 통합 판단 필요. 두 파일 상단에 경고 주석 추가.
+- **`patterns/index.js` `days_to_success` 달력일 → 거래일**: 이 값의 용도가 "추적 기간(D+N) 적정성 판단"인데 D+N은 거래일이라 단위가 섞여 ~40% 과대평가됐다. (정렬은 `.order('tracking_date')`가 있어 최초 달성일 탐색은 정상이었음 ✅). ⚠️ v3.94 이전 행은 달력일로 저장돼 있어 직접 비교 주의.
+- **`kisApi.js` 감사**: `getInvestorData`의 `.reverse()`가 **파일 전체에서 유일한 정렬 반전**으로, 이번 최대 결함의 뿌리가 여기 단독으로 튀어나온 것을 확인. `getDailyChart`/`getIndexChart`는 내림차순 관례 준수 ✅. `getDetailedInvestorData`는 호출처 0(죽은 코드).
 - **🚨 수급 신호가 반대 방향으로 계산되고 있었음 (시스템 최대 결함)**: `kisApi.getInvestorData()`는 **오름차순**([0]=가장 오래된 날, 마지막=최신)을 반환하는데, `checkInstitutionalFlow()`가 `[0]`부터 순회하며 첫 비매수일에 `break` → **"연속 순매수일"을 가장 오래된 날부터** 세고 있었다. 스트릭은 오늘부터 거꾸로 세야 의미가 있으므로 정반대. (원인: `chartData`는 내림차순인데 `investorData`만 오름차순인 비대칭)
   - 실측(대형주 10종목): **8종목에서 수급일수가 틀림**. LG전자 4일/4일→0일/0일, 삼성전자 1일/1일→0일/0일, 현대모비스 3일/5일→0일/5일.
   - `institutionDays`/`foreignDays`는 **TOP3 정렬 1차 키(supplyRank)**이자 **자격 필터(≥3일)**. 수정 시 10종목 중 **8종목의 수급등급이 변경**, 4종목은 자격 자체가 뒤집힘(NAVER·셀트리온·현대모비스가 최하등급 1 → 최상등급 5).

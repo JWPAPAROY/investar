@@ -8,6 +8,7 @@
  */
 
 const supabase = require('../../backend/supabaseClient');
+const { tradingDaysSince } = require('../../backend/marketCalendar');
 
 module.exports = async (req, res) => {
   // CORS 헤더
@@ -124,11 +125,13 @@ async function collectSuccessPatterns(req, res) {
     const currentReturn = prices[prices.length - 1]?.cumulative_return || 0;
 
     if (maxReturn >= SUCCESS_THRESHOLD) {
+      // prices는 tracking_date 오름차순(위 .order) → find()가 최초 달성일을 반환
       const successPrice = prices.find(p => p.cumulative_return >= SUCCESS_THRESHOLD);
       const successDate = successPrice?.tracking_date || today;
-      const daysToSuccess = Math.round(
-        (new Date(successDate) - new Date(rec.recommendation_date)) / (24 * 60 * 60 * 1000)
-      );
+      // v3.94: 달력일 → 거래일. 이 값은 "추적 기간(D+N) 적정성" 판단에 쓰이는데
+      //   D+N이 거래일 기준이라 달력일과 섞이면 ~40% 과대평가된다.
+      //   ⚠️ v3.94 이전 행은 달력일로 저장돼 있어 직접 비교 시 주의.
+      const daysToSuccess = tradingDaysSince(rec.recommendation_date, successDate);
 
       successPatterns.push({
         recommendation_id: rec.id,

@@ -196,9 +196,34 @@ ratio = 상승일 총 거래량 / 하락일 총 거래량
 
 #### 3-3. 선행 지표 (`smartPatternMining.js`, `volumeDnaExtractor.js`)
 
+> ## 🚨 v3.94: 이 절의 기능은 **작동하지 않는다.** (2026-07-17 확인, 보류 중)
+>
+> **`leadingIndicators` 모듈은 존재하지 않는다.** "screening.js에서 통합 호출"도 사실이 아니며,
+> 선행 지표는 **점수에 전혀 반영되지 않는다**. `screening.js`는 생성자에서
+> `smartPatternMiner.loadSavedPatterns()`로 패턴을 로드해 `this.savedPatterns`에 담아둘 뿐,
+> 이후 어디서도 읽지 않는다.
+>
+> **두 모듈 모두 `chartData`가 오름차순이라 가정하고 작성됐다.** 실제로는 내림차순
+> ([0]=최신)이므로 **시간축이 뒤집힌 채 동작한다.**
+>
+> - `smartPatternMining.js` (945줄, **죽은 코드** — 외부 호출은 `loadSavedPatterns` 하나뿐):
+>   급등 탐지가 `tenDaysAgo = chartData[i-10]`인데 내림차순에서 `i-10`은 **더 최신**이다.
+>   → **하락을 급등으로 판정한다.** 실측: 삼성전자 7/2 286,000 → 7/16 255,000 (−10.8% 하락)을
+>   `returnRate = +12.16%` 급등으로 라벨링. 이어 `preSurgeData = slice(surgeIndex-5, surgeIndex)`도
+>   주석("급등 직전 5일")과 달리 **급등 이후 5일**이다.
+> - `volumeDnaExtractor.js` (631줄, **살아 있음** — 프론트 → `/api/patterns/volume-dna`):
+>   `calculateSegmentedAverage()`의 `early = data.slice(0, ...)`가 내림차순에선 **최신 구간**이라
+>   `early/mid/late`가 뒤집힌다. → `avgLate > avgMid > avgEarly`인 **`accelerating`(거래량 가속)
+>   판정이 실제로는 감속을 의미한다.** `data[i-1]`(prevVolume)도 실제로는 다음날,
+>   `slice(-5)`도 가장 오래된 5개(CLAUDE.md 금지 패턴)를 잡는다.
+>
+> **보류 사유**: 고쳐도 검증할 데이터가 없다(올바른 수급 이력은 2026-05-22부터, 38거래일).
+> "급등 전 신호 포착"이라는 목표가 **깔때기 뒤집기(To-Do #6-A)와 동일**하므로 그 설계와
+> 통합해 판단한다. 되살릴 때는 **시간축부터 바로잡을 것.**
+
+원래 의도(미구현):
 - **스마트 패턴 마이닝**: 과거 급등 직전의 거래량 패턴을 학습하여 현재 종목에서 유사 패턴 탐지
 - **거래량 DNA**: 급등주의 거래량 변화 특성(EMA, 구간별 분석)을 추출 → 시장 스캔에서 매칭
-- `screening.js`에서 `leadingIndicators` 모듈로 통합 호출
 
 ### Phase 4: 점수 계산 (`screening.js`)
 
@@ -954,6 +979,16 @@ SQL 파일: `supabase-weekly-diagnostics.sql`, `supabase-active-policy.sql`, `su
 - **판정**: 풀 밖 신호 알파 양수 → 깔때기 전환 설계. 음수 → 가설 기각, 시스템을 베타+리스크컨트롤 수단으로 재규정.
 - **시점 근거**: 백필(5월 말~) + 신규 2주면 신호 형성 깊이(연속 매수일 5~10d, 거래량 점증 20~30d)와 D+10 평가 코호트가 동시 확보됨.
 - **벤치마크 주의**: KOSPI는 `overnight_predictions.kospi_close` 시계열로 산출(kospi_close_change 신뢰 금지).
+
+### 6-B. 선행 지표 모듈 시간축 정정 후 재연결 (보류: 2026-07-17 ~)
+
+- **내용**: `smartPatternMining.js`(945줄)·`volumeDnaExtractor.js`(631줄)의 시간축을 바로잡고 실제 점수 경로에 연결할지 결정.
+- **현 상태**: 두 모듈 모두 `chartData`가 오름차순이라 가정하나 실제는 내림차순 → **시간 역방향**. 상세는 "3-3. 선행 지표" 참고.
+  - `smartPatternMining`: **죽은 코드**(점수 미반영). 하락을 급등으로 판정(삼성전자 −10.8%를 +12.16%로).
+  - `volumeDnaExtractor`: **살아 있음**(프론트 → `/api/patterns/volume-dna`). `accelerating` 판정이 실제로는 감속. 점수·TOP3에는 미반영이라 추천은 오염되지 않음.
+- **보류 사유**: (1) 고쳐도 검증할 데이터가 없다 — 올바른 수급 이력은 2026-05-22부터 38거래일뿐. (2) "급등 전 신호 포착"이라는 목표가 **To-Do #6-A(깔때기 뒤집기)와 동일**하므로 중복 설계를 피하고 통합 판단해야 한다.
+- **재개 조건**: #6-A 검증에서 "풀 밖 수급-우선 신호"의 알파가 확인되면, 선행 패턴을 그 파이프라인의 한 축으로 편입할지 함께 설계. 알파가 없으면 두 모듈은 삭제 후보.
+- **되살릴 때 주의**: 시간축부터 바로잡을 것. `volumeDnaExtractor`는 파일 전체가 오름차순 전제라 입력을 `[...chartData].reverse()`로 정규화하는 편이 안전하다.
 
 ### 6. D+1 급락 종목 즉시 손절 경고 (구현 가능, 효과 검증 필요)
 
