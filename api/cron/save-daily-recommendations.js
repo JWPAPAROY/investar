@@ -1553,11 +1553,15 @@ const KRX_HOLIDAYS = new Set([
   '2026-05-01', // 근로자의 날
   '2026-05-05', // 어린이날
   '2026-05-25', // 부처님오신날
+  '2026-06-03', // 제9회 전국동시지방선거
+  '2026-07-17', // 제헌절 (2026년 공휴일 재지정)
   '2026-08-17', // 광복절 대체휴일
   '2026-09-24', '2026-09-25', // 추석 연휴
+  '2026-09-28', // 추석 대체휴일 (연휴 9/26이 토요일과 겹침)
   '2026-10-05', // 개천절 대체휴일
   '2026-10-09', // 한글날
   '2026-12-25', // 크리스마스
+  '2026-12-31', // 연말 휴장일
 ]);
 
 function isKRXHoliday(dateStr) {
@@ -3593,15 +3597,15 @@ module.exports = async (req, res) => {
       }
 
       // 4. 메시지 전송
-      if (saveTop3.length > 0 || morningResults.length > 0) {
-        const saveDiagnostic = await getLatestDiagnostic();
-        const saveActivePolicy = await getActivePolicy();
-        const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment }, expectations, prediction, saveDiagnostic, saveActivePolicy);
-        tgSent = await sendTelegramMessage(saveMsg);
-        console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
-      } else {
-        console.log('📱 텔레그램: 전송할 내용 없음');
-      }
+      // v3.94: 무픽(빈 TOP3)이어도 거래일이면 항상 전송.
+      //   기존엔 saveTop3/morningResults가 모두 비면 침묵 → v3.92 무픽 도입 후 무픽이 연속되면
+      //   (무픽 → 익일 D-1 성과도 없음) 결산 자체가 사라져 장애와 구분 불가 (2026-07-16 실제 발생).
+      //   "추천 없음"도 풀이 나쁘다는 신호이므로 메시지로 전달한다.
+      const saveDiagnostic = await getLatestDiagnostic();
+      const saveActivePolicy = await getActivePolicy();
+      const saveMsg = formatSaveAlertMessage(saveTop3, morningResults, today, { skipDbSave, sentiment }, expectations, prediction, saveDiagnostic, saveActivePolicy);
+      tgSent = await sendTelegramMessage(saveMsg);
+      console.log(`📱 텔레그램 알림: ${tgSent ? '성공' : '실패'} (TOP ${saveTop3.length}개)`);
     } catch (tgErr) {
       console.warn('⚠️ 텔레그램 알림 실패:', tgErr.message, tgErr.stack);
       tgSent = 'error: ' + tgErr.message;
