@@ -858,7 +858,7 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 1. **점수 모델 건강도**: 점수 구간(45-55/55-65/65-75/≥75) × active_policy timing 수익률의 Spearman r
    - `> 0.3` healthy / `-0.3 ~ 0.3` broken / `< -0.3` inverted
    - 측정 윈도우는 `active_policy`의 (buy_offset_day, sell_offset_day)를 따라감 (없으면 D+0→D+3 fallback)
-2. **권장 매매 타이밍**: in-sample 8주 (k,n) 매트릭스 스캔. 모든 주에서 + 평균인 (k,n) 중 최저주 알파 최대화 (robust)
+2. **권장 매매 타이밍**: in-sample 8주 (k,n) 매트릭스 스캔. **v3.95: 판정 기준은 절대 부호가 아니라 현행 `active_policy` 대비 상대 우위**(`edge = 후보 − 현행`, 주별 `edge>0` 비율 = `beatRatio`) → `robust`(전 주 우세) / `majority`(≥70%) / `least_bad`. 후보 정렬은 `minEdge`(최저주 우위) 최대화.
 3. **TOP1 알파**: 최근 30일 TOP1 vs TOP3 평균 알파, 현재 timing(D+0,D+3) vs 권장 timing 두 가지
 
 ### 진단 진단 (meta-monitor)
@@ -870,12 +870,23 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 `active_policy` 단일 행 테이블 (default `D+0매수, D+3매도`). 변경 트리거로 `active_policy_history` 자동 기록.
 
-**자동 변경 발생.** 매주 진단 시 권장 timing ≠ active_policy이면 즉시 자동 갱신 (`set_by='auto-diagnostic'`). 수동 변경 방법:
+**자동 변경은 quality 게이트를 통과할 때만** (`set_by='auto-diagnostic'`). 권장 timing ≠ active_policy라도 무조건 갱신하지 않는다:
+
+| quality (v3.95: **현행 대비** 기준) | 자동 적용 |
+|---|---|
+| `robust` — 전 주에서 현행보다 나음 | 즉시 |
+| `majority` — ≥70% 주에서 현행보다 나음 | **2주 연속 동일 권고**일 때만 |
+| `least_bad` — 그 외 | 권고만, 적용 안 함 |
+
+수동 설정도 위 조건 충족 시 자동이 덮어쓴다. 수동 변경 방법:
 - 텔레그램: `/policy D+1 D+10 [사유]`
 - Supabase 대시보드 직접 update
-- 6주 연속 동일 권고 시 텔레그램으로 추가 알림 발송 (이미 자동 적용된 상태)
 
-**6주 임계값은 임의값**임을 명시 (통계적 정당화는 27주 이상 필요하나 운영 현실 고려한 타협). `APPLY_THRESHOLD_WEEKS` 상수 1줄로 조정 가능.
+> **⚠️ v3.95 이전: 이 게이트는 하락장에서 구조적으로 잠겨 있었다.** 기준이 "주별 수익>0 비율"이라
+> 하락 레짐에선 어떤 조합도 70%를 넘길 수 없어 항상 `least_bad` → **2026-05-05 이후 3개월간
+> 자동 변경 0회**. 보유기간 단축이 가장 필요한 국면에 게이트가 닫히는 구조였다. 상대 기준으로
+> 바꾼 뒤 과거 재현: 상승장(5/11·6/1)은 `beat=0%`로 **변경 없음**(휩쏘 없음), 하락장은 2주 연속
+> 확인 후 열림. 현행 정책 자신은 edge가 0이라 통과 못 하므로 "현행이 최선이면 안 바뀜"이 성립.
 
 ### 텔레그램 메시지
 

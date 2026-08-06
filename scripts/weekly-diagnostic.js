@@ -325,7 +325,26 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     return weekAvgs;
   }
 
-  // 모든 유효 (k,n)의 주별 성과 수집 (전주 + 비율 posRatio 포함)
+  // v3.95: 판정 기준을 절대 부호 → 현행 정책 대비 상대 비교로 전환.
+  //   기존 posRatio(주별 수익>0 비율)는 하락 레짐에서 어떤 (k,n)도 70%를 넘길 수 없어
+  //   quality가 항상 least_bad로 떨어졌다 — 즉 **보유기간 단축이 가장 필요한 국면에
+  //   게이트가 구조적으로 잠겼다**(2026-05-05 이후 3개월간 자동변경 0회, 최근 5주
+  //   posRatio 25/25/63/43/50%). 6월 3단 완화(b373409)는 "권고를 말하게" 만들었을 뿐
+  //   적용 경로는 절대 기준 그대로여서 맹점의 절반만 고쳐진 상태였다.
+  //   → 이제 "그 주에 현행 active_policy보다 나았는가"(edge>0)를 센다. 어느 레짐에서든
+  //     의미가 유지되고, 하락장에선 "덜 잃는 쪽"이 정당하게 통과한다.
+  //   베이스라인 = active_policy (k=activeBuyD, n=activeSellD). 없으면 절대 기준으로 폴백.
+  const baselineWk = (activeBuyD != null && activeSellD != null && activeSellD > activeBuyD)
+    ? new Map(weekRet(inSampleWeeks, activeBuyD, activeSellD, arr => arr.slice(0, 3)).map(w => [w.week, w.avg]))
+    : null;
+  if (!baselineWk || baselineWk.size === 0) {
+    warnings.push('active_policy 베이스라인 주별 표본 부족 — 절대 기준(posRatio)으로 폴백');
+  }
+  // activeBuyD/SellD는 Phase 3 자동적용 시 새 값으로 재할당된다(아래). 판정에 쓴 베이스라인은
+  // 그 시점 값이어야 하므로 여기서 스냅샷을 떠 둔다.
+  const gateBaselineSnap = { buyD: activeBuyD, sellD: activeSellD, weeks: baselineWk ? baselineWk.size : 0 };
+
+  // 모든 유효 (k,n)의 주별 성과 수집 (절대 posRatio + 베이스라인 대비 beatRatio 병기)
   const allCands = [];
   for (const k of ksRange) for (const n of nsRange) {
     if (n <= k) continue;
@@ -336,22 +355,43 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     const overall = mean(avgs);
     const minWk = Math.min(...avgs);
     const totalN = wkAvgs.reduce((s, w) => s + w.n, 0);
-    allCands.push({ k, n, overall, minWk, totalN, posRatio, weeksMatched: wkAvgs.length, weeks: wkAvgs.map(w => w.week) });
+    // 베이스라인과 공통으로 존재하는 주에서만 edge 산출 (주 집합이 후보마다 다를 수 있음)
+    let beatRatio = null, overallEdge = null, minEdge = null, edgeWeeks = 0;
+    if (baselineWk && baselineWk.size) {
+      const edges = [];
+      for (const w of wkAvgs) {
+        const b = baselineWk.get(w.week);
+        if (b != null) edges.push(w.avg - b);
+      }
+      if (edges.length >= Math.max(3, Math.floor(baselineWk.size * 0.6))) {
+        beatRatio = edges.filter(e => e > 0).length / edges.length;
+        overallEdge = mean(edges);
+        minEdge = Math.min(...edges);
+        edgeWeeks = edges.length;
+      }
+    }
+    allCands.push({ k, n, overall, minWk, totalN, posRatio, beatRatio, overallEdge, minEdge, edgeWeeks,
+      weeksMatched: wkAvgs.length, weeks: wkAvgs.map(w => w.week) });
   }
 
-  // 점진적 완화: 지는 레짐에서 침묵하던 맹점 해소.
-  //  robust(전주 +) → majority(≥70% 주 +) → least_bad(그래도 없으면 전체 중 최저주 최대)
-  //  자동 policy 변경은 robust일 때만(아래 Phase 3) — 덜 나쁜 권고로 휩쏘 방지, 권고 자체는 항상 표시.
+  // 점진적 완화(상대 기준): robust(전 주 현행보다 나음) → majority(≥70% 주) → least_bad.
+  //   자동 policy 변경은 robust 즉시 / majority는 2주 연속(아래 Phase 3).
+  //   현행 정책 자신은 edge가 전부 0이라 beatRatio 0 → 통과 못 함 = "현행이 최선이면 안 바뀜"이 자연히 성립.
   const POS_MAJORITY = 0.7;
+  const relative = allCands.some(c => c.beatRatio != null);
+  const gateOf = relative ? (c => c.beatRatio) : (c => c.posRatio);
+  const scored = relative ? allCands.filter(c => c.beatRatio != null) : allCands;
   let optimalQuality = null;
-  let pool = allCands.filter(c => c.posRatio === 1);            // tier1
+  let pool = scored.filter(c => gateOf(c) === 1);               // tier1
   if (pool.length) optimalQuality = 'robust';
   else {
-    pool = allCands.filter(c => c.posRatio >= POS_MAJORITY);    // tier2
+    pool = scored.filter(c => gateOf(c) >= POS_MAJORITY);       // tier2
     if (pool.length) optimalQuality = 'majority';
-    else if (allCands.length) { pool = allCands.slice(); optimalQuality = 'least_bad'; } // tier3
+    else if (scored.length) { pool = scored.slice(); optimalQuality = 'least_bad'; } // tier3
   }
-  pool.sort((a, b) => b.minWk - a.minWk); // robust: maximize the worst week
+  // 최악의 주를 최대화 — 상대 기준에선 "가장 나빴던 주의 현행 대비 우위"를 최대화
+  pool.sort(relative ? ((a, b) => b.minEdge - a.minEdge) : ((a, b) => b.minWk - a.minWk));
+  const gateBasis = relative ? 'relative' : 'absolute';
   const candidates = pool; // raw_json/OOS/meta 하위호환
 
   let optimalBuyD = null, optimalSellD = null, optimalAvg = null, optimalMin = null, optimalN = null;
@@ -367,7 +407,10 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     optimalMin = best.minWk;
     optimalN = best.totalN;
     if (optimalQuality !== 'robust') {
-      warnings.push(`optimal timing quality=${optimalQuality} (전주 +비율 ${Math.round(best.posRatio * 100)}%) — 권고만, 자동적용 보류`);
+      const basisTxt = gateBasis === 'relative'
+        ? `현행 대비 우세 주 비율 ${Math.round(best.beatRatio * 100)}% (edge 평균 ${best.overallEdge?.toFixed(2)}%p, 최저주 ${best.minEdge?.toFixed(2)}%p)`
+        : `전주 +비율 ${Math.round(best.posRatio * 100)}%`;
+      warnings.push(`optimal timing quality=${optimalQuality} (${basisTxt}) — 권고만, 자동적용 보류`);
     }
     // v3.92: 최신 in-sample 주가 주별 표본<3으로 제외되면 권고가 과거 주에 동결됨을 명시
     //   (2026-07-06 발견: 6/28·7/5 진단 수치가 소수점까지 동일 — 최신 주 탈락으로 유효 주 집합 불변)
@@ -385,7 +428,12 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     }
   }
 
-  console.log(`[2. OPTIMAL TIMING] (D+${optimalBuyD}, D+${optimalSellD}) quality=${optimalQuality} overall=${optimalAvg?.toFixed(2)}% minWk=${optimalMin?.toFixed(2)}% inSample=${inSampleWeeks.length}wk`);
+  const bestCand = candidates[0];
+  console.log(`[2. OPTIMAL TIMING] (D+${optimalBuyD}, D+${optimalSellD}) quality=${optimalQuality} basis=${gateBasis}`
+    + (gateBasis === 'relative' && bestCand
+        ? ` beat=${Math.round(bestCand.beatRatio * 100)}%(vs D+${activeBuyD}→D+${activeSellD}) edge=${bestCand.overallEdge?.toFixed(2)}%p minEdge=${bestCand.minEdge?.toFixed(2)}%p`
+        : '')
+    + ` overall=${optimalAvg?.toFixed(2)}% minWk=${optimalMin?.toFixed(2)}% inSample=${inSampleWeeks.length}wk`);
 
   // =========================================================================
   // 3. TOP1 ALPHA — last 30 days TOP1 vs TOP3 (current vs optimal timing)
@@ -440,14 +488,20 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   }
 
   // Phase 3: 자동 적용 — 권장이 현재 정책과 다르면 active_policy 갱신.
-  //   역동성/휩쏘 균형: robust(전주 모두 +)는 즉시, majority(≥70% 주 +)는 2주 연속 동일권고일 때만.
-  //   least_bad(전부 음수)는 권고만(자동변경 안 함). 수동설정도 위 조건 충족 시 자동이 덮어씀.
+  //   역동성/휩쏘 균형: robust는 즉시, majority는 2주 연속 동일권고일 때만, least_bad는 권고만.
+  //   v3.95: tier 판정 기준이 "주별 수익>0"에서 **"주별로 현행 정책보다 나았는가"**로 바뀌었다.
+  //   하락장에서도 게이트가 열릴 수 있다 — 단 "덜 잃는 쪽"으로 여는 것이 이 변경의 의도다.
   const autoApplyEligible = optimalQuality === 'robust'
     || (optimalQuality === 'majority' && consecutiveSame >= 2);
   if (recommendationDiffers && optimalBuyD != null && optimalSellD != null && !autoApplyEligible) {
     const why = optimalQuality === 'majority' ? `majority지만 연속 ${consecutiveSame}주(<2)` : `quality=${optimalQuality}`;
     console.log(`[4. AUTO-APPLY] ⏸ 권고(D+${optimalBuyD}→D+${optimalSellD}) ${why} → 자동적용 보류(권고만 표시)`);
   } else if (recommendationDiffers && optimalBuyD != null && optimalSellD != null) {
+    // v3.95 fix: --dry가 이 블록을 막지 않아 dry run이 실제 active_policy를 바꿀 수 있었다
+    //   (dryRun 가드는 맨 아래 weekly_diagnostics insert에만 있었다).
+    if (dryRun) {
+      console.log(`[4. AUTO-APPLY] [DRY] 적용 조건 충족 — 실제라면 D+${activeBuyD}→D+${activeSellD} ⇒ D+${optimalBuyD}→D+${optimalSellD} (quality=${optimalQuality}, ${consecutiveSame}주 연속)`);
+    } else
     // Idempotency: 이번 주 이미 auto-diagnostic이 적용했으면 스킵
     if (activePolicySetBy === 'auto-diagnostic' && activePolicySinceDate === weekStart) {
       console.log(`[4. AUTO-APPLY] ⏭ 이미 이번 주(${weekStart}) 자동 적용됨, 스킵`);
@@ -589,6 +643,8 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     raw_json: {
       ssGoodness, ssReturns,
       optimalQuality,
+      gateBasis,                                    // v3.95: 'relative'(현행 대비) | 'absolute'(폴백)
+      gateBaseline: gateBasis === 'relative' ? gateBaselineSnap : null,
       candidatesTop5: candidates.slice(0, 5),
       inSampleWeeksList: inSampleWeeks,
       oosWeeksList: oosWeeks,
@@ -759,7 +815,10 @@ if (require.main === module) {
   const opts = {};
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--dry') opts.dryRun = true;
+    // `--asOf 2026-05-11`과 `--asOf=2026-05-11` 둘 다 허용(=형식이 조용히 무시돼
+    //  과거 시점 실행이 전부 현재 시점으로 돌아가던 함정).
     if (args[i] === '--asOf') opts.asOf = args[++i];
+    else if (args[i].startsWith('--asOf=')) opts.asOf = args[i].slice(7);
   }
   runDiagnostic(opts)
     .then(() => process.exit(0))
