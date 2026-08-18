@@ -1,0 +1,47 @@
+# 저변동성 관측 픽 일일 기록 (검증 전용 — 실운영 무관)
+#
+# 원래는 로컬 Windows 예약작업이었으나 2026-08-19에 이관.
+# 로컬 방식의 실패 원인 3가지:
+#   1) 노트북 배터리 구동 시 작업이 아예 거부됨 (DisallowStartIfOnBatteries)
+#   2) 18:30 KST 실행이 수집 완료(18:40~19:15 KST)보다 빨라 항상 전일 데이터를 읽음
+#   3) 래퍼 .cmd가 Windows 11에서 제거된 wmic을 호출, 종료코드도 전파 안 함
+# 결국 8/11·8/14·8/18 관측이 유실됐다(수동 복구함). PC 상태에 의존하지 않게 한다.
+#
+# 시각을 추측하지 않고 collect-market-flow가 **끝난 뒤** 실행한다.
+# (러너 지연이 26~55분까지 벌어지므로 cron으로 맞추면 같은 실수를 반복하게 된다)
+name: record-lowvol-picks
+
+on:
+  workflow_run:
+    workflows: [collect-market-flow]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      date:
+        description: '복구할 신호일 (YYYY-MM-DD). 비우면 최신 시장일'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  record:
+    # 수집이 성공했을 때만. 실패한 날은 데이터가 없으니 기록해도 의미 없다.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Record low-volatility picks
+        run: node scripts/record-lowvol-picks.js --telegram ${{ github.event.inputs.date != '' && format('--date={0}', github.event.inputs.date) || '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

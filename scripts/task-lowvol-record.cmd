@@ -1,8 +1,17 @@
 @echo off
-REM 저변동성 관측 픽 일일 기록 (검증 전용 — 실운영 무관)
-REM 시장 데이터 수집(GitHub Actions 평일 17:50 KST) 이후 실행되어야 함.
+REM ASCII ONLY. cmd.exe reads this file in the OEM codepage (CP949 here),
+REM so UTF-8 Korean comments corrupt the file and break execution.
+REM
+REM Low-volatility observation record (validation only, not production).
+REM Must run AFTER the GitHub Actions market-flow collection finishes.
+REM Actions cron is 17:50 KST but runner delay (26-55 min) + runtime (26 min)
+REM pushes completion to 18:40-19:15 KST, so this task is scheduled at 19:30 KST.
+REM At the old 18:30 slot it always read the PREVIOUS day's data.
+chcp 65001 >nul
 cd /d C:\Users\knoww\investar
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set DT=%%I
-set STAMP=%DT:~0,8%
+echo. >> logs\lowvol-record.log
+echo ===== run %DATE% %TIME% ===== >> logs\lowvol-record.log
 node scripts\record-lowvol-picks.js --telegram >> logs\lowvol-record.log 2>&1
-echo [%STAMP%] exit=%ERRORLEVEL% >> logs\lowvol-record.log
+set RC=%ERRORLEVEL%
+echo ----- exit=%RC% ----- >> logs\lowvol-record.log
+exit /b %RC%

@@ -14,6 +14,12 @@
  *   node scripts/record-lowvol-picks.js --telegram   # 기록 + 텔레그램 발송
  *   node scripts/record-lowvol-picks.js --review     # 지금까지 기록된 픽의 실적 집계
  *   node scripts/record-lowvol-picks.js --dry        # 계산만, 기록 안 함
+ *   node scripts/record-lowvol-picks.js --date=2026-08-14  # 특정 신호일 복구
+ *
+ * --date는 예약작업이 실패해 생긴 **결측 복구용**이다. 저변동성 계산은 신호일 이전
+ * 데이터만 쓰므로(전방참조 없음) 결과가 그날 돌렸을 때와 동일하다. 관측 시작일
+ * (2026-08-07) 이전을 채우는 백필 용도로는 쓰지 말 것 — 백테스트와 실시간 관측의
+ * 구분이 흐려진다.
  *
  * 저장: Supabase `lowvol_observations` (있으면) + 로컬 `data/lowvol-picks.jsonl` (항상)
  *       테이블이 없어도 로컬 기록은 되므로 오늘부터 바로 축적된다.
@@ -27,7 +33,8 @@ const path = require('path');
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 const PAGE = 1000, MIN_UNIVERSE = 2000;
-const arg = (k, d) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? Number(a.split('=')[1]) : d; };
+const argStr = (k, d) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.split('=')[1] : d; };
+const arg = (k, d) => { const v = argStr(k); return v == null ? d : Number(v); };
 const has = k => process.argv.includes(`--${k}`);
 
 // 백테스트에서 가장 강했던 설정. 바꾸면 기록의 연속성이 깨지므로 함부로 바꾸지 말 것.
@@ -107,9 +114,17 @@ async function sendTelegram(text) {
 
   // ── --review: 기록된 픽의 실적 집계 ────────────────────────────
   if (has('review')) {
-    if (!fs.existsSync(OUT)) return console.log('기록 없음 — 먼저 기록을 쌓아야 합니다.');
-    const recs = fs.readFileSync(OUT, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
-    console.log(`📊 저변동성 관측 실적 (기록 ${recs.length}일)\n`);
+    // 권위 있는 기록은 Supabase다. GitHub Actions 러너에는 로컬 jsonl이 없으므로
+    // Supabase를 우선 읽고, 접근 불가일 때만 로컬 미러로 폴백한다.
+    let recs = null, src = 'Supabase';
+    const { data, error } = await sb.from('lowvol_observations').select('signal_date,picks').order('signal_date');
+    if (!error && data?.length) recs = data;
+    else {
+      src = '로컬 jsonl';
+      if (!fs.existsSync(OUT)) return console.log(`기록 없음 — 먼저 기록을 쌓아야 합니다. (Supabase: ${error?.message ?? '0건'})`);
+      recs = fs.readFileSync(OUT, 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+    }
+    console.log(`📊 저변동성 관측 실적 (기록 ${recs.length}일, 출처 ${src})\n`);
     const last = days[days.length - 1];
     for (const H of [2, 5, 10]) {
       const rows = [], base = [];
@@ -137,8 +152,14 @@ async function sendTelegram(text) {
     return;
   }
 
-  // ── 오늘 픽 계산 ──────────────────────────────────────────────
-  const i = days.length - 1;
+  // ── 오늘 픽 계산 (--date 지정 시 그 신호일로 복구) ──────────────
+  const wantDate = argStr('date');
+  const i = wantDate == null ? days.length - 1 : dayIdx.get(wantDate);
+  if (i == null) {
+    console.error(`신호일 ${wantDate}는 market_flow_daily에 없습니다 (휴장일이거나 수집 종목 ${MIN_UNIVERSE}개 미만).`);
+    console.error(`사용 가능한 최근 신호일: ${days.slice(-5).join(', ')}`);
+    process.exit(1);
+  }
   const signalDate = days[i];
   const picks = computePicks(mkt, i);
   console.log(`📌 저변동성 관측 픽 — 신호일 ${signalDate} (시총상위${UNIV} / ${LOOK}일 변동성 하위 ${K})\n`);
