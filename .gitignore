@@ -45,3 +45,10 @@ api/koreainvestment/
 # 로컬 개발/조사 스크립트
 scripts/inspect-schema.js
 scripts/top1-recent.js
+
+# 대용량 데이터 스냅샷 (v3.96 추가)
+#   data/*.json 만 막혀 있어서 .jsonl 240MB(krx-daily 176M + price-history 52M + krx-index 12M)가
+#   `git add -A` 한 번이면 레포에 들어갈 수 있었다. 재생성 가능한 수집물이므로 추적하지 않는다.
+#   (collect-krx-daily.js / collect-price-history.js 로 다시 만들 수 있다)
+data/*.jsonl
+!data/lowvol-picks.jsonl
