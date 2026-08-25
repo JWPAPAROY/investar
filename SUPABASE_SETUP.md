@@ -1,68 +1,49 @@
 # Supabase 추천 종목 성과 추적 시스템 설정 가이드
 
-## 📁 SQL 파일 색인 (v3.96, 2026-08-25)
+## 📁 SQL 파일 색인 (v3.96, 2026-08-25 덤프로 검증)
 
-> "파일이 10개인데 뭐가 뭔지 헷갈린다"에 대한 답. **성격이 세 가지로 갈린다.**
+> **스키마의 단일 출처는 `supabase-schema-full.sql`** (16테이블 / 57인덱스 / 36정책).
+> 아래 개별 파일들은 "무엇을 언제 왜 추가했는가"의 히스토리다.
 
-### ① 스키마 정의 — 지우면 안 됨 (테이블 구조의 유일한 기록)
-
-| 파일 | 정의하는 테이블 |
-|---|---|
-| `supabase-active-policy.sql` | `active_policy`, `active_policy_history` |
-| `supabase-weekly-diagnostics.sql` | `weekly_diagnostics` |
-| `supabase-market-flow.sql` | `market_flow_daily` |
-| `supabase-lowvol-observation.sql` | `lowvol_observations` |
-| `supabase-stock-financials.sql` | `stock_financials` |
-
-### ② 컬럼 추가 마이그레이션 — 이미 적용됨. 재구축 시 ①**다음에** 실행
-
-| 파일 | 내용 |
-|---|---|
-| `supabase-top3-rank.sql` | `screening_recommendations.top3_rank` 외 |
-| `supabase-meta-monitor.sql` | `weekly_diagnostics` meta 컬럼 |
-| `supabase-policy-diff.sql` | 정책 비교 컬럼 |
-
-### ③ 일회성 정리 기록 — 실행 완료. 지워도 되지만 "무엇을 왜 지웠는가"의 근거
-
-| 파일 | 실행일 | 내용 |
+| 파일 | 성격 | 상태 |
 |---|---|---|
-| `supabase-cleanup-nontrading.sql` | 2026-07-17 | 비거래일 유령 9,390행 |
-| `supabase-cleanup-20251231.sql` | 2026-08-25 | 2025-12-31 유령 260행 + 추천 2 + 패턴 4 |
+| **`supabase-schema-full.sql`** | **전체 스키마** | ✅ 2026-08-25 실DB 덤프 |
+| `supabase-dump-schema.sql` | 덤프 재실행용 쿼리 | 도구 |
+| `supabase-active-policy.sql` | 스키마 (active_policy, _history) | 적용됨 |
+| `supabase-weekly-diagnostics.sql` | 스키마 (weekly_diagnostics) | 적용됨 |
+| `supabase-market-flow.sql` | 스키마 (market_flow_daily) | 적용됨 |
+| `supabase-lowvol-observation.sql` | 스키마 (lowvol_observations) | 적용됨 |
+| `supabase-top3-rank.sql` | 마이그레이션 (top3_rank 외) | 적용됨 |
+| `supabase-meta-monitor.sql` | 마이그레이션 (meta 컬럼) | 적용됨 |
+| `supabase-policy-diff.sql` | 마이그레이션 | 적용됨 |
+| `supabase-cleanup-nontrading.sql` | 일회성 정리 기록 | 2026-07-17 실행 |
+| `supabase-cleanup-20251231.sql` | 일회성 정리 기록 | 2026-08-25 실행 |
+| `supabase-stock-financials.sql` | 스키마 | ⚠️ **미적용 — 테이블 없음(404)** |
 
-> 둘 다 코드/문서가 경로로 참조한다(`save-daily-recommendations.js`, `CHANGELOG.md`).
-> 지우려면 그 참조도 함께 정리할 것.
+### ⚠️ 덤프로 드러난 것
 
-### ⚠️ 스키마 파일이 **없는** 테이블 7개
+**1. `stock_financials` 테이블은 존재하지 않는다.**
+`collect-financials.js --push` 가 이 테이블에 upsert하려 하지만 404로 실패한다
+(에러 메시지가 "supabase-stock-financials.sql 실행했는지 확인"이라 원인은 바로 보인다).
+현재 재무 데이터는 로컬 `data/financials.json`(9.5MB)에만 있고, 분석 스크립트도
+그 파일을 읽으므로 실사용에 지장은 없다. DB로 올리려면 그 SQL을 먼저 실행할 것.
 
-아래는 Supabase 대시보드에서 직접 만들어져 **레포에 정의가 없다.** 지금 프로젝트가
-사라지면 이 저장소만으로는 재구축할 수 없다.
+**2. 코드가 전혀 쓰지 않는 테이블 3개에 데이터가 남아 있다.**
 
-| 테이블 | 행 | 컬럼 |
+| 테이블 | 행 | 비고 |
 |---|---|---|
-| `screening_recommendations` | 3,801 | 56 (※ `supabase-top3-rank.sql`에 ALTER만 있음) |
-| `recommendation_daily_prices` | 84,812 | 13 |
-| `success_patterns` | 1,375 | 39 |
-| `overnight_predictions` | 152 | 23 |
-| `stock_expected_returns` | 1,977 | 12 |
-| `expected_return_stats` | 14 | 11 |
-| `sector_outlook_stats` | 28 | 19 |
-| `stock_master` | 2,633 | 4 |
+| `news_mentions` | 208 | 2025-11 트렌드 시스템 폐기 잔재 |
+| `stock_trend_scores` | 7 | 〃 (RLS가 `FOR ALL` — anon 키로 쓰기·삭제 가능) |
+| `search_trends` | 0 | 〃 |
 
-**해결 방법** — 대시보드에서 전체 스키마를 한 번 덤프해 커밋하면 위 세 갈래가 한 파일로 정리된다.
+지우려면 SQL Editor에서 `DROP TABLE`. 남겨둬도 동작에는 영향이 없다.
 
-```bash
-# Supabase CLI (권장)
-supabase db dump --schema public -f supabase-schema-full.sql
-
-# 또는 대시보드 → SQL Editor 에서 실행 후 결과 저장
-select table_name, column_name, data_type, is_nullable, column_default
-from information_schema.columns
-where table_schema='public' order by table_name, ordinal_position;
-```
-
-> anon 키로는 PostgREST OpenAPI 조회가 401이라 코드에서 정확한 DDL을 뽑을 수 없다.
-> 컬럼 목록은 샘플로 알 수 있지만 타입·제약·인덱스·RLS는 알 수 없어, 추론으로 만든
-> 반쪽 DDL을 남기면 "있는데 틀린 스키마"가 되어 더 위험하다.
+**3. RLS: `FOR ALL` 정책이 걸린 4개 테이블만 anon 키로 DELETE가 된다.**
+`market_flow_daily`(161,516행) · `stock_master` · `expected_return_stats` · `stock_trend_scores`.
+나머지는 SELECT/INSERT/UPDATE만 있어 **DELETE가 오류 없이 0행**으로 끝난다 —
+2026-08-25 정리 때 이 함정에 걸려 SQL Editor로 실행해야 했다.
+anon 키는 프론트엔드에 노출돼 있지 않다(웹은 `/api/*`를 경유). 키는 `.env`와
+GitHub Actions 시크릿에만 있다.
 
 ---
 
