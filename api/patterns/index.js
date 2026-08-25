@@ -8,7 +8,7 @@
  */
 
 const supabase = require('../../backend/supabaseClient');
-const { tradingDaysSince } = require('../../backend/marketCalendar');
+const { tradingDaysSince, getTodayDateKST } = require('../../backend/marketCalendar');
 
 module.exports = async (req, res) => {
   // CORS 헤더
@@ -51,7 +51,7 @@ module.exports = async (req, res) => {
  */
 async function collectSuccessPatterns(req, res) {
   const SUCCESS_THRESHOLD = 10; // 10% 수익률 기준
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getTodayDateKST(); // v3.96: UTC였다 (00~09시 KST에 전날로 기록)
 
   console.log(`\n📊 성공 패턴 수집 시작 (기준: +${SUCCESS_THRESHOLD}%)`);
 
@@ -127,7 +127,12 @@ async function collectSuccessPatterns(req, res) {
     if (maxReturn >= SUCCESS_THRESHOLD) {
       // prices는 tracking_date 오름차순(위 .order) → find()가 최초 달성일을 반환
       const successPrice = prices.find(p => p.cumulative_return >= SUCCESS_THRESHOLD);
-      const successDate = successPrice?.tracking_date || today;
+      // v3.96: `|| today` 폴백 제거. 실무상 도달 불가(maxReturn이 이 배열에서 나왔으므로
+      //   find는 반드시 성공)이지만, 도달하면 **장이 안 열린 날을 success_date로 지어낸다**.
+      //   실제로 success_date가 휴장일(2026-05-01 근로자의 날)인 행 4건이 있었다.
+      //   날짜를 모르면 이 패턴은 만들지 않는 게 맞다 — 다음 실행이 가격행과 함께 다시 만든다.
+      if (!successPrice?.tracking_date) continue;
+      const successDate = successPrice.tracking_date;
       // v3.94: 달력일 → 거래일. 이 값은 "추적 기간(D+N) 적정성" 판단에 쓰이는데
       //   D+N이 거래일 기준이라 달력일과 섞이면 ~40% 과대평가된다.
       //   ⚠️ v3.94 이전 행은 달력일로 저장돼 있어 직접 비교 시 주의.
