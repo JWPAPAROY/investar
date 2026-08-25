@@ -1,17 +1,21 @@
 -- ============================================================================
--- 스키마 덤프 쿼리 (v3.96, 2026-08-25)
+-- 스키마 덤프 쿼리 v2 (2026-08-25)
 --
--- 왜: 코드가 쓰는 14개 테이블 중 7개가 레포에 정의가 없다.
---   screening_recommendations(56컬럼) · recommendation_daily_prices(84,812행) 포함.
---   지금 Supabase 프로젝트가 사라지면 이 저장소만으로 재구축할 수 없다.
---   anon 키로는 PostgREST OpenAPI 조회가 401이라 코드에서 뽑을 수 없어 쿼리로 받는다.
+-- v1의 한계로 두 번 데었다:
+--   · table_type='BASE TABLE'만 잡아 **뷰를 통째로 놓쳤다**
+--     → 잔재 테이블 DROP 시 hot_issue_stocks / search_surge_stocks 가 튀어나옴
+--   · information_schema 는 **권한 있는 객체만** 보여준다 → 뷰 목록이 0행
+--   · FK·CHECK 제약, 트리거, 함수, 시퀀스, RLS 활성화가 전부 빠져 있었다
+--     (success_patterns → screening_recommendations FK가 문서에만 있고 덤프엔 없음)
+-- v2는 전부 pg_catalog 기준이다.
 --
 -- 사용법
---   1) Supabase 대시보드 → SQL Editor 에 아래 쿼리를 통째로 붙여넣고 실행
---   2) 결과(ddl 컬럼)를 전부 복사 → supabase-schema-full.sql 로 저장
---   ※ 결과가 길면 오른쪽 위 "Download CSV" 로 받아도 된다.
+--   1) Supabase 대시보드 → SQL Editor 에 아래 전체를 붙여넣고 실행
+--   2) 결과(ddl 컬럼) 전부 복사 → 그대로 supabase-schema-full.sql 로 저장
 --
--- 나오는 것: CREATE TABLE(타입·NOT NULL·DEFAULT) → 인덱스/PK → RLS 정책 순.
+-- 출력 순서 = 재구축 실행 순서:
+--   시퀀스 → 테이블 → 뷰 → 제약(PK/UNIQUE/FK/CHECK) → 인덱스 → RLS 활성화
+--   → RLS 정책 → 함수 → 트리거
 -- ============================================================================
 
 WITH t AS (
@@ -38,34 +42,82 @@ WITH t AS (
            E',\n' ORDER BY c.ordinal_position
          ) || E'\n);' AS ddl
   FROM information_schema.columns c
-  JOIN information_schema.tables tb
-    ON tb.table_schema = c.table_schema AND tb.table_name = c.table_name
-   AND tb.table_type = 'BASE TABLE'
+  JOIN pg_catalog.pg_tables pt
+    ON pt.schemaname = c.table_schema AND pt.tablename = c.table_name
   WHERE c.table_schema = 'public'
   GROUP BY c.table_name
 )
 SELECT ddl FROM (
-  SELECT 1 AS ord, table_name AS nm, E'\n-- ===== TABLE: ' || table_name || E' =====\n' || ddl AS ddl FROM t
+
+  -- 1. 시퀀스 (serial/bigserial 기본값이 참조한다)
+  SELECT 1 AS ord, sequencename AS nm,
+         'CREATE SEQUENCE IF NOT EXISTS ' || sequencename || ';' AS ddl
+    FROM pg_catalog.pg_sequences WHERE schemaname = 'public'
+
   UNION ALL
-  SELECT 2, tablename, indexdef || ';'
-    FROM pg_indexes WHERE schemaname = 'public'
-  UNION ALL
-  -- v3.96 보완: 첫 덤프가 table_type='BASE TABLE'만 잡아 **뷰를 통째로 놓쳤다**
-  --   (stock_trend_scores DROP 시 의존 뷰 hot_issue_stocks 가 튀어나와 발각).
+  -- 2. 테이블
   SELECT 2, table_name,
-         E'
--- ===== VIEW: ' || table_name || E' =====
-CREATE OR REPLACE VIEW '
-         || table_name || E' AS
-' || view_definition
-    FROM information_schema.views WHERE table_schema = 'public'
+         E'\n-- ===== TABLE: ' || table_name || E' =====\n' || ddl FROM t
+
   UNION ALL
-  SELECT 3, tablename,
-         'CREATE POLICY "' || policyname || '" ON ' || tablename ||
-         ' FOR ' || cmd ||
-         ' TO ' || array_to_string(roles, ', ') ||
-         COALESCE(' USING (' || qual || ')', '') ||
-         COALESCE(' WITH CHECK (' || with_check || ')', '') || ';'
+  -- 3. 뷰 (v1이 놓친 것)
+  SELECT 3, viewname,
+         E'\n-- ===== VIEW: ' || viewname || E' =====\nCREATE OR REPLACE VIEW '
+         || viewname || E' AS\n' || definition
+    FROM pg_catalog.pg_views WHERE schemaname = 'public'
+
+  UNION ALL
+  -- 4. 제약 (PK / UNIQUE / FK / CHECK) — v1에 통째로 빠져 있었다
+  SELECT 4, cl.relname,
+         'ALTER TABLE ' || cl.relname || ' ADD CONSTRAINT ' || con.conname
+         || ' ' || pg_get_constraintdef(con.oid) || ';'
+    FROM pg_constraint con
+    JOIN pg_class cl ON cl.oid = con.conrelid
+    JOIN pg_namespace ns ON ns.oid = cl.relnamespace AND ns.nspname = 'public'
+   WHERE con.contype IN ('p', 'u', 'f', 'c')
+
+  UNION ALL
+  -- 5. 인덱스 — 제약이 만들어주는 것은 제외(4번과 중복 방지)
+  SELECT 5, tablename, indexdef || ';'
+    FROM pg_indexes
+   WHERE schemaname = 'public'
+     AND indexname NOT IN (
+       SELECT con.conname FROM pg_constraint con
+       JOIN pg_class cl ON cl.oid = con.conrelid
+       JOIN pg_namespace ns ON ns.oid = cl.relnamespace AND ns.nspname = 'public'
+     )
+
+  UNION ALL
+  -- 6. RLS 활성화 — 정책만 있고 이게 없으면 정책이 작동하지 않는다
+  SELECT 6, cl.relname,
+         'ALTER TABLE ' || cl.relname || ' ENABLE ROW LEVEL SECURITY;'
+    FROM pg_class cl
+    JOIN pg_namespace ns ON ns.oid = cl.relnamespace AND ns.nspname = 'public'
+   WHERE cl.relkind = 'r' AND cl.relrowsecurity
+
+  UNION ALL
+  -- 7. RLS 정책
+  SELECT 7, tablename,
+         'CREATE POLICY "' || policyname || '" ON ' || tablename
+         || ' FOR ' || cmd
+         || ' TO ' || array_to_string(roles, ', ')
+         || COALESCE(' USING (' || qual || ')', '')
+         || COALESCE(' WITH CHECK (' || with_check || ')', '') || ';'
     FROM pg_policies WHERE schemaname = 'public'
+
+  UNION ALL
+  -- 8. 함수
+  SELECT 8, p.proname, pg_get_functiondef(p.oid) || ';'
+    FROM pg_proc p
+    JOIN pg_namespace ns ON ns.oid = p.pronamespace AND ns.nspname = 'public'
+   WHERE p.prokind = 'f'
+
+  UNION ALL
+  -- 9. 트리거 (내부 트리거 제외)
+  SELECT 9, cl.relname, pg_get_triggerdef(tg.oid) || ';'
+    FROM pg_trigger tg
+    JOIN pg_class cl ON cl.oid = tg.tgrelid
+    JOIN pg_namespace ns ON ns.oid = cl.relnamespace AND ns.nspname = 'public'
+   WHERE NOT tg.tgisinternal
 ) x
 ORDER BY ord, nm;
