@@ -111,17 +111,25 @@ function detectSilentAccumulation(chartData) {
 
   if (recent.length >= 10) {
     // 10일 이상: 전반부 vs 후반부
+    // v3.96 수정: recent는 **내림차순**([0]=오늘)이다. 기존 코드는
+    //   firstHalf = slice(0, mid)   ← 실제로는 최근 절반
+    //   secondHalf = slice(mid)     ← 실제로는 과거 절반
+    //   volumeGrowth = (secondHalf - firstHalf) / firstHalf
+    // 이라, **거래량이 줄었을 때 volumeGrowth > 0** 이 됐다. 판정 조건이
+    // "거래량 증가(>0)"이므로 조용한 매집이 정확히 반대로 감지되고 있었다.
+    // (현재 이 지표는 v3.24에서 점수 반영이 제거돼 analyzeAdvanced가 더미 false를
+    //  반환한다 — 즉 실운영 영향은 없다. 되살릴 때 오염되지 않도록 지금 고쳐둔다.)
     const midPoint = Math.floor(recent.length / 2);
-    const firstHalf = recent.slice(0, midPoint);
-    const secondHalf = recent.slice(midPoint);
-    const avgVolumeFirst = firstHalf.reduce((sum, d) => sum + d.volume, 0) / firstHalf.length;
-    const avgVolumeSecond = secondHalf.reduce((sum, d) => sum + d.volume, 0) / secondHalf.length;
-    volumeGrowth = ((avgVolumeSecond - avgVolumeFirst) / avgVolumeFirst) * 100;
+    const recentHalf = recent.slice(0, midPoint);        // 최근 절반
+    const olderHalf = recent.slice(midPoint);            // 과거 절반
+    const avgVolumeRecent = recentHalf.reduce((sum, d) => sum + d.volume, 0) / recentHalf.length;
+    const avgVolumeOlder = olderHalf.reduce((sum, d) => sum + d.volume, 0) / olderHalf.length;
+    volumeGrowth = ((avgVolumeRecent - avgVolumeOlder) / avgVolumeOlder) * 100;
   } else {
-    // 5~9일: 첫날 vs 마지막날 거래량 비교
-    const firstVolume = recent[0].volume;
-    const lastVolume = recent[recent.length - 1].volume;
-    volumeGrowth = ((lastVolume - firstVolume) / firstVolume) * 100;
+    // 5~9일: 가장 오래된 날 vs 오늘 (내림차순이므로 [length-1]이 과거, [0]이 오늘)
+    const oldestVolume = recent[recent.length - 1].volume;
+    const todayVolume = recent[0].volume;
+    volumeGrowth = ((todayVolume - oldestVolume) / oldestVolume) * 100;
   }
 
   // 조용한 매집 조건 (완화):
