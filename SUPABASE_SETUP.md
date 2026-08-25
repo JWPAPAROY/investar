@@ -1,5 +1,71 @@
 # Supabase 추천 종목 성과 추적 시스템 설정 가이드
 
+## 📁 SQL 파일 색인 (v3.96, 2026-08-25)
+
+> "파일이 10개인데 뭐가 뭔지 헷갈린다"에 대한 답. **성격이 세 가지로 갈린다.**
+
+### ① 스키마 정의 — 지우면 안 됨 (테이블 구조의 유일한 기록)
+
+| 파일 | 정의하는 테이블 |
+|---|---|
+| `supabase-active-policy.sql` | `active_policy`, `active_policy_history` |
+| `supabase-weekly-diagnostics.sql` | `weekly_diagnostics` |
+| `supabase-market-flow.sql` | `market_flow_daily` |
+| `supabase-lowvol-observation.sql` | `lowvol_observations` |
+| `supabase-stock-financials.sql` | `stock_financials` |
+
+### ② 컬럼 추가 마이그레이션 — 이미 적용됨. 재구축 시 ①**다음에** 실행
+
+| 파일 | 내용 |
+|---|---|
+| `supabase-top3-rank.sql` | `screening_recommendations.top3_rank` 외 |
+| `supabase-meta-monitor.sql` | `weekly_diagnostics` meta 컬럼 |
+| `supabase-policy-diff.sql` | 정책 비교 컬럼 |
+
+### ③ 일회성 정리 기록 — 실행 완료. 지워도 되지만 "무엇을 왜 지웠는가"의 근거
+
+| 파일 | 실행일 | 내용 |
+|---|---|---|
+| `supabase-cleanup-nontrading.sql` | 2026-07-17 | 비거래일 유령 9,390행 |
+| `supabase-cleanup-20251231.sql` | 2026-08-25 | 2025-12-31 유령 260행 + 추천 2 + 패턴 4 |
+
+> 둘 다 코드/문서가 경로로 참조한다(`save-daily-recommendations.js`, `CHANGELOG.md`).
+> 지우려면 그 참조도 함께 정리할 것.
+
+### ⚠️ 스키마 파일이 **없는** 테이블 7개
+
+아래는 Supabase 대시보드에서 직접 만들어져 **레포에 정의가 없다.** 지금 프로젝트가
+사라지면 이 저장소만으로는 재구축할 수 없다.
+
+| 테이블 | 행 | 컬럼 |
+|---|---|---|
+| `screening_recommendations` | 3,801 | 56 (※ `supabase-top3-rank.sql`에 ALTER만 있음) |
+| `recommendation_daily_prices` | 84,812 | 13 |
+| `success_patterns` | 1,375 | 39 |
+| `overnight_predictions` | 152 | 23 |
+| `stock_expected_returns` | 1,977 | 12 |
+| `expected_return_stats` | 14 | 11 |
+| `sector_outlook_stats` | 28 | 19 |
+| `stock_master` | 2,633 | 4 |
+
+**해결 방법** — 대시보드에서 전체 스키마를 한 번 덤프해 커밋하면 위 세 갈래가 한 파일로 정리된다.
+
+```bash
+# Supabase CLI (권장)
+supabase db dump --schema public -f supabase-schema-full.sql
+
+# 또는 대시보드 → SQL Editor 에서 실행 후 결과 저장
+select table_name, column_name, data_type, is_nullable, column_default
+from information_schema.columns
+where table_schema='public' order by table_name, ordinal_position;
+```
+
+> anon 키로는 PostgREST OpenAPI 조회가 401이라 코드에서 정확한 DDL을 뽑을 수 없다.
+> 컬럼 목록은 샘플로 알 수 있지만 타입·제약·인덱스·RLS는 알 수 없어, 추론으로 만든
+> 반쪽 DDL을 남기면 "있는데 틀린 스키마"가 되어 더 위험하다.
+
+---
+
 ## 📋 개요
 
 이 가이드는 Investar 시스템에 Supabase 데이터베이스를 연동하여 추천 종목의 실시간 성과를 추적하는 방법을 설명합니다.
