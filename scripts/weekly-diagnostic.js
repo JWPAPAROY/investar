@@ -695,9 +695,9 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
 
   const row = {
     week_start: weekStart,
-    // regime: v3.88에서 개념 폐기. DB 컬럼은 NOT NULL이라 sentinel로 채움
-    // (코드 어디서도 읽지 않음 / 추후 DDL로 DROP NOT NULL 가능)
-    regime: 'deprecated',
+    // regime: v3.88에서 개념 폐기. v3.96부터 payload에서 뺀다 —
+    //   컬럼이 아직 NOT NULL이면 아래 upsert가 23502를 잡아 sentinel로 한 번 재시도한다.
+    //   (supabase-migrate-20260825.sql 적용 후에는 재시도가 발생하지 않는다)
     score_health_corr: scoreHealthR,
     score_health_label: scoreHealthLabel,
     score_bucket_returns: scoreBucketReturns,
@@ -748,7 +748,18 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   }
 
   // 먼저 진단 데이터를 저장 (AI 해석 없이)
-  const { error } = await sb.from('weekly_diagnostics').upsert(row, { onConflict: 'week_start' });
+  // v3.96: NOT NULL 위반(23502)에 한 번 관용한다.
+  //   2026-05~06에 정확히 이 오류로 주간진단이 **4주간 조용히 사라졌다** —
+  //   계산은 정상이었고 INSERT만 실패했는데 아무도 몰랐다. 스키마와 코드가
+  //   어긋나는 순간을 '기록 유실'이 아니라 '경고 + 저장'으로 바꾼다.
+  let { error } = await sb.from('weekly_diagnostics').upsert(row, { onConflict: 'week_start' });
+  if (error && error.code === '23502') {
+    console.warn(`[weekly-diagnostic] ⚠️ NOT NULL 위반(${error.message}) — 레거시 컬럼 채우고 재시도`);
+    warnings.push(`스키마 불일치: ${error.message} — 레거시 값으로 저장됨. supabase-migrate-20260825.sql 확인 필요`);
+    row.warnings = warnings;
+    ({ error } = await sb.from('weekly_diagnostics')
+      .upsert({ ...row, regime: 'deprecated' }, { onConflict: 'week_start' }));
+  }
   if (error) {
     console.error('[weekly-diagnostic] INSERT failed:', error);
     throw error;
