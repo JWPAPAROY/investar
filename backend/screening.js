@@ -3,7 +3,7 @@ const volumeIndicators = require('./volumeIndicators');
 const advancedIndicators = require('./advancedIndicators');
 // v3.94: TOP3 정렬·시총 플로어·레짐은 공용 모듈 단일 출처. 이 파일의 selectTop3는
 //   v3.85(폐기된 isV2Priority 정렬)에 멈춰 있었고 시총 플로어도 빠져 있었다.
-const { sortByTop3Order, applyMomentumCapFloor, SCREENING_ACCESSORS } = require('./top3Ranking');
+const { sortByTop3Order, selectEligibleWithTiers, applyMomentumCapFloor, SCREENING_ACCESSORS } = require('./top3Ranking');
 const { detectMarketRegime } = require('./marketRegime');
 const smartPatternMiner = require('./smartPatternMining');
 
@@ -1430,35 +1430,11 @@ class StockScreener {
     console.log(`  전체 종목: ${allStocks.length}개`);
 
     // v3.85: 공통 자격 — 80-89 + 이격도 ≥120 결합 패널티 (16건 손절률 50% 데이터 기반)
-    const isCommonEligible = (stock) => {
-      const hasBuyWhale = (stock.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
-      const flow = stock.institutionalFlow;
-      const instDays = flow?.institutionDays || 0;
-      const foreignDays = flow?.foreignDays || 0;
-      const hasSupply = hasBuyWhale || instDays >= 3 || foreignDays >= 3;
-      const isOverheated = stock.recommendation?.grade === '과열';
-      const changeRate = Math.abs(stock.changeRate || 0);
-      const score = stock.totalScore || 0;
-      const disparity = stock.overheatingV2?.disparity || 100;
-      const isS89Trap = score >= 80 && score <= 89 && disparity >= 120;
-      return hasSupply && !isOverheated && changeRate < 25 && score >= 45 && !isS89Trap;
-    };
-
-    // v3.85: 이격도 단계적 컷 (130 → 140 → 150)
-    const dispOf = (s) => s.overheatingV2?.disparity || 100;
-    const tiers = [130, 140, 150];
-    let baseEligible = [];
-    let usedTier = 150;
-    for (const tier of tiers) {
-      const filtered = allStocks.filter(s => isCommonEligible(s) && dispOf(s) < tier);
-      if (filtered.length >= 3) {
-        baseEligible = filtered;
-        usedTier = tier;
-        break;
-      }
-      baseEligible = filtered;
-      usedTier = tier;
-    }
+    // v3.96: 자격 술어 + 이격도 단계 컷을 backend/top3Ranking.js로 통합.
+    //   같은 술어가 세 벌(여기 · selectAlertTop3 · selectSaveTop3) 있었다. 2026-08-25 시점엔
+    //   의미가 같았지만, v3.94가 고친 사고 두 건이 정확히 "사본이 갈라진 것"이었다
+    //   (웹만 폐기된 v3.85 정렬을 쓰고 시총 플로어가 빠져 있었음).
+    const { eligible: baseEligible, tier: usedTier } = selectEligibleWithTiers(allStocks, SCREENING_ACCESSORS);
     console.log(`  └─ TOP 3 후보: ${baseEligible.length}개 (이격도 < ${usedTier})`);
 
     // v3.94: 텔레그램/DB 경로(selectSaveTop3)와 통일.

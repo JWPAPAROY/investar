@@ -30,6 +30,7 @@ const {
 } = require('../../backend/marketCalendar');
 const {
   sortByTop3Order, resolveTop3Order, applyMomentumCapFloor, DB_ACCESSORS, SCREENING_ACCESSORS,
+  isTop3Eligible, selectEligibleWithTiers,
 } = require('../../backend/top3Ranking');
 const { detectMarketRegime } = require('../../backend/marketRegime');
 
@@ -707,15 +708,8 @@ async function sendTelegramMessage(message) {
  * TOP3 공통 자격 (DB 행 기준). selectAlertTop3 · diagnoseTop3의 단일 출처.
  */
 function isTop3EligibleDb(s) {
-  const hasSupply = s.whale_detected || (s.institution_buy_days || 0) >= 3 || (s.foreign_buy_days || 0) >= 3;
-  const score = s.total_score || 0;
-  const disparity = s.disparity || 100;
-  const isS89Trap = score >= 80 && score <= 89 && disparity >= 120;
-  return hasSupply &&
-    s.recommendation_grade !== '과열' &&
-    Math.abs(s.change_rate || 0) < 25 &&
-    score >= 45 &&
-    !isS89Trap;
+  // v3.96: 술어는 backend/top3Ranking.js 단일 출처. 여기는 accessor만 지정한다.
+  return isTop3Eligible(s, DB_ACCESSORS);
 }
 
 /**
@@ -745,19 +739,9 @@ function selectAlertTop3(stocks, regime) {
   if (!stocks || stocks.length === 0) return [];
   const rg = regime || stocks[0]?.market_regime || 'momentum';
 
-  // 공통 자격 (80-89 + 이격도 ≥120 결합 패널티 유지)
-  // v3.96: diagnoseTop3()가 같은 술어를 써야 해서 파일 상단 isTop3EligibleDb로 승격.
-  //   (자격/정렬 사본이 갈라지는 사고를 이미 두 번 겪었다 — top3Ranking.js 헤더 참고)
-  const isCommonEligible = isTop3EligibleDb;
 
-  // 이격도 단계적 컷 (130 → 140 → 150)
-  const tiers = [130, 140, 150];
-  let baseEligible = [];
-  for (const tier of tiers) {
-    const filtered = stocks.filter(s => isCommonEligible(s) && (s.disparity || 100) < tier);
-    if (filtered.length >= 3) { baseEligible = filtered; break; }
-    baseEligible = filtered;
-  }
+  // 이격도 단계 컷도 공용 함수로 (v3.96)
+  let baseEligible = selectEligibleWithTiers(stocks, DB_ACCESSORS).eligible;
 
   // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백) / v3.91: regime 조건부
   baseEligible = applyMomentumCapFloor(baseEligible, s => s.market_cap, rg);
@@ -774,29 +758,10 @@ function selectSaveTop3(stocks, regime) {
   if (!stocks || stocks.length === 0) return [];
   const rg = regime || stocks[0]?.marketRegime || 'momentum';
 
-  const dispOf = (s) => s.overheatingV2?.disparity || 100;
-  const hasBuyWhaleOf = (s) => (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수'));
 
-  const isCommonEligible = (s) => {
-    const flow = s.institutionalFlow;
-    const instDays = flow?.institutionDays || 0;
-    const foreignDays = flow?.foreignDays || 0;
-    const hasSupply = hasBuyWhaleOf(s) || instDays >= 3 || foreignDays >= 3;
-    const isOverheated = s.recommendation?.grade === '과열';
-    const changeRate = Math.abs(s.changeRate || 0);
-    const score = s.totalScore || 0;
-    const isS89Trap = score >= 80 && score <= 89 && dispOf(s) >= 120;
-    return hasSupply && !isOverheated && changeRate < 25 && score >= 45 && !isS89Trap;
-  };
+  // v3.96: 자격 술어 공용화 (backend/top3Ranking.isTop3Eligible)
 
-  // 이격도 단계적 컷 (130 → 140 → 150)
-  const tiers = [130, 140, 150];
-  let baseEligible = [];
-  for (const tier of tiers) {
-    const filtered = stocks.filter(s => isCommonEligible(s) && dispOf(s) < tier);
-    if (filtered.length >= 3) { baseEligible = filtered; break; }
-    baseEligible = filtered;
-  }
+  let baseEligible = selectEligibleWithTiers(stocks, SCREENING_ACCESSORS).eligible;
 
   // v3.90: momentum 레짐 시총 플로어 (5조+ 우선, 1조+ 폴백) / v3.91: regime 조건부
   baseEligible = applyMomentumCapFloor(baseEligible, s => s.marketCap, rg);
@@ -2742,7 +2707,10 @@ module.exports = async (req, res) => {
 
     // v3.33: 오늘 데이터가 이미 있으면 재스크리닝 없이 빠른 반환
     // 자정~장 시작 전(00:00-09:00)에는 전날 데이터도 허용
-    let today = new Date().toISOString().slice(0, 10);
+    // v3.96: 이 파일의 다른 모드는 전부 getTodayDateKST()인데 save 모드만 UTC 날짜를 썼다.
+    //   00~09시 KST에는 UTC가 전날이라 'today'가 이미 하루 밀린 채 아래 '장 시작 전' 분기와
+    //   겹쳤다(결과는 폴백이 DB 최신 추천일을 집어와 자기교정됐지만, 기준이 두 개인 상태였다).
+    let today = getTodayDateKST();
     const isBeforeMarketOpen = saveKstHour < 9; // 09:00 KST 이전
 
     const forceRescreen = req.query.force === 'true' || req.query.force === '1';
@@ -2755,8 +2723,23 @@ module.exports = async (req, res) => {
         .eq('recommendation_date', today);
       const oldIds = (oldRows || []).map(r => r.id);
       if (oldIds.length > 0) {
-        await supabase.from('recommendation_daily_prices').delete().in('recommendation_id', oldIds);
-        await supabase.from('screening_recommendations').delete().eq('recommendation_date', today);
+        // v3.96: success_patterns가 screening_recommendations를 FK 참조하므로 **먼저** 지운다.
+        //   순서를 어기면 FK 위반으로 삭제가 실패하는데, 기존 코드는 결과를 확인하지 않아
+        //   조용히 실패한 뒤 재스크리닝이 중복 행을 만들 수 있었다.
+        //   (같은 순서 규칙이 supabase-cleanup-nontrading.sql에 문서화돼 있다)
+        const delSteps = [
+          supabase.from('success_patterns').delete().in('recommendation_id', oldIds),
+          supabase.from('recommendation_daily_prices').delete().in('recommendation_id', oldIds),
+          supabase.from('screening_recommendations').delete().eq('recommendation_date', today),
+        ];
+        const delNames = ['success_patterns', 'recommendation_daily_prices', 'screening_recommendations'];
+        for (let si = 0; si < delSteps.length; si++) {
+          const { error: delErr } = await delSteps[si];
+          if (delErr) {
+            console.error('❌ force 삭제 실패(' + delNames[si] + '): ' + delErr.message);
+            return res.status(500).json({ success: false, mode: 'save', error: 'force 삭제 실패(' + delNames[si] + '): ' + delErr.message });
+          }
+        }
         console.log(`🗑️ 기존 ${oldIds.length}건 삭제 완료`);
       }
     }

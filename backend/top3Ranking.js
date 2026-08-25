@@ -46,18 +46,65 @@ function supplyRank(instDays, frgnDays) {
 }
 
 /** DB 행(snake_case)용 accessor */
+/** DB 행(snake_case)용 accessor */
 const DB_ACCESSORS = {
-  instDays: s => s.institution_buy_days || 0,
-  frgnDays: s => s.foreign_buy_days || 0,
-  score:    s => s.total_score || 0,
+  instDays:     s => s.institution_buy_days || 0,
+  frgnDays:     s => s.foreign_buy_days || 0,
+  score:        s => s.total_score || 0,
+  hasBuyWhale:  s => !!s.whale_detected,   // 저장 시 매수고래만 담긴다(save-daily hasBuyWhale)
+  disparity:    s => s.disparity || 100,
+  isOverheated: s => s.recommendation_grade === '과열',
+  changeRate:   s => s.change_rate || 0,
+  marketCap:    s => s.market_cap || 0,
 };
-
+/** 스크리닝 결과(camelCase)용 accessor */
 /** 스크리닝 결과(camelCase)용 accessor */
 const SCREENING_ACCESSORS = {
-  instDays: s => s.institutionalFlow?.institutionDays || 0,
-  frgnDays: s => s.institutionalFlow?.foreignDays || 0,
-  score:    s => s.totalScore || 0,
+  instDays:     s => s.institutionalFlow?.institutionDays || 0,
+  frgnDays:     s => s.institutionalFlow?.foreignDays || 0,
+  score:        s => s.totalScore || 0,
+  hasBuyWhale:  s => (s.advancedAnalysis?.indicators?.whale || []).some(w => w.type?.includes('매수')),
+  disparity:    s => s.overheatingV2?.disparity || 100,
+  isOverheated: s => s.recommendation?.grade === '과열',
+  changeRate:   s => s.changeRate || 0,
+  marketCap:    s => s.marketCap || 0,
 };
+/**
+ * TOP3 공통 자격 (v3.96).
+ *
+ * 왜 여기로 올렸나: 같은 술어가 세 벌 있었다 —
+ *   ① save-daily selectAlertTop3(DB 행) ② save-daily selectSaveTop3(스크리닝 결과)
+ *   ③ screening.js selectTop3(웹 경로).
+ * 2026-08-25 시점에 셋의 의미는 동일했지만, v3.94가 고친 사고 두 건이 정확히
+ * "사본이 갈라진 것"이었다(웹만 폐기된 v3.85 정렬 + 시총 플로어 누락).
+ * 정렬(sortByTop3Order)·플로어(applyMomentumCapFloor)는 이미 이 파일로 모았으니 자격도 모은다.
+ */
+function isTop3Eligible(s, get) {
+  const hasSupply = get.hasBuyWhale(s) || get.instDays(s) >= 3 || get.frgnDays(s) >= 3;
+  const score = get.score(s);
+  const isS89Trap = score >= 80 && score <= 89 && get.disparity(s) >= 120;
+  return hasSupply
+    && !get.isOverheated(s)
+    && Math.abs(get.changeRate(s)) < 25
+    && score >= 45
+    && !isS89Trap;
+}
+
+/**
+ * 자격 통과분을 이격도 단계 컷(130 → 140 → 150)으로 추린다 (v3.96, 3벌 통합).
+ * 3개 이상 확보되는 첫 티어에서 멈춘다. 끝까지 3개 미만이면 마지막 티어 결과를 그대로 쓴다.
+ * @returns {{eligible: Array, tier: number}}
+ */
+function selectEligibleWithTiers(stocks, get) {
+  const tiers = [130, 140, 150];
+  let eligible = [], tier = 150;
+  for (const t of tiers) {
+    const filtered = (stocks || []).filter(s => isTop3Eligible(s, get) && get.disparity(s) < t);
+    eligible = filtered; tier = t;
+    if (filtered.length >= 3) break;
+  }
+  return { eligible, tier };
+}
 
 /**
  * v387 순서로 정렬한 새 배열 반환 (입력 불변).
@@ -122,6 +169,8 @@ function applyMomentumCapFloor(eligible, capOf, regime) {
 }
 
 module.exports = {
+  isTop3Eligible,
+  selectEligibleWithTiers,
   ORDER_VERSION,
   bandRank,
   supplyRank,

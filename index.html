@@ -4741,9 +4741,10 @@
                     <div className="text-xs text-gray-600">
                       <strong>판별 조건:</strong>
                       {key === 'whale' && ' whale_detected = true (거래량 2.5배+ && 가격 3%+)'}
-                      {key === 'accumulation' && ' accumulation_detected = true (가격 변동 10% 이내 && 거래량 증가)'}
-                      {key === 'both' && ' whale_detected && accumulation_detected 모두 true'}
-                      {key === 'normal' && ' whale_detected = false && accumulation_detected = false. 거래량 증가율이 높지만 아직 큰 가격 상승이 없는 종목으로, 거래량이 가격을 선행한다는 전제 하에 향후 상승 가능성 존재.'}
+                      {/* v3.96: accumulation / both 분기 제거 — categoryDescriptions에 없는 키라
+                          렌더된 적이 없고, accumulation_detected 자체가 v3.24에서 폐기돼
+                          2026-01-30 이후 항상 false다. 조건문에서 그 필드 언급도 걷어낸다. */}
+                      {key === 'normal' && ' whale_detected = false. 거래량 증가율이 높지만 아직 큰 가격 상승이 없는 종목으로, 거래량이 가격을 선행한다는 전제 하에 향후 상승 가능성 존재.'}
                     </div>
                   </div>
                 </div>
