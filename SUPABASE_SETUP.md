@@ -3,7 +3,7 @@
 ## 📁 SQL 파일 색인 (v3.96, 2026-08-25 덤프 v2로 검증)
 
 > **스키마의 단일 출처는 `supabase-schema-full.sql`**
-> 테이블 14 · 뷰 6 · 제약 25 · 인덱스 23 · RLS정책 31 · 함수 3 · 트리거 2
+> 테이블 14 · 뷰 0 · 제약 25 · 인덱스 23 · RLS정책 31 · 함수 2 · 트리거 2
 > 개별 `supabase-*.sql` 은 히스토리(언제 왜 추가했나)다.
 
 | 파일 | 성격 | 상태 |
@@ -11,6 +11,7 @@
 | **`supabase-schema-full.sql`** | **전체 스키마** | ✅ 2026-08-25 실DB 덤프 v2 |
 | `supabase-dump-schema.sql` | 덤프 재실행 쿼리 | 도구 (v2: 뷰·제약·함수·트리거 포함) |
 | `supabase-migrate-20260825.sql` | 마이그레이션 3건 | ✅ 2026-08-25 실행 |
+| `supabase-drop-unused-20260825.sql` | 미사용 뷰6·함수2 제거 | ✅ 2026-08-25 실행 |
 | `supabase-active-policy.sql` | 스키마 히스토리 | 적용됨 |
 | `supabase-weekly-diagnostics.sql` | 〃 | 적용됨 |
 | `supabase-market-flow.sql` | 〃 | 적용됨 |
@@ -40,11 +41,10 @@ INSERT하고 있었다(v3.96에서 코드 쪽 제거 — 트리거가 `prev_*` �
 **3. CHECK 2개** — `active_policy.id = 1`(싱글턴 강제),
 `top3_rank`는 `is_top3=true` 일 때만 1~3.
 
-**4. 뷰 6개는 코드 사용처 0.** 성과·지표 집계용 수동 조회 도구로 보인다.
-`recommendation_statistics` 는 `overall_performance` 의 기반이라 함께 유지.
+**4. 뷰 6개는 코드 사용처 0이었다** → 2026-08-25에 전부 제거(`supabase-drop-unused-20260825.sql`).
 
-**5. 고아 함수 1개** — `update_trend_scores_updated_at()` 는 트리거가 붙어 있던
-`stock_trend_scores` 가 삭제되며 갈 곳을 잃었다. 무해하지만 쓰는 곳이 없다.
+**5. 함수 2개 제거** — `update_trend_scores_updated_at()`(고아) · `get_indicator_distribution()`(사용처 0).
+남은 함수는 트리거가 실제로 쓰는 `log_active_policy_change()` · `update_updated_at_column()` 둘뿐이다.
 
 ### RLS 요약
 

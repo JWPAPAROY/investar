@@ -761,8 +761,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
   - **⚠️ 실사용 구간은 2026-05-22 이후뿐** (v3.94 확인). 총 97k행이지만 **2026-01~04는 하루 2~4종목**으로 사실상 비어 있다 — 백필이 실제로 닿은 범위는 5월 하순부터다("30일 백필 시드 2026-01-27~07-06"은 행수 기준 표현이라 오해 소지). KIS가 30일치만 제공하므로 **그 이전 수급은 영구 복원 불가**. 분석 시 날짜별 종목 수 ≥2,000으로 필터링할 것 (`scripts/revalidate-supply-sort.js` 참고).
   - 이 테이블은 v3.94 이후 **유일하게 올바른 과거 수급 출처**다. `screening_recommendations`의 `institution_buy_days`/`foreign_buy_days`는 방향 버그로 산출된 값이라 신뢰 금지.
 - `success_patterns`: +10% 달성 종목 지표 특징
-- `recommendation_statistics` (뷰): 종목별 성과 통계
-- `overall_performance` (뷰): 전체 성과 요약
+- ~~`recommendation_statistics` / `overall_performance` (뷰)~~ — 2026-08-25 제거(코드 사용처 0). 정의는 git history 참고.
 
 ### 저장 기준
 - B등급(50점) 이상 전체 저장

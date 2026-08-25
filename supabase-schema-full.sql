@@ -19,9 +19,9 @@
 --    추천을 지울 때 가격행은 자동 삭제되지만 패턴은 먼저 지워야 한다.
 -- 3. **CHECK 2개** — active_policy.id = 1 (싱글턴 강제),
 --    top3_rank는 is_top3=true일 때만 1~3.
--- 4. **뷰 6개는 코드에서 사용처 0** (성과/지표 집계용 수동 조회 도구로 보인다).
---    recommendation_statistics 는 다른 뷰(overall_performance)의 기반이라 함께 유지.
--- 5. update_trend_scores_updated_at() 는 stock_trend_scores 삭제로 **고아 함수**가 됐다.
+-- 4. 뷰 6개는 코드 사용처 0이라 2026-08-25에 전부 제거했다.
+-- 5. 미사용 뷰 6개와 함수 2개(update_trend_scores_updated_at, get_indicator_distribution)는
+--    2026-08-25에 제거했다 — supabase-drop-unused-20260825.sql 참고.
 -- ============================================================================
 
 -- ── 1. 시퀀스 ───────────────────────────────────────────────────────────────
@@ -353,130 +353,12 @@ CREATE TABLE weekly_diagnostics (
 );
 
 -- ── 3. 뷰 ───────────────────────────────────────────────────────────────────
--- ⚠️ 6개 전부 코드에서 사용처 0 (수동 조회용 집계 뷰로 보인다).
---    recommendation_statistics 는 overall_performance 의 기반이므로 함께 유지할 것.
---    정의가 길어 여기서는 생략하지 않고 그대로 둔다 — 재구축 시 이 순서대로 실행.
-
--- ===== VIEW: recommendation_statistics =====  (다른 뷰가 참조하므로 먼저)
-CREATE OR REPLACE VIEW recommendation_statistics AS
- SELECT r.recommendation_date, r.stock_code, r.stock_name, r.recommended_price,
-    r.recommendation_grade, r.total_score,
-    COALESCE(latest.closing_price, r.recommended_price) AS current_price,
-    COALESCE(latest.cumulative_return, (0)::numeric) AS current_return,
-    COALESCE(latest.days_since_recommendation, 0) AS days_tracked,
-    COALESCE(max_prices.max_return, (0)::numeric) AS max_return,
-    COALESCE(max_prices.max_price, r.recommended_price) AS max_price,
-    r.is_active, r.closed_at, r.closed_price,
-        CASE
-            WHEN ((r.is_active = false) AND (r.closed_price IS NOT NULL))
-              THEN round(((((r.closed_price - r.recommended_price))::numeric / (r.recommended_price)::numeric) * (100)::numeric), 2)
-            ELSE COALESCE(latest.cumulative_return, (0)::numeric)
-        END AS final_return
-   FROM ((screening_recommendations r
-     LEFT JOIN LATERAL ( SELECT recommendation_daily_prices.closing_price,
-            recommendation_daily_prices.cumulative_return,
-            recommendation_daily_prices.days_since_recommendation
-           FROM recommendation_daily_prices
-          WHERE (recommendation_daily_prices.recommendation_id = r.id)
-          ORDER BY recommendation_daily_prices.tracking_date DESC
-         LIMIT 1) latest ON (true))
-     LEFT JOIN LATERAL ( SELECT max(recommendation_daily_prices.cumulative_return) AS max_return,
-            max(recommendation_daily_prices.closing_price) AS max_price
-           FROM recommendation_daily_prices
-          WHERE (recommendation_daily_prices.recommendation_id = r.id)) max_prices ON (true))
-  ORDER BY r.recommendation_date DESC, r.total_score DESC;
-
--- ===== VIEW: overall_performance =====
-CREATE OR REPLACE VIEW overall_performance AS
- SELECT count(*) AS total_recommendations,
-    count(*) FILTER (WHERE (final_return > (0)::numeric)) AS winning_count,
-    count(*) FILTER (WHERE (final_return <= (0)::numeric)) AS losing_count,
-    round(avg(final_return), 2) AS avg_return,
-    round(avg(final_return) FILTER (WHERE (final_return > (0)::numeric)), 2) AS avg_winning_return,
-    round(avg(final_return) FILTER (WHERE (final_return <= (0)::numeric)), 2) AS avg_losing_return,
-    round(max(final_return), 2) AS max_return,
-    round(min(final_return), 2) AS min_return,
-    round((((count(*) FILTER (WHERE (final_return > (0)::numeric)))::numeric / (count(*))::numeric) * (100)::numeric), 1) AS win_rate
-   FROM recommendation_statistics;
-
--- ===== VIEW: success_pattern_insights =====
-CREATE OR REPLACE VIEW success_pattern_insights AS
- SELECT count(*) AS total_patterns,
-    round(avg(max_return), 2) AS avg_max_return,
-    round(avg(days_to_success), 1) AS avg_days_to_success,
-    count(*) FILTER (WHERE ((recommendation_grade)::text = ANY ((ARRAY['S+'::character varying, 'S'::character varying])::text[]))) AS grade_s_count,
-    count(*) FILTER (WHERE ((recommendation_grade)::text = 'A'::text)) AS grade_a_count,
-    count(*) FILTER (WHERE ((recommendation_grade)::text = 'B'::text)) AS grade_b_count,
-    count(*) FILTER (WHERE (total_score >= (70)::numeric)) AS score_70plus_count,
-    count(*) FILTER (WHERE ((total_score >= (50)::numeric) AND (total_score < (70)::numeric))) AS score_50_70_count,
-    count(*) FILTER (WHERE (total_score < (50)::numeric)) AS score_under_50_count,
-    round(avg(volume_ratio), 2) AS key_volume_ratio,
-    round(avg(mfi), 1) AS key_mfi,
-    round(avg(rsi), 1) AS key_rsi,
-    round(avg(asymmetric_ratio), 2) AS key_asymmetric,
-    round(avg(disparity), 1) AS key_disparity,
-    round((((count(*) FILTER (WHERE (whale_detected = true)))::numeric / (NULLIF(count(*), 0))::numeric) * (100)::numeric), 1) AS whale_pct,
-    round((((count(*) FILTER (WHERE (escape_velocity = true)))::numeric / (NULLIF(count(*), 0))::numeric) * (100)::numeric), 1) AS escape_pct,
-    round((((count(*) FILTER (WHERE (accumulation_detected = true)))::numeric / (NULLIF(count(*), 0))::numeric) * (100)::numeric), 1) AS accumulation_pct
-   FROM success_patterns;
-
--- ===== VIEW: institutional_indicator_analysis =====
-CREATE OR REPLACE VIEW institutional_indicator_analysis AS
- SELECT count(*) AS sample_count,
-    round(avg(institution_buy_days), 1) AS institution_days_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((institution_buy_days)::double precision)))::numeric, 1) AS institution_days_median,
-    count(*) FILTER (WHERE (institution_buy_days >= 3)) AS institution_3plus_count,
-    round(avg(foreign_buy_days), 1) AS foreign_days_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((foreign_buy_days)::double precision)))::numeric, 1) AS foreign_days_median,
-    count(*) FILTER (WHERE (foreign_buy_days >= 3)) AS foreign_3plus_count,
-    count(*) FILTER (WHERE (accumulation_detected = true)) AS accumulation_count
-   FROM success_patterns;
-
--- ===== VIEW: price_indicator_analysis =====
-CREATE OR REPLACE VIEW price_indicator_analysis AS
- SELECT count(*) AS sample_count,
-    round(avg(rsi), 2) AS rsi_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((rsi)::double precision)))::numeric, 2) AS rsi_median,
-    round(min(rsi), 2) AS rsi_min, round(max(rsi), 2) AS rsi_max, round(stddev(rsi), 2) AS rsi_stddev,
-    round(avg(mfi), 2) AS mfi_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((mfi)::double precision)))::numeric, 2) AS mfi_median,
-    round(min(mfi), 2) AS mfi_min, round(max(mfi), 2) AS mfi_max,
-    round(avg(disparity), 2) AS disparity_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((disparity)::double precision)))::numeric, 2) AS disparity_median,
-    round(min(disparity), 2) AS disparity_min, round(max(disparity), 2) AS disparity_max,
-    round(avg(vwap_divergence), 2) AS vwap_divergence_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((vwap_divergence)::double precision)))::numeric, 2) AS vwap_divergence_median,
-    round(avg(daily_change_rate), 2) AS daily_change_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((daily_change_rate)::double precision)))::numeric, 2) AS daily_change_median,
-    round(avg(consecutive_rise_days), 1) AS consecutive_rise_avg,
-    count(*) FILTER (WHERE (consecutive_rise_days >= 3)) AS consecutive_rise_3plus_count,
-    count(*) FILTER (WHERE (escape_velocity = true)) AS escape_velocity_count,
-    round(avg(escape_closing_strength) FILTER (WHERE (escape_velocity = true)), 2) AS escape_strength_avg,
-    round(avg(upper_shadow_ratio), 2) AS upper_shadow_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((upper_shadow_ratio)::double precision)))::numeric, 2) AS upper_shadow_median
-   FROM success_patterns;
-
--- ===== VIEW: volume_indicator_analysis =====
-CREATE OR REPLACE VIEW volume_indicator_analysis AS
- SELECT count(*) AS sample_count,
-    round(avg(volume_ratio), 2) AS volume_ratio_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((volume_ratio)::double precision)))::numeric, 2) AS volume_ratio_median,
-    round(min(volume_ratio), 2) AS volume_ratio_min, round(max(volume_ratio), 2) AS volume_ratio_max,
-    round(stddev(volume_ratio), 2) AS volume_ratio_stddev,
-    round(avg(asymmetric_ratio), 2) AS asymmetric_ratio_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((asymmetric_ratio)::double precision)))::numeric, 2) AS asymmetric_ratio_median,
-    round(min(asymmetric_ratio), 2) AS asymmetric_ratio_min, round(max(asymmetric_ratio), 2) AS asymmetric_ratio_max,
-    round(avg(volume_5d_change_rate), 2) AS volume_5d_change_avg,
-    round((percentile_cont((0.5)::double precision) WITHIN GROUP (ORDER BY ((volume_5d_change_rate)::double precision)))::numeric, 2) AS volume_5d_change_median,
-    count(*) FILTER (WHERE ((volume_acceleration_trend)::text = 'strong_acceleration'::text)) AS accel_strong_count,
-    count(*) FILTER (WHERE ((volume_acceleration_trend)::text = 'acceleration'::text)) AS accel_normal_count,
-    count(*) FILTER (WHERE ((volume_acceleration_trend)::text = 'mixed'::text)) AS accel_mixed_count,
-    count(*) FILTER (WHERE ((volume_acceleration_trend)::text = 'deceleration'::text)) AS accel_decel_count,
-    count(*) FILTER (WHERE (whale_detected = true)) AS whale_detected_count,
-    round(avg(whale_volume_ratio) FILTER (WHERE (whale_detected = true)), 2) AS whale_volume_ratio_avg,
-    count(*) FILTER (WHERE ((obv_trend)::text = '상승'::text)) AS obv_up_count,
-    count(*) FILTER (WHERE ((obv_trend)::text = '하락'::text)) AS obv_down_count
-   FROM success_patterns;
+-- 없음. 2026-08-25에 6개(overall_performance / recommendation_statistics /
+--   institutional_indicator_analysis / price_indicator_analysis /
+--   volume_indicator_analysis / success_pattern_insights)를 모두 제거했다 —
+--   코드 사용처 0의 수동 조회용 집계 뷰였다.
+--   정의가 필요하면 git history(커밋 062929c 이전)에서 복원할 것.
+--   실행 기록: supabase-drop-unused-20260825.sql
 
 -- ── 4. 제약 (PK / UNIQUE / FK / CHECK) ──────────────────────────────────────
 -- ⚠️ v1 덤프에 통째로 빠져 있던 부분. FK 2개가 삭제 순서를 규정한다.
@@ -616,20 +498,7 @@ BEGIN
 END;
 $function$;
 
--- ⚠️ 고아 함수: 트리거가 붙어 있던 stock_trend_scores 가 2026-08-25에 삭제됐다.
---    남겨둬도 무해하지만 쓰는 곳이 없다. 지우려면: DROP FUNCTION public.update_trend_scores_updated_at();
-CREATE OR REPLACE FUNCTION public.update_trend_scores_updated_at()
- RETURNS trigger
- LANGUAGE plpgsql
-AS $function$
-    BEGIN
-       NEW.updated_at = NOW();
-       RETURN NEW;
-    END;
-    $function$;
 
--- get_indicator_distribution: 지표 분포 조회용 (코드 사용처 0, 수동 조회 도구)
--- 정의는 길어 생략하지 않고 필요 시 supabase-dump-schema.sql 재실행으로 복원할 것.
 
 -- ── 9. 트리거 ───────────────────────────────────────────────────────────────
 CREATE TRIGGER trg_active_policy_history BEFORE UPDATE ON public.active_policy
