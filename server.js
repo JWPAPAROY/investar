@@ -21,7 +21,9 @@ app.use(express.static('.'));
 const apiRoutes = {
   '/api/health': require('./api/health'),
   '/api/screening/recommend': require('./api/screening/recommend'),
-  '/api/recommendations/save': require('./api/recommendations/save'),
+  // v3.96: /api/recommendations/save 제거 — 인증 없이 호출자가 준 행을
+  //   screening_recommendations(TOP3·알림·진단의 원천)에 그대로 쓰는 엔드포인트였고
+  //   호출자는 0개였다(index.html의 saveRecommendationsToSupabase도 죽은 함수).
   '/api/recommendations/performance': require('./api/recommendations/performance'),
   '/api/recommendations/update-prices': require('./api/recommendations/update-prices'),
   '/api/stocks': require('./api/stocks/index')

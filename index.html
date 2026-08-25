@@ -741,33 +741,9 @@
       // 추천 종목을 Supabase에 저장 (성과 추적용)
       // ⚠️ v3.10.3부터 프론트엔드 자동 저장 제거 - Cron만 저장
       // 실제 저장 기준: 50점+ (save-daily-recommendations.js, v3.35에서 상한 제거)
-      const saveRecommendationsToSupabase = async (stocks) => {
-        try {
-          // v3.35: 50점+ 전체 저장 (상한 제거)
-          const stocksToSave = stocks.filter(s => s.totalScore >= 50);
-
-          if (stocksToSave.length === 0) {
-            console.log('저장할 추천 종목 없음 (50점 이상 범위 없음)');
-            return;
-          }
-
-          const response = await fetch(`${API_BASE_URL}/recommendations/save`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ stocks: stocksToSave })
-          });
-
-          const result = await response.json();
-
-          if (result.success) {
-            console.log(`✅ ${result.saved}개 추천 종목 저장 완료 (${result.date})`);
-          } else {
-            console.warn('추천 종목 저장 실패:', result.message);
-          }
-        } catch (err) {
-          console.warn('Supabase 저장 실패 (무시):', err.message);
-        }
-      };
+      // v3.96: saveRecommendationsToSupabase 제거 — 호출자가 없는 죽은 함수였고,
+      //   대상 엔드포인트(/api/recommendations/save)도 함께 제거했다.
+      //   추천 저장은 api/cron/save-daily-recommendations.js 단일 경로다.
 
       // 추천 종목 불러오기
       const fetchRecommendations = async () => {
