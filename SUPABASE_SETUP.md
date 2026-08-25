@@ -1,49 +1,57 @@
 # Supabase 추천 종목 성과 추적 시스템 설정 가이드
 
-## 📁 SQL 파일 색인 (v3.96, 2026-08-25 덤프로 검증)
+## 📁 SQL 파일 색인 (v3.96, 2026-08-25 덤프 v2로 검증)
 
-> **스키마의 단일 출처는 `supabase-schema-full.sql`** (16테이블 / 57인덱스 / 36정책).
-> 아래 개별 파일들은 "무엇을 언제 왜 추가했는가"의 히스토리다.
+> **스키마의 단일 출처는 `supabase-schema-full.sql`**
+> 테이블 14 · 뷰 6 · 제약 25 · 인덱스 23 · RLS정책 31 · 함수 3 · 트리거 2
+> 개별 `supabase-*.sql` 은 히스토리(언제 왜 추가했나)다.
 
 | 파일 | 성격 | 상태 |
 |---|---|---|
-| **`supabase-schema-full.sql`** | **전체 스키마** | ✅ 2026-08-25 실DB 덤프 |
-| `supabase-dump-schema.sql` | 덤프 재실행용 쿼리 | 도구 |
-| `supabase-active-policy.sql` | 스키마 (active_policy, _history) | 적용됨 |
-| `supabase-weekly-diagnostics.sql` | 스키마 (weekly_diagnostics) | 적용됨 |
-| `supabase-market-flow.sql` | 스키마 (market_flow_daily) | 적용됨 |
-| `supabase-lowvol-observation.sql` | 스키마 (lowvol_observations) | 적용됨 |
-| `supabase-top3-rank.sql` | 마이그레이션 (top3_rank 외) | 적용됨 |
-| `supabase-meta-monitor.sql` | 마이그레이션 (meta 컬럼) | 적용됨 |
-| `supabase-policy-diff.sql` | 마이그레이션 | 적용됨 |
+| **`supabase-schema-full.sql`** | **전체 스키마** | ✅ 2026-08-25 실DB 덤프 v2 |
+| `supabase-dump-schema.sql` | 덤프 재실행 쿼리 | 도구 (v2: 뷰·제약·함수·트리거 포함) |
+| `supabase-migrate-20260825.sql` | 마이그레이션 3건 | ✅ 2026-08-25 실행 |
+| `supabase-active-policy.sql` | 스키마 히스토리 | 적용됨 |
+| `supabase-weekly-diagnostics.sql` | 〃 | 적용됨 |
+| `supabase-market-flow.sql` | 〃 | 적용됨 |
+| `supabase-lowvol-observation.sql` | 〃 | 적용됨 |
+| `supabase-stock-financials.sql` | 〃 | ✅ 2026-08-25 적용 |
+| `supabase-top3-rank.sql` | 마이그레이션 히스토리 | 적용됨 |
+| `supabase-meta-monitor.sql` | 〃 | 적용됨 |
+| `supabase-policy-diff.sql` | 〃 | 적용됨 |
 | `supabase-cleanup-nontrading.sql` | 일회성 정리 기록 | 2026-07-17 실행 |
-| `supabase-cleanup-20251231.sql` | 일회성 정리 기록 | 2026-08-25 실행 |
-| `supabase-stock-financials.sql` | 스키마 | ⚠️ **미적용 — 테이블 없음(404)** |
+| `supabase-cleanup-20251231.sql` | 〃 | 2026-08-25 실행 |
 
-### ⚠️ 덤프로 드러난 것
+### 덤프 v2가 드러낸 것
 
-**1. `stock_financials` 테이블은 존재하지 않는다.**
-`collect-financials.js --push` 가 이 테이블에 upsert하려 하지만 404로 실패한다
-(에러 메시지가 "supabase-stock-financials.sql 실행했는지 확인"이라 원인은 바로 보인다).
-현재 재무 데이터는 로컬 `data/financials.json`(9.5MB)에만 있고, 분석 스크립트도
-그 파일을 읽으므로 실사용에 지장은 없다. DB로 올리려면 그 SQL을 먼저 실행할 것.
+**1. `active_policy` 에 트리거가 있다 — 이력이 2행씩 쌓이던 원인.**
+`trg_active_policy_history` (BEFORE UPDATE) → `log_active_policy_change()` 가
+`active_policy_history` 에 자동 INSERT한다. `weekly-diagnostic.js` 가 **또** 명시적으로
+INSERT하고 있었다(v3.96에서 코드 쪽 제거 — 트리거가 `prev_*` 를 OLD에서 직접 읽어 더 정확).
+같은 트리거가 **`NEW.since_date = CURRENT_DATE` 로 덮어쓴다** — 코드가 보내는
+`weekStart` 는 DB에 남지 않는다(실측: 코드 2026-08-17 → DB 2026-08-23).
+그래서 `since_date === weekStart` 멱등 가드가 사실상 항상 거짓이었다(v3.96에서 범위 비교로 수정).
 
-**2. 코드가 전혀 쓰지 않는 테이블 3개에 데이터가 남아 있다.**
+**2. FK 2개가 삭제 순서를 규정한다.**
+`recommendation_daily_prices → screening_recommendations` **ON DELETE CASCADE**,
+`success_patterns → screening_recommendations` (CASCADE 없음).
+→ 추천을 지우면 가격행은 자동으로 사라지지만 **패턴은 먼저 지워야 한다.**
 
-| 테이블 | 행 | 비고 |
-|---|---|---|
-| `news_mentions` | 208 | 2025-11 트렌드 시스템 폐기 잔재 |
-| `stock_trend_scores` | 7 | 〃 (RLS가 `FOR ALL` — anon 키로 쓰기·삭제 가능) |
-| `search_trends` | 0 | 〃 |
+**3. CHECK 2개** — `active_policy.id = 1`(싱글턴 강제),
+`top3_rank`는 `is_top3=true` 일 때만 1~3.
 
-지우려면 SQL Editor에서 `DROP TABLE`. 남겨둬도 동작에는 영향이 없다.
+**4. 뷰 6개는 코드 사용처 0.** 성과·지표 집계용 수동 조회 도구로 보인다.
+`recommendation_statistics` 는 `overall_performance` 의 기반이라 함께 유지.
 
-**3. RLS: `FOR ALL` 정책이 걸린 4개 테이블만 anon 키로 DELETE가 된다.**
-`market_flow_daily`(161,516행) · `stock_master` · `expected_return_stats` · `stock_trend_scores`.
-나머지는 SELECT/INSERT/UPDATE만 있어 **DELETE가 오류 없이 0행**으로 끝난다 —
-2026-08-25 정리 때 이 함정에 걸려 SQL Editor로 실행해야 했다.
-anon 키는 프론트엔드에 노출돼 있지 않다(웹은 `/api/*`를 경유). 키는 `.env`와
-GitHub Actions 시크릿에만 있다.
+**5. 고아 함수 1개** — `update_trend_scores_updated_at()` 는 트리거가 붙어 있던
+`stock_trend_scores` 가 삭제되며 갈 곳을 잃었다. 무해하지만 쓰는 곳이 없다.
+
+### RLS 요약
+
+`FOR ALL` 정책이 있는 4개만 anon 키로 DELETE가 된다 —
+`market_flow_daily` · `stock_master` · `expected_return_stats` · `stock_financials`.
+나머지는 DELETE 정책이 없어 API로 지우면 **오류 없이 0행**이다.
+anon 키는 프론트엔드에 없다(웹은 `/api/*` 경유). `.env` 와 GitHub Actions 시크릿에만 있다.
 
 ---
 

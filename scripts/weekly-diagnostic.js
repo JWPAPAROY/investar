@@ -539,8 +539,11 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     if (dryRun) {
       console.log(`[4. AUTO-APPLY] [DRY] 적용 조건 충족 — 실제라면 D+${activeBuyD}→D+${activeSellD} ⇒ D+${optimalBuyD}→D+${optimalSellD} (quality=${optimalQuality}, ${consecutiveSame}주 연속)`);
     } else
-    // Idempotency: 이번 주 이미 auto-diagnostic이 적용했으면 스킵
-    if (activePolicySetBy === 'auto-diagnostic' && activePolicySinceDate === weekStart) {
+    // Idempotency: 이번 주에 이미 auto-diagnostic이 적용했으면 스킵.
+    //   v3.96: `=== weekStart` 였는데, DB 트리거가 since_date를 CURRENT_DATE로 덮어쓰기 때문에
+    //   (코드가 보낸 weekStart는 저장되지 않는다) 이 비교는 **월요일에 돌 때 말고는 항상 거짓**이었다.
+    //   실측: 코드 2026-08-17 전송 → DB 2026-08-23. 범위 비교로 바꿔 의도를 복원한다.
+    if (activePolicySetBy === 'auto-diagnostic' && activePolicySinceDate >= weekStart) {
       console.log(`[4. AUTO-APPLY] ⏭ 이미 이번 주(${weekStart}) 자동 적용됨, 스킵`);
     } else
     try {
@@ -556,15 +559,15 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
 
       if (!updateErr) {
         policyAutoApplied = true;
-        // 변경 이력 저장
-        await sb.from('active_policy_history').insert({
-          buy_offset_day: optimalBuyD,
-          sell_offset_day: optimalSellD,
-          set_by: 'auto-diagnostic',
-          change_reason: `주간진단(${weekStart}) 자동적용 (quality=${optimalQuality}, ${consecutiveSame}주 연속, in-sample avg ${optimalAvg?.toFixed(2)}%, min ${optimalMin?.toFixed(2)}%)`,
-          prev_buy_offset_day: activeBuyD,
-          prev_sell_offset_day: activeSellD,
-        });
+        // v3.96: 명시적 이력 INSERT 제거 — **DB 트리거가 이미 같은 일을 한다.**
+        //   trg_active_policy_history (BEFORE UPDATE ON active_policy)가
+        //   log_active_policy_change()를 호출해 prev_* 까지 자동으로 채워 넣는다.
+        //   그래서 자동적용 1회당 이력이 **2행씩** 쌓이고 있었다(2026-04-30, 08-23 실측).
+        //   트리거 쪽이 OLD 값을 직접 읽어 더 정확하므로 그쪽만 남긴다.
+        //   ⚠️ 같은 트리거가 NEW.since_date = CURRENT_DATE 로 **덮어쓴다** —
+        //     아래 update가 보내는 since_date(weekStart)는 DB에 남지 않는다.
+        //     그 결과 `activePolicySinceDate === weekStart` 멱등 가드는 사실상 항상 거짓이다
+        //     (실측: 코드가 2026-08-17을 보냈는데 DB는 2026-08-23).
         console.log(`[4. AUTO-APPLY] ✅ 정책 자동 변경: D+${activeBuyD}→D+${activeSellD} ⇒ D+${optimalBuyD}→D+${optimalSellD}`);
         // 적용 후 상태 갱신
         activeBuyD = optimalBuyD;

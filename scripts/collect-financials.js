@@ -22,6 +22,7 @@
  *   node scripts/collect-financials.js --limit 5 --dry   # 샘플 확인 (파일 미기록)
  *   node scripts/collect-financials.js                   # 전 종목 → data/financials.json
  *   node scripts/collect-financials.js --push            # 위 + stock_financials 테이블 upsert
+ *   node scripts/collect-financials.js --push-file       # 재수집 없이 기존 json만 upsert
  *
  * 산출: data/financials.json  { collectedAt, rows: [{code, ym, roe, eps, sps, bps, ...}] }
  *   ~2,600종목 × 분기 10개 ≈ 26,000행 (~3MB). 분기 1회 재실행이면 충분.
@@ -37,6 +38,10 @@ const supabase = require('../backend/supabaseClient');
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
 const PUSH = args.includes('--push');
+// v3.96: 재수집 없이 기존 data/financials.json 만 DB로 올린다.
+//   --push는 KIS 2,600콜을 다시 부르는데, 이미 수집된 스냅샷을 그대로 올리고 싶을 때가 있다
+//   (분석 스크립트가 읽은 것과 **같은 데이터셋**을 DB에 두려면 재수집이 오히려 방해).
+const PUSH_ONLY = args.includes('--push-file');
 const limitIdx = args.indexOf('--limit');
 const LIMIT = limitIdx >= 0 ? parseInt(args[limitIdx + 1], 10) : 0;
 const OUT = path.resolve(__dirname, '../data/financials.json');
@@ -100,6 +105,41 @@ async function withRetry(fn) {
 }
 
 (async () => {
+  if (PUSH_ONLY) {
+    const cached = JSON.parse(fs.readFileSync(OUT, 'utf8'));
+    const rows = cached.rows || [];
+    // (stock_code, stac_yymm)은 PK다. 원본에 같은 키가 7건 있는데 한쪽이 전부 0인
+    //   빈 레코드다(KIS가 같은 분기를 두 번 주며 하나는 공백). 그대로 upsert하면
+    //   'ON CONFLICT DO UPDATE command cannot affect row a second time'로 실패한다.
+    //   → 값이 채워진 쪽(0이 아닌 필드가 많은 쪽)을 남긴다.
+    const score = (r) => ['grs','opInc','niInc','roe','eps','sps','bps','rsrv','debt']
+      .reduce((n, k) => n + (r[k] ? 1 : 0), 0);
+    const uniq = new Map();
+    for (const r of rows) {
+      const k = r.code + '|' + r.ym;
+      const prev = uniq.get(k);
+      if (!prev || score(r) > score(prev)) uniq.set(k, r);
+    }
+    if (uniq.size !== rows.length) console.log(`   중복 키 ${rows.length - uniq.size}건 제거 (빈 레코드 쪽 폐기)`);
+
+    console.log(`📤 ${OUT} → stock_financials (${rows.length}행, 수집시각 ${cached.collectedAt})`);
+    const batch = [...uniq.values()].map(r => ({
+      stock_code: r.code, stac_yymm: r.ym, revenue_growth: r.grs, op_profit_growth: r.opInc,
+      net_income_growth: r.niInc, roe: r.roe, eps: r.eps, sps: r.sps, bps: r.bps,
+      reserve_rate: r.rsrv, debt_ratio: r.debt,
+    }));
+    let done = 0;
+    for (let i = 0; i < batch.length; i += 1000) {
+      const { error } = await supabase.from('stock_financials')
+        .upsert(batch.slice(i, i + 1000), { onConflict: 'stock_code,stac_yymm' });
+      if (error) throw new Error(`upsert 실패(${i}): ${error.message}`);
+      done += Math.min(1000, batch.length - i);
+      if (done % 10000 === 0 || done === batch.length) console.log(`   … ${done}/${batch.length}`);
+    }
+    console.log(`✅ 완료 — ${done}행`);
+    return;
+  }
+
   const t0 = Date.now();
   let universe = await loadUniverse();
   if (LIMIT) universe = universe.slice(0, LIMIT);
