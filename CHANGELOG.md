@@ -30,6 +30,11 @@
   - `collect-market-flow.js`가 매 수집 후 그날 KRX 거래대금을 채운다(하루 2콜: 유가증권+코스닥). 실제로 기록한 (종목,날짜) 조합에만 upsert해 반쪽 행 생성을 막는다.
   - ⚠️ **수급(투자자별 순매수)은 KRX 오픈API에 없다(404, 승인 문제 아님).** KIS가 유일 출처이며, `inst_net_value`가 43% 0인 것은 결측이 아니라 실제로 기관 매매가 없었던 것이다.
 
+- **기대수익 통계가 2026-08-14에 멈춰 있었음(7거래일) → 체인에서 분리**: `expected_return_stats`(14행)·`stock_expected_returns`(1,945행)가 8/14 07:44 UTC 이후 갱신 정지. 이 값은 매일 아침 텔레그램의 `📈 기대수익(N일)`·`⚖️ 손익비 / 승률`에 그대로 표시되므로 사용자는 11일 지난 숫자를 보고 있었다.
+  - 원인은 계산이 아니라 **배치 위치**다. calc-expectations는 post-market의 Step A(패턴)→B(업종전망)→C(업종지수) 뒤에 fall-through로 붙은 **마지막 단계**이고, Vercel 함수는 `maxDuration: 60`에 묶여 있다. 같은 핸들러의 Step B(`sector_outlook_stats`)는 8/24까지 갱신됐는데 Step D만 8/14에 멈춘 것이 그 증거 — 잘리는 쪽은 항상 마지막이다. 계산 자체는 로컬 실측 **10.7초**로 멀쩡하다(추천 3,773건 / 가격 45,784행).
+  - `scripts/calc-expectations.js`(핸들러를 mode만 지정해 호출 — 로직 복사 없음) + `.github/workflows/calc-expectations.yml`(평일 18:50 KST) 신설. post-market의 fall-through는 멱등 upsert라 이중 안전망으로 남겨둔다.
+- **피드 정지 감시 추가 (`[6.5 FEED FRESHNESS]`)**: 2026년에만 같은 유형의 사고가 세 번 났다 — ① 주간진단 cron 4주 침묵(NOT NULL 위반으로 INSERT만 실패) ② OPERATING_STATE.md 10주 동결(Vercel read-only FS) ③ 기대수익 7거래일 동결(60초 벽). **셋 다 아무도 경고하지 않아 사람이 우연히 발견할 때까지 지속됐다.** 이제 주간진단이 `expected_return_stats`·`stock_expected_returns`·`sector_outlook_stats`·`market_flow_daily`의 최신 갱신 시각을 매주 확인해 허용 일수를 넘으면 `warnings`에 남기고, OPERATING_STATE.md에 노출한다.
+
 ### v3.95 (2026-08-06)
 - **🚨 보유기간 자동조정 게이트가 하락장에서 구조적으로 잠겨 있었음 → 판정 기준을 상대 비교로 전환**: tier 판정(`robust`/`majority`/`least_bad`)이 **주별 수익 > 0의 비율**(`posRatio`)이었다. 하락 레짐에선 어떤 (k,n) 조합도 8주 중 70%를 양수로 만들 수 없어 **항상 `least_bad`로 떨어졌고, `least_bad`는 권고만 하고 적용하지 않는다** → 2026-05-05 수동 설정(D+1→D+10) 이후 **3개월간 자동 변경 0회**. 최근 5주 posRatio 25/25/63/43/50%.
   - **보유기간 단축이 가장 필요한 국면이 정확히 게이트가 잠기는 국면**이었다. 6월 3단 완화(b373409)는 "권고를 말하게" 만들었을 뿐 적용 경로는 절대 기준 그대로여서 맹점의 절반만 고쳐진 상태였다.

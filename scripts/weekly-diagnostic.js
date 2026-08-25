@@ -656,6 +656,38 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   // =========================================================================
   // INSERT into weekly_diagnostics
   // =========================================================================
+  // =========================================================================
+  // 6.5 FEED FRESHNESS — 파이프라인이 조용히 멈췄는지 (v3.96)
+  //
+  // 왜: 2026년에만 같은 사고가 세 번 났다 — 계산은 정상인데 **기록만** 멈추는 유형이다.
+  //   ① weekly-diagnostic cron 4주 침묵(5/24~6/21, NOT NULL 위반으로 INSERT만 실패)
+  //   ② OPERATING_STATE.md 10주 동결(Vercel read-only FS라 파일 쓰기가 영구 skip)
+  //   ③ expected_return_stats 7거래일 동결(post-market 마지막 단계가 60초 벽에 잘림)
+  //   셋 다 **아무도 경고하지 않아** 사람이 우연히 발견할 때까지 지속됐다.
+  //   이제 주간진단이 매주 최신 갱신 시각을 보고 늦으면 warnings에 남긴다 → OPERATING_STATE로 노출.
+  const FEEDS = [
+    { table: 'expected_return_stats', col: 'updated_at', maxDays: 5, what: '알림의 기대수익/손익비/승률' },
+    { table: 'stock_expected_returns', col: 'updated_at', maxDays: 5, what: '종목별 기대수익' },
+    { table: 'sector_outlook_stats', col: 'updated_at', maxDays: 8, what: '업종 전망 뱃지' },
+    { table: 'market_flow_daily', col: 'trade_date', maxDays: 5, what: '전 종목 수급·거래대금' },
+  ];
+  const feedFreshness = {};
+  for (const f of FEEDS) {
+    try {
+      const { data } = await sb.from(f.table).select(f.col).order(f.col, { ascending: false }).limit(1);
+      const latest = data && data[0] && data[0][f.col];
+      if (!latest) { warnings.push(`피드 정지: ${f.table} 비어 있음 (${f.what})`); continue; }
+      const ageDays = Math.floor((Date.now() - new Date(latest).getTime()) / 86400000);
+      feedFreshness[f.table] = { latest: String(latest).slice(0, 10), ageDays };
+      if (ageDays > f.maxDays) {
+        warnings.push(`⚠️ 피드 정지 의심: ${f.table} 최신 ${String(latest).slice(0, 10)} (${ageDays}일 전, 허용 ${f.maxDays}일) — ${f.what}`);
+      }
+    } catch (e) {
+      warnings.push(`피드 점검 실패: ${f.table} (${e.message})`);
+    }
+  }
+  console.log('[6.5 FEED FRESHNESS] ' + Object.entries(feedFreshness).map(([k, v]) => k + '=' + v.latest + '(' + v.ageDays + 'd)').join(' '));
+
   const row = {
     week_start: weekStart,
     // regime: v3.88에서 개념 폐기. DB 컬럼은 NOT NULL이라 sentinel로 채움
@@ -693,6 +725,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
       ssGoodness, ssReturns,
       scoreHealthBasis: 'monotone', // v3.96 이전 행은 'sweetspot'(기록 없음)
       monoRank, monoReturns, monoR, sweetR,
+      feedFreshness,
       scoreHealthBands: monoRank.length,
       optimalQuality,
       gateBasis,                                    // v3.95: 'relative'(현행 대비) | 'absolute'(폴백)
