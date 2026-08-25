@@ -1,0 +1,47 @@
+# OPERATING_STATE.md / WEEKLY_DIAGNOSTICS.md 를 DB에서 렌더해 커밋 (v3.96)
+#
+# 왜 CI인가 (2026-08-25):
+#   두 문서는 weekly-diagnostic.js가 직접 썼는데, 그 쓰기가 `!process.env.VERCEL` 가드 안에
+#   있었다. 실제 주간진단 cron은 Vercel(read-only FS)에서 돌기 때문에 **프로덕션에서는
+#   한 번도 실행된 적이 없다** — DB엔 17주치가 쌓이는 동안 문서는 2026-06-15에 멈춰
+#   "권장 매수일 D+1 / 건강도 ✅ 양호"를 계속 보여줬다(실제로는 D+2로 자동 변경됨).
+#   계산(Vercel)과 기록(CI)을 분리해 같은 사고가 반복되지 않게 한다.
+#
+# 시각: 주간진단 cron이 일요일 13:00 UTC라 그 뒤인 14:10 UTC(=23:10 KST)에 돈다.
+name: render-operating-state
+
+on:
+  schedule:
+    - cron: '10 14 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Render docs from DB
+        run: node scripts/render-operating-state.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      - name: Commit if changed
+        run: |
+          if [[ -z "$(git status --porcelain OPERATING_STATE.md WEEKLY_DIAGNOSTICS.md)" ]]; then
+            echo "변경 없음 — 커밋 건너뜀"
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add OPERATING_STATE.md WEEKLY_DIAGNOSTICS.md
+          git commit -m "chore: 운영 상태 문서 렌더 (DB 기준, 자동)"
+          git push

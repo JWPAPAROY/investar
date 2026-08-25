@@ -1089,7 +1089,7 @@ class KISApi {
         const output = response.data.output;
 
         // 배열 응답 처리 (최신 데이터부터 days개 추출)
-        const investorData = output.slice(0, days).map(item => ({
+        const mapped = output.map(item => ({
           date: item.stck_bsop_date,              // 영업일자
           closePrice: parseInt(item.stck_clpr),   // 종가
           priceChange: parseInt(item.prdy_vrss),  // 전일 대비
@@ -1123,7 +1123,26 @@ class KISApi {
             sellQty: parseInt(item.orgn_seln_vol || 0),
             sellValue: parseInt(item.orgn_seln_tr_pbmn || 0)
           }
-        })).reverse(); // 오래된 날짜부터 정렬
+        }));
+
+        // v3.96: **미확정 당일 행 제거** (2026-08-25 발견, 시스템 최대 결함 2호)
+        //   KIS는 장중은 물론 장 마감 직후에도 "오늘" 행을 개인·외인·기관 **전부 0**으로
+        //   먼저 내려준다. 연속 순매수일은 최신일부터 거꾸로 세다 첫 비매수일에 끊으므로,
+        //   이 0짜리 한 행이 **스트릭 전체를 0으로 붕괴**시킨다.
+        //   실측(2026-08-19~24 추천 100건): 59~95%가 institution/foreign_buy_days 0/0으로
+        //   저장됐고, market_flow_daily(18시 확정치) 대비 불일치 606건 중 294건(49%)이
+        //   전부 이 붕괴였다(반대 방향 오류는 1건). 이 값은 TOP3 정렬 1차 키(supplyRank)이자
+        //   자격 필터(>=3일)라 수급 축이 사실상 꺼져 있었다.
+        //   판정 규칙: **날짜가 오늘(KST) 이고 3주체 순매수 수량이 모두 0** 인 선두 행만 제거.
+        //   (거래 없는 종목의 과거 0행은 스트릭을 끊는 게 맞으므로 건드리지 않는다.)
+        const todayKst = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10).replace(/-/g, '');
+        const isUnsettled = (r) => r.date >= todayKst
+          && r.individual.netBuyQty === 0 && r.foreign.netBuyQty === 0 && r.institution.netBuyQty === 0;
+        let head = 0;
+        while (head < mapped.length && isUnsettled(mapped[head])) head++;
+
+        // 자르기는 미확정 행을 걷어낸 뒤에 한다 — 먼저 자르면 요청한 days보다 하루 모자란다.
+        const investorData = mapped.slice(head, head + days).reverse(); // 오래된 날짜부터 정렬
 
         return investorData;
 

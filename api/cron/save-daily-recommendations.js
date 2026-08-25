@@ -703,22 +703,52 @@ async function sendTelegramMessage(message) {
  *         2위(v384 +7.62%) 대비 50% 우위. v385(isV2Priority) 성과 최하위(+4.40%)로 복귀 결정.
  * v3.90: 정렬 직전 momentum 시총 플로어 적용 (applyMomentumCapFloor).
  */
+/**
+ * TOP3 공통 자격 (DB 행 기준). selectAlertTop3 · diagnoseTop3의 단일 출처.
+ */
+function isTop3EligibleDb(s) {
+  const hasSupply = s.whale_detected || (s.institution_buy_days || 0) >= 3 || (s.foreign_buy_days || 0) >= 3;
+  const score = s.total_score || 0;
+  const disparity = s.disparity || 100;
+  const isS89Trap = score >= 80 && score <= 89 && disparity >= 120;
+  return hasSupply &&
+    s.recommendation_grade !== '과열' &&
+    Math.abs(s.change_rate || 0) < 25 &&
+    score >= 45 &&
+    !isS89Trap;
+}
+
+/**
+ * TOP3가 3개 미만인 날의 **이유**를 산출한다 (v3.96).
+ *
+ * 왜: 2026-06-15~08-24 49거래일 중 28일이 미달(0개인 날 5일)이었는데 로그·알림·주간진단
+ *   어디에도 이유가 없어, 사용자는 "모델이 죽었나"와 "플로어가 설계대로 걸렀나"를
+ *   구분할 수 없었다. 실측상 미달 원인은 공통 자격이 아니라 거의 전부 momentum 시총 플로어다.
+ */
+function diagnoseTop3(stocks, regime, picked) {
+  const pool = stocks || [];
+  const eligible = pool.filter(isTop3EligibleDb);
+  const cap5 = eligible.filter(s => (s.market_cap || 0) >= 5e12).length;
+  const cap1 = eligible.filter(s => (s.market_cap || 0) >= 1e12).length;
+  const rg = regime || pool[0]?.market_regime || 'momentum';
+  const n = picked || 0;
+  let reason = null;
+  if (n < 3) {
+    if (eligible.length < 3) reason = '자격 통과 ' + eligible.length + '개';
+    else if (rg === 'momentum') reason = '자격 ' + eligible.length + '개 중 시총 1조+ 가 ' + cap1 + '개 (momentum 레짐 플로어)';
+    else reason = '정렬 후 잔여 ' + n + '개';
+  }
+  return { candidates: pool.length, eligible: eligible.length, cap5, cap1, regime: rg, picked: n, reason };
+}
+
 function selectAlertTop3(stocks, regime) {
   if (!stocks || stocks.length === 0) return [];
   const rg = regime || stocks[0]?.market_regime || 'momentum';
 
   // 공통 자격 (80-89 + 이격도 ≥120 결합 패널티 유지)
-  const isCommonEligible = (s) => {
-    const hasSupply = s.whale_detected || (s.institution_buy_days || 0) >= 3 || (s.foreign_buy_days || 0) >= 3;
-    const score = s.total_score || 0;
-    const disparity = s.disparity || 100;
-    const isS89Trap = score >= 80 && score <= 89 && disparity >= 120;
-    return hasSupply &&
-      s.recommendation_grade !== '과열' &&
-      Math.abs(s.change_rate || 0) < 25 &&
-      score >= 45 &&
-      !isS89Trap;
-  };
+  // v3.96: diagnoseTop3()가 같은 술어를 써야 해서 파일 상단 isTop3EligibleDb로 승격.
+  //   (자격/정렬 사본이 갈라지는 사고를 이미 두 번 겪었다 — top3Ranking.js 헤더 참고)
+  const isCommonEligible = isTop3EligibleDb;
 
   // 이격도 단계적 컷 (130 → 140 → 150)
   const tiers = [130, 140, 150];
@@ -1030,7 +1060,7 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, ex
  * ALERT 메시지 (아침 08:00 KST — Cloudflare Workers "0 23 * * sun-thu")
  * 🌅 오늘의 매수 전략 + 과거 추천 성과
  */
-function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, expectations = [], prediction = null, diagnostic = null, activePolicy = null) {
+function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment = null, expectations = [], prediction = null, diagnostic = null, activePolicy = null, top3Diag = null) {
   // 날짜 포맷: 2026-02-05 → 02/05
   const dateShort = date.slice(5).replace('-', '/');
   let message = `🌅 <b>오늘의 매수 전략</b> (${dateShort})\n\n`;
@@ -1049,11 +1079,18 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
   const alertPrimaryTop3 = top3;
   const alertPrimaryTitle = '🏆 <b>오늘의 TOP 3</b>';
 
+  // v3.96: 픽이 3개 미만이면 **이유**를 함께 알린다 (무픽 포함).
+  const shortfallNote = (top3Diag && top3Diag.reason)
+    ? '   └ 후보 ' + top3Diag.candidates + '개 → ' + top3Diag.reason + '\n'
+    : '';
+
   if (!alertPrimaryTop3 || alertPrimaryTop3.length === 0) {
     message += `조건을 충족하는 종목이 없습니다.\n`;
     message += `다음 거래일을 기다려주세요.\n`;
+    message += shortfallNote;
   } else {
     message += `${alertPrimaryTitle}\n\n`;
+    message += shortfallNote;
 
     alertPrimaryTop3.forEach((stock, i) => {
       const medal = ['🥇', '🥈', '🥉'][i];
@@ -2304,7 +2341,14 @@ module.exports = async (req, res) => {
       // Step 6: 텔레그램 알림 전송
       const diagnostic = await getLatestDiagnostic();
       const activePolicy = await getActivePolicy();
-      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, expectations, prediction, diagnostic, activePolicy);
+      // v3.96: TOP3가 3개 미만인 이유를 로그와 알림 양쪽에 남긴다.
+      const top3Diag = diagnoseTop3(savedStocks, savedStocks[0]?.market_regime, top3.length);
+      if (top3Diag.reason) {
+        console.log('⚠️ TOP3 미달: ' + top3.length + '개 — ' + top3Diag.reason
+          + ' (후보 ' + top3Diag.candidates + ' / 자격 ' + top3Diag.eligible
+          + ' / 5조+ ' + top3Diag.cap5 + ' / 1조+ ' + top3Diag.cap1 + ' / 레짐 ' + top3Diag.regime + ')');
+      }
+      const message = formatAlertMessage(top3, [], today, prevDayResults, sentiment, expectations, prediction, diagnostic, activePolicy, top3Diag);
       const sent = await sendTelegramMessage(message);
 
       // v3.66: alert 전송 완료 시각 기록 (cron 중복 방지용)

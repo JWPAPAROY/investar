@@ -30,6 +30,10 @@ const DEPTH = BACKFILL ? 30 : 7;
 
 const toIso = (yyyymmdd) => `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`;
 
+// v3.96: 이번 실행이 실제로 기록한 (종목,날짜). 수집 후 KRX 거래대금을 이 조합에만 채운다
+//   (없는 조합에 upsert하면 close/volume이 빈 반쪽 행이 생긴다).
+const writtenPairs = new Set();
+
 // 상장법인 목록에 섞인 스팩 제외 (ETF/ETN은 KIND 목록에 원래 없음)
 const isExcluded = (name) => /스팩|SPAC/i.test(name || '');
 
@@ -123,6 +127,7 @@ async function collectStock(s) {
     const c = chartByDate.get(d), v = invByDate.get(d);
     const close = (c && c.close) || (v && v.closePrice) || null;
     const base = { stock_code: s.stock_code, trade_date: toIso(d), close, market_cap: capAt(close), sector_name: sector };
+    writtenPairs.add(s.stock_code + '|' + toIso(d));
     if (c && v) {
       buffers.full.push({
         ...base, open: num(c.open), high: num(c.high), low: num(c.low), volume: num(c.volume), trading_value: num(c.tradingValue),
@@ -170,6 +175,36 @@ async function collectStock(s) {
     }
   }
   for (const k of Object.keys(buffers)) await flush(k, true);
+
+  // v3.96: **거래대금은 KIS에 없다.** 일봉 TR(FHKST01010400) 응답에 acml_tr_pbmn 필드가 없어
+  //   trading_value가 전 구간 NULL이었다(161,516행 전부, 2026-08-25 발견). KRX 오픈API의
+  //   ACC_TRDVAL로 채운다 — 하루 2콜(유가증권+코스닥)이면 전 종목이 한 번에 온다.
+  //   ⚠️ 수급(투자자별)은 KRX API에 없다(404). 그쪽은 KIS가 유일 출처.
+  if (!DRY) {
+    try {
+      const { fetchKrxTradingValue } = require('./backfill-trading-value');
+      const dates = [...new Set([...writtenPairs].map(k => k.split('|')[1]))].sort();
+      let tvRows = 0, tvDays = 0;
+      for (const date of dates) {
+        const vals = await fetchKrxTradingValue(date.replace(/-/g, ''));
+        if (!vals) continue;
+        tvDays++;
+        const rows = [];
+        for (const [code, v] of vals) {
+          if (writtenPairs.has(code + '|' + date)) rows.push({ stock_code: code, trade_date: date, trading_value: v });
+        }
+        for (let i = 0; i < rows.length; i += 500) {
+          const { error } = await supabase.from('market_flow_daily')
+            .upsert(rows.slice(i, i + 500), { onConflict: 'stock_code,trade_date' });
+          if (error) { console.warn('⚠️ 거래대금 upsert 실패(' + date + '): ' + error.message); break; }
+          tvRows += Math.min(500, rows.length - i);
+        }
+      }
+      console.log('💰 거래대금(KRX): ' + tvDays + '일 / ' + tvRows + '행');
+    } catch (e) {
+      console.warn('⚠️ 거래대금 채우기 실패(수집 자체는 성공):', e.message);
+    }
+  }
 
   const el = ((Date.now() - t0) / 60000).toFixed(1);
   console.log(`\n✅ 완료 (${el}분): 종목 ok=${stats.stocksOk} fail=${stats.stocksFail} | rows full=${stats.full} flowOnly=${stats.flowOnly} chartOnly=${stats.chartOnly} | 부분실패 flow=${stats.flowFail} chart=${stats.chartFail}`);

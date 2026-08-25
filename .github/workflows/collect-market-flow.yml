@@ -34,3 +34,5 @@ jobs:
           KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          # v3.96: 거래대금(ACC_TRDVAL)은 KIS에 없어 KRX 오픈API로 채운다.
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}

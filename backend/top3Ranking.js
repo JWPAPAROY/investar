@@ -108,7 +108,16 @@ function applyMomentumCapFloor(eligible, capOf, regime) {
   if (regime !== 'momentum') return eligible;                 // broad 레짐 우회
   let pool = eligible.filter(s => (capOf(s) || 0) >= 5e12);   // 5조+ 우선
   if (pool.length < 3) pool = eligible.filter(s => (capOf(s) || 0) >= 1e12); // 1조+ 폴백
-  if (!pool.length) console.log('📵 momentum 레짐 1조+ 후보 없음 → 무픽 (소형주 폴백 제거, v3.92)');
+  // v3.96: 픽이 3개 미만인 날의 **이유를 남긴다**. 2026-06-15~08-24 49거래일 중 28일이
+  //   TOP3 미달(0개인 날 5일 포함)이었는데 로그·알림·주간진단 어디에도 이유가 없어
+  //   "모델이 죽었나"와 "플로어가 설계대로 걸렀나"를 구분할 수 없었다.
+  //   실측: 미달의 원인은 공통 자격 필터가 아니라 거의 전부 이 시총 플로어다.
+  if (pool.length < 3) {
+    const c5 = eligible.filter(s => (capOf(s) || 0) >= 5e12).length;
+    console.log('📵 momentum 시총 플로어: 자격 ' + eligible.length + '개 중 5조+ ' + c5
+      + '개 / 1조+ ' + pool.length + '개 → TOP' + pool.length
+      + (pool.length === 0 ? ' (무픽 — 소형주 폴백 제거, v3.92)' : ' (플로어 통과분만)'));
+  }
   return pool;
 }
 

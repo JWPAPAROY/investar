@@ -12,8 +12,6 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') }
 const { createClient } = require('@supabase/supabase-js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { resolveTop3Order, DB_ACCESSORS } = require('../backend/top3Ranking');
-const fs = require('fs');
-const path = require('path');
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 const PAGE = 1000;
@@ -252,6 +250,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     { lo: 90, hi: 200, label: '90+' },
   ];
   const ssGoodness = [], ssReturns = [];
+  const monoRank = [], monoReturns = []; // v3.96: 단조축(점수 높을수록 좋은가)
   const scoreBucketReturns = [];
   for (const b of bands) {
     const subset = recent30All.filter(r => (r.total_score||0) >= b.lo && (r.total_score||0) < b.hi);
@@ -262,19 +261,47 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
       if (rets.length >= 5) {
         ssGoodness.push(7 - srBandRank(b.lo)); // 스윗스팟 선호도(클수록 선호)
         ssReturns.push(avg);
+        monoRank.push(b.lo);   // 밴드 하한 = 점수 순서 그대로
+        monoReturns.push(avg);
       }
     } else {
       scoreBucketReturns.push({ label: b.label, avg: null, n: rets.length });
     }
   }
-  const scoreHealthR = ssGoodness.length >= 3 ? spearman(ssGoodness, ssReturns) : null;
+  // v3.96: 건강도 판정을 **단조축**으로 바꾸고, 스윗스팟축은 설계 점검용으로 병기한다.
+  //
+  // 왜 (2026-08-25):
+  //   ① 기존 판정축은 "스윗스팟 선호순서(50-59>60-69>80-89>90+>70-79>45-49)와 수익순서의 일치"였다.
+  //      그런데 같은 날 scripts/score-validity.js가 평가가능 3,442건에서 확인한 실제 패턴은
+  //      **단조**다(0~29 −6.93%/승률32% → 80~89 −1.50%/승률44%, 스피어만 +0.127).
+  //      즉 점수가 데이터대로 단조롭게 작동하면 옛 지표는 오히려 inverted 경보를 울린다 — 부호가 반대인 계기판.
+  //   ② 점 3~4개짜리 스피어만에 ±0.3 임계를 걸어 healthy/broken/inverted를 단언했다.
+  //      실제 이력(17주)은 healthy(1.0)→broken(0)→inverted(−1.0)→healthy(1.0)로 주마다 널뛰었다.
+  //      n=4에서 ρ=0.4는 아무것도 뜻하지 않는다. → 밴드 4개 미만이면 unknown, 5개 미만이면 weak 접미.
+  //   ⚠️ 이 주 이전 행의 score_health_corr는 스윗스팟축 값이다. raw_json.scoreHealthBasis로 구분할 것.
+  const MIN_BANDS = 4;
+  const monoR = monoRank.length >= MIN_BANDS ? spearman(monoRank, monoReturns) : null;
+  const sweetR = ssGoodness.length >= 3 ? spearman(ssGoodness, ssReturns) : null;
+  const scoreHealthR = monoR;
   let scoreHealthLabel;
-  if (scoreHealthR == null) { scoreHealthLabel = 'unknown'; warnings.push('score_health insufficient bands'); }
-  else if (scoreHealthR > 0.3) scoreHealthLabel = 'healthy';
-  else if (scoreHealthR < -0.3) scoreHealthLabel = 'inverted';
-  else scoreHealthLabel = 'broken';
+  if (scoreHealthR == null) {
+    scoreHealthLabel = 'unknown';
+    warnings.push(`score_health: 유효 밴드 ${monoRank.length}개(<${MIN_BANDS}) — 판정 보류`);
+  } else {
+    if (scoreHealthR > 0.3) scoreHealthLabel = 'healthy';
+    else if (scoreHealthR < -0.3) scoreHealthLabel = 'inverted';
+    else scoreHealthLabel = 'broken';
+    if (monoRank.length < 5) {
+      scoreHealthLabel += '_weak';
+      warnings.push(`score_health: 밴드 ${monoRank.length}개짜리 상관 — 라벨은 참고용(주간 널뛰기 정상)`);
+    }
+  }
+  // 설계 점검: 스윗스팟 선호순서가 실제 수익순서와 어긋나는지(설계 자체의 유효성)
+  if (sweetR != null && monoR != null && sweetR < -0.3 && monoR > 0.3) {
+    warnings.push(`스윗스팟 설계 경고: 단조 ρ=${monoR.toFixed(2)}인데 스윗스팟 ρ=${sweetR.toFixed(2)} — 밴드 선호순서(top3Ranking.bandRank)가 데이터와 반대`);
+  }
 
-  console.log(`[1. SCORE HEALTH] ${scoreHealthLabel} (sweet-spot ρ=${scoreHealthR?.toFixed(2)}, timing=D+${healthK}→D+${healthN}, bands=${ssGoodness.length})`);
+  console.log(`[1. SCORE HEALTH] ${scoreHealthLabel} (단조 ρ=${monoR?.toFixed(2) ?? "n/a"}, 스윗스팟 ρ=${sweetR?.toFixed(2) ?? "n/a"}, timing=D+${healthK}→D+${healthN}, bands=${monoRank.length})`);
 
   // =========================================================================
   // 2. OPTIMAL TIMING — walk-forward (k,n) scan
@@ -395,6 +422,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
   const candidates = pool; // raw_json/OOS/meta 하위호환
 
   let optimalBuyD = null, optimalSellD = null, optimalAvg = null, optimalMin = null, optimalN = null;
+  let qualityBasisTxt = null; // v3.96: quality 경고 문구(적용/보류 확정 후 사용)
   let oosAvgReturn = null, oosSampleN = null;
 
   if (candidates.length === 0) {
@@ -406,11 +434,15 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     optimalAvg = best.overall;
     optimalMin = best.minWk;
     optimalN = best.totalN;
+    // v3.96: 여기서 '자동적용 보류'를 무조건 적어 넣던 것이 **기록의 거짓말**이었다.
+    //   이 경고는 quality!=='robust'면 항상 붙었는데, 실제 게이트는 majority+2주연속도
+    //   통과시킨다(autoApplyEligible). 2026-08-23 D+1→D+2 자동변경이 바로 그 경우로,
+    //   같은 진단 행에 '보류'라고 적힌 채 정책이 바뀌어 로그만 보면 알 수 없었다.
+    //   → 문구는 여기서 만들고, **경고 문장은 Phase 3 결정 이후에 적는다**.
     if (optimalQuality !== 'robust') {
-      const basisTxt = gateBasis === 'relative'
+      qualityBasisTxt = gateBasis === 'relative'
         ? `현행 대비 우세 주 비율 ${Math.round(best.beatRatio * 100)}% (edge 평균 ${best.overallEdge?.toFixed(2)}%p, 최저주 ${best.minEdge?.toFixed(2)}%p)`
         : `전주 +비율 ${Math.round(best.posRatio * 100)}%`;
-      warnings.push(`optimal timing quality=${optimalQuality} (${basisTxt}) — 권고만, 자동적용 보류`);
     }
     // v3.92: 최신 in-sample 주가 주별 표본<3으로 제외되면 권고가 과거 주에 동결됨을 명시
     //   (2026-07-06 발견: 6/28·7/5 진단 수치가 소수점까지 동일 — 최신 주 탈락으로 유효 주 집합 불변)
@@ -543,6 +575,23 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
 
   console.log(`[4. POLICY] active=(D+${activeBuyD},D+${activeSellD}) optimal=(D+${optimalBuyD},D+${optimalSellD}) differs=${recommendationDiffers} consecutive=${consecutiveSame}주 autoApplied=${policyAutoApplied}`);
 
+  // v3.96: **실제로 일어난 일**을 그대로 적는다. 이 문장이 weekly_diagnostics.warnings에 남고
+  //   OPERATING_STATE.md로 그대로 렌더된다.
+  if (qualityBasisTxt) {
+    if (policyAutoApplied) {
+      warnings.push(`optimal timing quality=${optimalQuality} (${qualityBasisTxt}) — ${consecutiveSame}주 연속 동일 권고로 **자동적용됨** (D+${optimalBuyD}→D+${optimalSellD}, in-sample avg ${optimalAvg?.toFixed(2)}%, 최저주 ${optimalMin?.toFixed(2)}%)`);
+    } else if (recommendationDiffers) {
+      const why = optimalQuality === 'majority' ? `연속 ${consecutiveSame}주(<2)` : `quality=${optimalQuality}`;
+      warnings.push(`optimal timing quality=${optimalQuality} (${qualityBasisTxt}) — ${why}로 자동적용 보류, 권고만`);
+    } else {
+      warnings.push(`optimal timing quality=${optimalQuality} (${qualityBasisTxt}) — 권고가 현행 정책과 동일, 변경 없음`);
+    }
+  }
+  // 하락 레짐에서 상대 게이트는 "덜 잃는 쪽"으로도 열린다. 채택안이 음수면 그 사실을 명시.
+  if (policyAutoApplied && optimalAvg != null && optimalAvg < 0) {
+    warnings.push(`⚠️ 자동적용된 조합의 in-sample 평균이 음수(${optimalAvg.toFixed(2)}%) — 상대 게이트(v3.95)는 현행 대비 우열만 본다`);
+  }
+
   // =========================================================================
   // 5. META-MONITOR — N주 전 권장의 후향 검증
   //    "4주 전 진단이 (k,n)을 권장 → 그 후 4주에 적용했다면 어땠을지" 가상 백테스트
@@ -642,6 +691,9 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     warnings: warnings.length ? warnings : null,
     raw_json: {
       ssGoodness, ssReturns,
+      scoreHealthBasis: 'monotone', // v3.96 이전 행은 'sweetspot'(기록 없음)
+      monoRank, monoReturns, monoR, sweetR,
+      scoreHealthBands: monoRank.length,
       optimalQuality,
       gateBasis,                                    // v3.95: 'relative'(현행 대비) | 'absolute'(폴백)
       gateBaseline: gateBasis === 'relative' ? gateBaselineSnap : null,
@@ -690,126 +742,26 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     console.warn('[7. AI] 해석 생성 실패 (진단 데이터는 이미 저장됨):', e.message);
   }
 
-  // Phase 1-6: write OPERATING_STATE.md + append WEEKLY_DIAGNOSTICS.md
-  // Vercel runtime은 read-only file system이므로 process.env.VERCEL=1일 때 skip
+  // v3.96: 문서 렌더는 scripts/render-operating-state.js(= DB가 단일 출처)로 일원화.
+  //   기존에는 여기서 직접 파일을 썼는데 이 블록이 `!process.env.VERCEL` 가드 안에 있었고
+  //   실제 cron은 Vercel에서 돌아, 프로덕션에서는 **한 번도 갱신된 적이 없었다**
+  //   (DB 17주치 vs 문서 6주치, 2026-06-15에 동결). 프로덕션 갱신은 이제
+  //   .github/workflows/render-operating-state.yml 이 담당한다. 로컬 실행 시에는 즉시 반영.
   if (!process.env.VERCEL) {
     try {
-      writeOperatingState(row);
-      appendWeeklyDiagnosticsLog(row);
-      console.log('[weekly-diagnostic] OPERATING_STATE.md / WEEKLY_DIAGNOSTICS.md updated');
+      const { render } = require('./render-operating-state');
+      await render();
+      console.log('[weekly-diagnostic] OPERATING_STATE.md / WEEKLY_DIAGNOSTICS.md 렌더 완료');
     } catch (e) {
-      console.warn('[weekly-diagnostic] file write skipped:', e.message);
+      console.warn('[weekly-diagnostic] 문서 렌더 건너뜀:', e.message);
     }
   }
 
   return row;
 }
 
-// =============================================================================
-// File generators (local-only, skipped on Vercel)
-// =============================================================================
-function writeOperatingState(row) {
-  const repoRoot = path.resolve(__dirname, '..');
-  const file = path.join(repoRoot, 'OPERATING_STATE.md');
-  const healthMap = { healthy:'✅ 양호', broken:'⚠️ 깨짐', inverted:'⛔ 역전', unknown:'❓ 미상' };
-  const sign = (v, suffix='%') => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}${suffix}`;
-  const md = `# Investar 운영 상태 (자동 생성)
+// (v3.96) 문서 생성기는 scripts/render-operating-state.js 로 이동했다.
 
-> ⚠️ 이 파일은 매주 일요일 22:00 KST \`weekly-diagnostic\` cron에 의해 **덮어쓰기**됩니다.
-> 수동 편집하지 마세요. CLAUDE.md(설계 문서)와 분리된 자동 운영 상태 파일입니다.
-
-**최종 갱신**: ${row.week_start} (asOf 기준 주의 시작일)
-
----
-
-## 현재 운영 파라미터
-
-| 항목 | 값 |
-|------|-----|
-| **권장 매수일** | D+${row.optimal_buy_d ?? '?'} 종가 |
-| **권장 매도일** | D+${row.optimal_sell_d ?? '?'} 종가 |
-| **점수 모델 건강도** | ${healthMap[row.score_health_label] || row.score_health_label} (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}) |
-| **TOP1 알파 (현재 D+0,D+3)** | ${sign(row.top1_alpha_current_timing, '%p')} |
-| **TOP1 알파 (권장 timing)** | ${sign(row.top1_alpha_optimal_timing, '%p')} |
-
-## 진단 표본
-
-- **권장 timing in-sample 평균**: ${sign(row.optimal_avg_return)}
-- **권장 timing 최저주**: ${sign(row.optimal_min_return)}
-- **OOS 검증 수익**: ${sign(row.oos_avg_return)} (n=${row.oos_sample_n ?? 0})
-- **in-sample 기간**: ${row.in_sample_weeks}주 / 표본 ${row.optimal_sample_n}건
-- **평가 대상 추천 수**: ${row.total_recs_evaluated}
-
-## 진단 신뢰도 (meta-monitor)
-
-${row.meta_past_buy_d != null
-  ? `- **${row.meta_lookback_weeks}주 전 권장**: D+${row.meta_past_buy_d} → D+${row.meta_past_sell_d}
-- **가상 운영 평균**: ${sign(row.meta_backtest_avg_return)} (n=${row.meta_backtest_sample_n}, 승률 ${row.meta_backtest_win_rate?.toFixed(0) ?? '?'}%)
-- **baseline 대비 알파**: ${sign(row.meta_alpha_vs_baseline, '%p')} ${
-  row.meta_alpha_vs_baseline >= 1 ? '✅ 진단 효과 확인'
-  : row.meta_alpha_vs_baseline >= 0 ? '⚪ baseline 동등'
-  : '⚠️ baseline 미달'
-}`
-  : '- 데이터 누적 중 (4주 후부터 표시)'}
-
-${row.warnings && row.warnings.length ? `## ⚠️ 경고\n\n${row.warnings.map(w => `- ${w}`).join('\n')}\n` : ''}
-
----
-
-## Phase 3 상태 (자동 적용 운영 중)
-
-- **현재**: 주간진단 권장 timing이 현재 정책과 다르면 \`active_policy\` 자동 갱신.
-- **이력**: [WEEKLY_DIAGNOSTICS.md](./WEEKLY_DIAGNOSTICS.md)
-`;
-  fs.writeFileSync(file, md, 'utf8');
-}
-
-function appendWeeklyDiagnosticsLog(row) {
-  const repoRoot = path.resolve(__dirname, '..');
-  const file = path.join(repoRoot, 'WEEKLY_DIAGNOSTICS.md');
-  const sign = (v, suffix='%') => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}${suffix}`;
-
-  // 처음 호출이면 헤더 작성
-  if (!fs.existsSync(file)) {
-    fs.writeFileSync(file, `# Investar 주간 진단 이력 (auto-append)
-
-> 매주 일요일 22:00 KST cron에서 자동 추가. 최신 항목이 맨 위.
-
-`, 'utf8');
-  }
-
-  // 기존 내용 읽고 새 항목을 헤더 뒤에 삽입
-  const existing = fs.readFileSync(file, 'utf8');
-  const headerEnd = existing.indexOf('\n---\n');
-  const header = headerEnd >= 0 ? existing.slice(0, headerEnd + 5) : existing;
-  const rest = headerEnd >= 0 ? existing.slice(headerEnd + 5) : '';
-
-  // 같은 week_start가 이미 있으면 그 항목 제거 후 새로 삽입 (재실행 대응)
-  const dupRe = new RegExp(`\\n## ${row.week_start}[\\s\\S]*?(?=\\n## |$)`, 'g');
-  const restCleaned = rest.replace(dupRe, '');
-
-  const entry = `\n## ${row.week_start}
-
-| 항목 | 값 |
-|------|-----|
-| 권장 timing | D+${row.optimal_buy_d ?? '?'} → D+${row.optimal_sell_d ?? '?'} |
-| in-sample 평균 / 최저주 | ${sign(row.optimal_avg_return)} / ${sign(row.optimal_min_return)} |
-| OOS 검증 | ${sign(row.oos_avg_return)} (n=${row.oos_sample_n ?? 0}) |
-| 점수 건강도 | ${row.score_health_label} (r=${row.score_health_corr?.toFixed(2) ?? 'N/A'}) |
-| TOP1 알파 (현재 / 권장) | ${sign(row.top1_alpha_current_timing, '%p')} / ${sign(row.top1_alpha_optimal_timing, '%p')} |
-${row.warnings?.length ? `| 경고 | ${row.warnings.join('; ')} |\n` : ''}
-`;
-
-  // 헤더가 없는 경우 헤더 추가
-  let finalHeader = header;
-  if (headerEnd < 0) {
-    finalHeader = header + '\n---\n';
-  }
-
-  fs.writeFileSync(file, finalHeader + entry + restCleaned, 'utf8');
-}
-
-// CLI
 if (require.main === module) {
   const args = process.argv.slice(2);
   const opts = {};
