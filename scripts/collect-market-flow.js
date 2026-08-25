@@ -183,7 +183,19 @@ async function collectStock(s) {
   if (!DRY) {
     try {
       const { fetchKrxTradingValue } = require('./backfill-trading-value');
-      const dates = [...new Set([...writtenPairs].map(k => k.split('|')[1]))].sort();
+      // 최근 창만 채운다. writtenPairs의 날짜 수는 DEPTH(7)가 아니라 **86일까지 벌어진다** —
+      //   거래가 뜸한 종목은 "최근 7봉"이 몇 달에 걸쳐 있기 때문이다(2026-08-25 실측).
+      //   날짜마다 KRX를 2번(유가+코스닥) 부르므로 그대로 두면 172콜 = 실행이 24분→37분이 된다
+      //   (워크플로 timeout 45분에 8분밖에 안 남았다). 과거 희소 날짜는 어차피
+      //   scripts/backfill-trading-value.js 담당이니 여기서는 최근 창만 맡는다.
+      const TV_WINDOW_DAYS = BACKFILL ? 60 : 20;
+      const tvCutoff = new Date(Date.now() + 9 * 3600e3 - TV_WINDOW_DAYS * 86400e3).toISOString().slice(0, 10);
+      const allDates = [...new Set([...writtenPairs].map(k => k.split('|')[1]))].sort();
+      const dates = allDates.filter(d => d >= tvCutoff);
+      if (allDates.length > dates.length) {
+        console.log('   거래대금 대상 날짜 ' + dates.length + '일 (' + (allDates.length - dates.length)
+          + '일은 ' + TV_WINDOW_DAYS + '일 창 밖 — backfill-trading-value.js 담당)');
+      }
       let tvRows = 0, tvDays = 0;
       for (const date of dates) {
         const vals = await fetchKrxTradingValue(date.replace(/-/g, ''));
