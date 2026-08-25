@@ -50,6 +50,16 @@ SELECT ddl FROM (
   SELECT 2, tablename, indexdef || ';'
     FROM pg_indexes WHERE schemaname = 'public'
   UNION ALL
+  -- v3.96 보완: 첫 덤프가 table_type='BASE TABLE'만 잡아 **뷰를 통째로 놓쳤다**
+  --   (stock_trend_scores DROP 시 의존 뷰 hot_issue_stocks 가 튀어나와 발각).
+  SELECT 2, table_name,
+         E'
+-- ===== VIEW: ' || table_name || E' =====
+CREATE OR REPLACE VIEW '
+         || table_name || E' AS
+' || view_definition
+    FROM information_schema.views WHERE table_schema = 'public'
+  UNION ALL
   SELECT 3, tablename,
          'CREATE POLICY "' || policyname || '" ON ' || tablename ||
          ' FOR ' || cmd ||

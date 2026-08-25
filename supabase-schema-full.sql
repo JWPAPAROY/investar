@@ -9,6 +9,11 @@
 -- 이 파일이 스키마의 단일 출처다. 개별 supabase-*.sql 은 이제 히스토리다
 --   (무엇을 언제 왜 추가했는가). SUPABASE_SETUP.md 의 "SQL 파일 색인" 참고.
 --
+-- ⚠️ 이 덤프는 **뷰·함수·트리거를 포함하지 않는다.** 첫 덤프 쿼리가
+--   table_type='BASE TABLE'만 잡았기 때문이다(2026-08-25 stock_trend_scores DROP 시
+--   의존 뷰 hot_issue_stocks 가 튀어나와 발각). supabase-dump-schema.sql 에 뷰 조회를
+--   추가했으니 다음 덤프 때 채울 것.
+--
 -- 주의: RLS 활성화(ALTER TABLE ... ENABLE ROW LEVEL SECURITY)는 이 덤프에
 --   포함되지 않는다. 재구축 시 테이블 생성 후 직접 걸어야 한다.
 -- ============================================================================

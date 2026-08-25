@@ -22,6 +22,18 @@
 --   search_trends         0행
 -- 딸린 인덱스·RLS 정책은 DROP TABLE 시 함께 사라진다.
 -- ────────────────────────────────────────────────────────────────────────────
+-- ⚠️ 2026-08-25 실행 중 발견: stock_trend_scores 에 의존하는 뷰 hot_issue_stocks 가 있다.
+--   (내 덤프 쿼리가 table_type='BASE TABLE'만 잡아 뷰를 통째로 놓쳤다 — supabase-schema-full.sql 도
+--    그만큼 불완전하다. 아래 [A-0]으로 전체 뷰 목록을 먼저 확인할 것.)
+--   CASCADE로 뭉개지 않고 이름을 명시해 지운다 — 무엇이 지워지는지 보이게.
+--   hot_issue_stocks 는 코드 전체에서 사용처 0건(같은 트렌드 시스템 잔재).
+
+-- [A-0] 먼저 실행해 볼 것: public 스키마의 뷰 목록 (기대: hot_issue_stocks 외에 없음)
+--   여기서 살아있는 테이블(screening_recommendations 등)에 걸린 뷰가 나오면
+--   아래 DROP을 실행하기 전에 알려줄 것.
+SELECT table_name AS view_name FROM information_schema.views WHERE table_schema = 'public';
+
+DROP VIEW  IF EXISTS hot_issue_stocks;
 DROP TABLE IF EXISTS news_mentions;
 DROP TABLE IF EXISTS stock_trend_scores;
 DROP TABLE IF EXISTS search_trends;
@@ -83,10 +95,13 @@ ALTER TABLE weekly_diagnostics ALTER COLUMN regime DROP NOT NULL;
 -- [D] 확인 — 기대값을 주석에 적어둔다
 -- ────────────────────────────────────────────────────────────────────────────
 
--- D-1. 잔재 테이블이 사라졌는가 (기대: 0행)
+-- D-1. 잔재 테이블·뷰가 사라졌는가 (기대: 0행)
 SELECT table_name FROM information_schema.tables
  WHERE table_schema = 'public'
-   AND table_name IN ('news_mentions', 'stock_trend_scores', 'search_trends');
+   AND table_name IN ('news_mentions', 'stock_trend_scores', 'search_trends')
+UNION ALL
+SELECT table_name FROM information_schema.views
+ WHERE table_schema = 'public' AND table_name = 'hot_issue_stocks';
 
 -- D-2. stock_financials 가 생겼는가 (기대: 11컬럼 + updated_at)
 SELECT column_name, data_type FROM information_schema.columns
