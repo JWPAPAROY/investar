@@ -5,7 +5,11 @@ const advancedIndicators = require('./advancedIndicators');
 //   v3.85(폐기된 isV2Priority 정렬)에 멈춰 있었고 시총 플로어도 빠져 있었다.
 const { sortByTop3Order, selectEligibleWithTiers, applyMomentumCapFloor, SCREENING_ACCESSORS } = require('./top3Ranking');
 const { detectMarketRegime } = require('./marketRegime');
-const smartPatternMiner = require('./smartPatternMining');
+// v3.96: smartPatternMining 제거 — loadSavedPatterns()의 반환을 this.savedPatterns에
+//   담아두기만 하고 **읽는 곳이 0개**였다(점수·TOP3 미반영). v3.94가 시간축 역전을
+//   발견하고도 남겨둔 이유는 To-Do #6-A(깔때기 뒤집기)에서 되살릴지 몰라서였는데,
+//   그 가설은 2026-08-06 기각 · 08-19 재확인으로 종결됐다. gistStorage·patternCache도
+//   이 파일만 쓰던 종속 모듈이라 함께 제거(총 1,122줄). 복원은 git history 참고.
 
 /**
  * 전체 종목 스크리닝 및 추천
@@ -15,7 +19,6 @@ class StockScreener {
     this.cachedResults = null;
     this.cacheTimestamp = null;
     this.cacheDuration = 60 * 60 * 1000; // 1시간 캐시
-    this.savedPatterns = smartPatternMiner.loadSavedPatterns(); // 저장된 패턴 로드
 
   }
 
