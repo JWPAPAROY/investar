@@ -22,18 +22,41 @@
 --   search_trends         0행
 -- 딸린 인덱스·RLS 정책은 DROP TABLE 시 함께 사라진다.
 -- ────────────────────────────────────────────────────────────────────────────
--- ⚠️ 2026-08-25 실행 중 발견: stock_trend_scores 에 의존하는 뷰 hot_issue_stocks 가 있다.
---   (내 덤프 쿼리가 table_type='BASE TABLE'만 잡아 뷰를 통째로 놓쳤다 — supabase-schema-full.sql 도
---    그만큼 불완전하다. 아래 [A-0]으로 전체 뷰 목록을 먼저 확인할 것.)
---   CASCADE로 뭉개지 않고 이름을 명시해 지운다 — 무엇이 지워지는지 보이게.
---   hot_issue_stocks 는 코드 전체에서 사용처 0건(같은 트렌드 시스템 잔재).
+-- ⚠️ 2026-08-25 실행 중 두 번 걸렸다. 잔재 테이블에 **뷰가 붙어 있다.**
+--   1차: view hot_issue_stocks depends on table stock_trend_scores
+--   2차: view search_surge_stocks depends on table search_trends
+--   원인은 내 덤프 쿼리가 table_type='BASE TABLE'만 잡은 것이다(뷰를 통째로 놓쳤다).
+--   게다가 information_schema.views 는 **권한 있는 뷰만** 보여줘서 [A-0]이 0행을 냈다.
+--   → 목록 조회는 pg_catalog.pg_views 로 바꾸고, 남은 의존 뷰는 DO 블록이 쓸어담는다.
+--   SQL Editor는 스크립트를 트랜잭션으로 감싸므로, 중간에 실패하면 전부 롤백된다
+--   (1·2차 실패 후 DB는 손대지 않은 상태였음을 API로 확인했다).
 
--- [A-0] 먼저 실행해 볼 것: public 스키마의 뷰 목록 (기대: hot_issue_stocks 외에 없음)
---   여기서 살아있는 테이블(screening_recommendations 등)에 걸린 뷰가 나오면
---   아래 DROP을 실행하기 전에 알려줄 것.
-SELECT table_name AS view_name FROM information_schema.views WHERE table_schema = 'public';
+-- [A-0] public 스키마의 뷰 목록 — pg_views 는 권한과 무관하게 전부 보여준다
+SELECT viewname FROM pg_catalog.pg_views WHERE schemaname = 'public';
 
-DROP VIEW  IF EXISTS hot_issue_stocks;
+-- [A-1] 잔재 3개 테이블에 의존하는 뷰를 모두 제거.
+--   이름을 아는 둘은 명시해 지우고, 혹시 더 있으면 DO 블록이 잡는다.
+--   (CASCADE로 뭉개지 않는 이유: 무엇이 지워졌는지 로그에 남기기 위해)
+DROP VIEW IF EXISTS hot_issue_stocks;
+DROP VIEW IF EXISTS search_surge_stocks;
+
+DO $$
+DECLARE v record;
+BEGIN
+  FOR v IN
+    SELECT DISTINCT c.relname AS viewname
+      FROM pg_depend d
+      JOIN pg_rewrite r  ON r.oid = d.objid
+      JOIN pg_class   c  ON c.oid = r.ev_class AND c.relkind = 'v'
+      JOIN pg_class   t  ON t.oid = d.refobjid
+      JOIN pg_namespace n ON n.oid = c.relnamespace AND n.nspname = 'public'
+     WHERE t.relname IN ('news_mentions', 'stock_trend_scores', 'search_trends')
+  LOOP
+    RAISE NOTICE '의존 뷰 제거: %', v.viewname;
+    EXECUTE format('DROP VIEW IF EXISTS public.%I', v.viewname);
+  END LOOP;
+END $$;
+
 DROP TABLE IF EXISTS news_mentions;
 DROP TABLE IF EXISTS stock_trend_scores;
 DROP TABLE IF EXISTS search_trends;
@@ -96,12 +119,13 @@ ALTER TABLE weekly_diagnostics ALTER COLUMN regime DROP NOT NULL;
 -- ────────────────────────────────────────────────────────────────────────────
 
 -- D-1. 잔재 테이블·뷰가 사라졌는가 (기대: 0행)
-SELECT table_name FROM information_schema.tables
- WHERE table_schema = 'public'
-   AND table_name IN ('news_mentions', 'stock_trend_scores', 'search_trends')
+SELECT tablename AS leftover FROM pg_catalog.pg_tables
+ WHERE schemaname = 'public'
+   AND tablename IN ('news_mentions', 'stock_trend_scores', 'search_trends')
 UNION ALL
-SELECT table_name FROM information_schema.views
- WHERE table_schema = 'public' AND table_name = 'hot_issue_stocks';
+SELECT viewname FROM pg_catalog.pg_views
+ WHERE schemaname = 'public'
+   AND viewname IN ('hot_issue_stocks', 'search_surge_stocks');
 
 -- D-2. stock_financials 가 생겼는가 (기대: 11컬럼 + updated_at)
 SELECT column_name, data_type FROM information_schema.columns
