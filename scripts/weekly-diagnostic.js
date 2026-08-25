@@ -292,7 +292,12 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     else if (scoreHealthR < -0.3) scoreHealthLabel = 'inverted';
     else scoreHealthLabel = 'broken';
     if (monoRank.length < 5) {
-      scoreHealthLabel += '_weak';
+      // v3.96 정정: 여기서 라벨에 '_weak'를 붙였더니 소비처 6곳이 깨졌다 —
+      //   save-daily의 healthMap[label]이 미스되어 텔레그램에 "?"가 찍히고,
+      //   `label === 'inverted' / 'broken'` 비교가 전부 빗나가 설명 문구와
+      //   reviewFlags(룰 재검토 권고)가 조용히 사라졌다. 지금 데이터가 정확히 밴드 4개라
+      //   이 경로가 평상시 상태였다. **라벨은 열거형으로 유지**하고 표본 부족은
+      //   warnings + raw_json.scoreHealthBands 로만 알린다(사실 하나에 필드 하나).
       warnings.push(`score_health: 밴드 ${monoRank.length}개짜리 상관 — 라벨은 참고용(주간 널뛰기 정상)`);
     }
   }

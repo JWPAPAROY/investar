@@ -26,13 +26,17 @@ const { createClient } = require('@supabase/supabase-js');
 const repoRoot = path.resolve(__dirname, '..');
 const sign = (v, suffix = '%') => v == null ? 'N/A' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}${suffix}`;
 
-/** 라벨 → 표시. v3.96부터 '_weak' 접미(밴드 부족)가 붙을 수 있다. */
+/**
+ * 라벨 → 표시.
+ * 라벨은 healthy/broken/inverted/unknown 열거형을 유지한다 — 접미를 붙였더니
+ * save-daily의 healthMap과 === 비교가 전부 빗나갔다(v3.96에서 정정).
+ * 표본 부족은 밴드 수로 표시한다.
+ */
 function healthLabel(label, corr, bands) {
-  const base = String(label || '').replace(/_weak$/, '');
   const map = { healthy: '✅ 양호', broken: '⚠️ 깨짐', inverted: '⛔ 역전', unknown: '❓ 미상' };
-  const weak = String(label || '').endsWith('_weak') ? ' *(밴드 부족 — 참고용)*' : '';
+  const weak = bands && bands < 5 ? ' *(밴드 부족 — 참고용)*' : '';
   const b = bands ? `, 밴드 ${bands}개` : '';
-  return `${map[base] || base} (ρ=${corr?.toFixed(2) ?? 'N/A'}${b})${weak}`;
+  return `${map[label] || label} (ρ=${corr?.toFixed(2) ?? 'N/A'}${b})${weak}`;
 }
 
 function renderOperatingState(row, policy, history) {
