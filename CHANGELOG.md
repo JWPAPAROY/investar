@@ -49,6 +49,13 @@
   - 되살릴 때 오염되지 않도록 지금 고쳐 두고, 죽은 상태임을 주석에 명시. 검증: 거래량 증가 시계열 → `true`(+53.1%), 감소 시계열 → `false`(−47.2%).
   - ⚠️ 프론트엔드(index.html)는 여전히 `accumulation` / `both` 세그먼트를 "거래량 증가" 기준으로 설명하는데, 그 필드는 7개월째 항상 false라 **두 버킷이 영구히 비어 있다**.
 
+- **자격 술어 3벌 통합 + 이격도 단계 컷 통합**: `selectAlertTop3`(DB 행)·`selectSaveTop3`(스크리닝 결과)·`screening.selectTop3`(웹)에 같은 술어가 세 벌 있었다. 2026-08-25 시점엔 의미가 동일했지만 v3.94가 고친 사고 두 건이 정확히 "사본이 갈라진 것"이었다. `top3Ranking.isTop3Eligible` / `selectEligibleWithTiers`로 통합하고 accessor에 `hasBuyWhale`·`disparity`·`isOverheated`·`changeRate`·`marketCap` 추가. **회귀 검증: 2026-05-01~08-24 77거래일 전수 대조에서 자격 불일치 0일 / TOP3 픽 불일치 0일**(동작 보존).
+- **`save` 모드만 UTC 날짜를 쓰던 것 → `getTodayDateKST()`**: 다른 모드는 전부 KST인데 여기만 UTC라 00~09시 KST 구간에 기준이 두 개였다(폴백이 DB 최신 추천일을 집어와 결과는 자기교정됐다).
+- **`?force=true` 삭제가 FK 순서를 어기고 결과도 확인하지 않던 것**: `success_patterns`(FK) → `daily_prices` → `recommendations` 순으로 바꾸고 단계별 오류 확인 후 실패 시 500 중단. 기존에는 조용히 실패한 뒤 재스크리닝이 중복 행을 만들 수 있었다.
+- **`index.html`의 `accumulation`/`both` 분기 제거**: `categoryDescriptions`에 없는 키라 렌더된 적이 없고, 그 필드는 v3.24 폐기 후 2026-01-30부터 항상 false다.
+- **비거래일 잔여 오염 발견 → `supabase-cleanup-20251231.sql`**: 달력 보정 후 전체 재스캔(추천·가격·패턴·수급 전 테이블)에서 ① 2025-12-31 유령 가격행 260 + 추천 2 ② 2026-05-01(근로자의 날) success_date 패턴 4건이 남아 있었다. `market_flow_daily`는 깨끗. **API(anon)로는 지울 수 없다** — RLS에 DELETE 정책이 없어 오류 없이 0행이 지워진다(조용한 실패를 실측 확인). Supabase SQL Editor에서 실행할 것. 백업: `data/backup-20251231-nontrading.json`.
+  - 달력 보정 효과로 `renumber-trading-days.js`가 이제 이 유령 행을 **스스로 감지하고 중단**한다(보정 전에는 "0행, 정상"이라고 답했다).
+
 ### v3.95 (2026-08-06)
 - **🚨 보유기간 자동조정 게이트가 하락장에서 구조적으로 잠겨 있었음 → 판정 기준을 상대 비교로 전환**: tier 판정(`robust`/`majority`/`least_bad`)이 **주별 수익 > 0의 비율**(`posRatio`)이었다. 하락 레짐에선 어떤 (k,n) 조합도 8주 중 70%를 양수로 만들 수 없어 **항상 `least_bad`로 떨어졌고, `least_bad`는 권고만 하고 적용하지 않는다** → 2026-05-05 수동 설정(D+1→D+10) 이후 **3개월간 자동 변경 0회**. 최근 5주 posRatio 25/25/63/43/50%.
   - **보유기간 단축이 가장 필요한 국면이 정확히 게이트가 잠기는 국면**이었다. 6월 3단 완화(b373409)는 "권고를 말하게" 만들었을 뿐 적용 경로는 절대 기준 그대로여서 맹점의 절반만 고쳐진 상태였다.
