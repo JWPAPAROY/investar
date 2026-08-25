@@ -35,6 +35,11 @@
   - `scripts/calc-expectations.js`(핸들러를 mode만 지정해 호출 — 로직 복사 없음) + `.github/workflows/calc-expectations.yml`(평일 18:50 KST) 신설. post-market의 fall-through는 멱등 upsert라 이중 안전망으로 남겨둔다.
 - **피드 정지 감시 추가 (`[6.5 FEED FRESHNESS]`)**: 2026년에만 같은 유형의 사고가 세 번 났다 — ① 주간진단 cron 4주 침묵(NOT NULL 위반으로 INSERT만 실패) ② OPERATING_STATE.md 10주 동결(Vercel read-only FS) ③ 기대수익 7거래일 동결(60초 벽). **셋 다 아무도 경고하지 않아 사람이 우연히 발견할 때까지 지속됐다.** 이제 주간진단이 `expected_return_stats`·`stock_expected_returns`·`sector_outlook_stats`·`market_flow_daily`의 최신 갱신 시각을 매주 확인해 허용 일수를 넘으면 `warnings`에 남기고, OPERATING_STATE.md에 노출한다.
 
+- **`volumeDnaExtractor.js` 시간축 역전 수정 (v3.94에서 발견·보류했던 건)**: 이 파일은 chartData가 오름차순이라 가정하는데 `getDailyChart()`는 내림차순([0]=최신)을 반환하고 `filterByDateRange()`는 필터만 할 뿐 정렬하지 않는다. `calculateSegmentedAverage()`의 early/mid/late가 뒤집혀 **`accelerating`(거래량 가속) 판정이 실제로는 감속을 의미**했고, 가중 평균의 "후반 50%" 가중치도 가장 오래된 구간에 실렸다. 프론트엔드(index.html → `/api/patterns/volume-dna`)가 그 뒤집힌 라벨을 그대로 표시해왔다.
+  - 진입점 2곳(`extractStockPattern`·`scanMarketForDNA`)에서 `toAscending()`으로 정규화. **날짜를 비교해 판단하므로 이미 오름차순이면 그대로 둔다**(이중 반전 방지). 본문의 오름차순 전제와 `getInvestorData`(원래 오름차순)는 손대지 않았다.
+  - 검증: 거래량이 시간에 따라 증가하는 합성 시계열에서 오름차순 `accelerating` / 내림차순 `decelerating`(수정 전 동작) / `toAscending(내림차순)` `accelerating` / `toAscending(오름차순)` `accelerating`(이중반전 없음).
+  - 이 모듈은 DB에 쓰지 않고 점수·TOP3에도 반영되지 않는다 — 저장된 과거 데이터 오염은 없다. 파일 헤더의 "보류 — 미수정" 경고도 함께 갱신했다.
+
 ### v3.95 (2026-08-06)
 - **🚨 보유기간 자동조정 게이트가 하락장에서 구조적으로 잠겨 있었음 → 판정 기준을 상대 비교로 전환**: tier 판정(`robust`/`majority`/`least_bad`)이 **주별 수익 > 0의 비율**(`posRatio`)이었다. 하락 레짐에선 어떤 (k,n) 조합도 8주 중 70%를 양수로 만들 수 없어 **항상 `least_bad`로 떨어졌고, `least_bad`는 권고만 하고 적용하지 않는다** → 2026-05-05 수동 설정(D+1→D+10) 이후 **3개월간 자동 변경 0회**. 최근 5주 posRatio 25/25/63/43/50%.
   - **보유기간 단축이 가장 필요한 국면이 정확히 게이트가 잠기는 국면**이었다. 6월 3단 완화(b373409)는 "권고를 말하게" 만들었을 뿐 적용 경로는 절대 기준 그대로여서 맹점의 절반만 고쳐진 상태였다.

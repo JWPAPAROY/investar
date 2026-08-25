@@ -7,28 +7,25 @@
  * 핵심 철학: "거래량이 주가에 선행한다"
  *
  * ══════════════════════════════════════════════════════════════════════════
- * 🚨 v3.94 (2026-07-17): 이 파일은 **시간축이 뒤집힌 채** 동작한다. (보류 — 미수정)
+ * ✅ v3.96 (2026-08-25): 시간축 역전 **수정됨**. (v3.94에서 발견·문서화만 하고 보류했던 건)
  *
- * 이 파일은 chartData가 **오름차순**이라 가정하지만, kisApi.getDailyChart()는
- * **내림차순**([0]=최신)을 반환하고 filterByDateRange()는 필터만 할 뿐 정렬하지 않는다.
+ * 무엇이 문제였나: 이 파일은 chartData가 **오름차순**이라 가정하는데,
+ * kisApi.getDailyChart()는 **내림차순**([0]=최신)을 반환하고 filterByDateRange()는
+ * 필터만 할 뿐 정렬하지 않는다. 그 결과 calculateSegmentedAverage()의
+ *   early = data.slice(0, earlyEnd)   ← 내림차순에선 최신 구간
+ *   late  = data.slice(midEnd)        ← 실제로는 가장 오래된 구간
+ * 이 뒤집혀 **accelerating(거래량 가속) 판정이 실제로는 감속을 의미**했다.
+ * 가중 평균의 "후반 50%" 가중치도 가장 오래된 구간에 실렸다.
+ * 프론트엔드(index.html → /api/patterns/volume-dna)가 그 뒤집힌 라벨을 그대로 표시해왔다.
+ * (점수·TOP3에는 반영되지 않으므로 추천 자체는 오염되지 않았다.)
  *
- *   calculateSegmentedAverage():
- *     const early = data.slice(0, earlyEnd);   // ← 내림차순에선 **최신** 구간이다
- *     const late  = data.slice(midEnd);        // ← 실제로는 **가장 오래된** 구간이다
- *     if (avgLate > avgMid && avgMid > avgEarly) trend = 'accelerating';
+ * 어떻게 고쳤나: 일봉이 들어오는 **진입점 2곳**(extractStockPattern·scanMarketForDNA)에서
+ * toAscending()으로 정규화한다. 날짜를 비교해 판단하므로 이미 오름차순이면 그대로 둔다
+ * (이중 반전 방지). 파일 본문의 오름차순 전제는 그대로 두는 편이 안전하다.
+ * getInvestorData()는 원래 오름차순이라 손대지 않았다.
  *
- * → early/mid/late가 뒤집혀 **'accelerating'(거래량 가속) 판정이 실제로는 감속을 의미한다.**
- *   가중 평균(overall = early*0.2 + mid*0.3 + late*0.5)의 "후반 50%" 가중치도 실제로는
- *   가장 오래된 구간에 실린다. data[i-1](prevVolume)은 실제로는 다음날이고,
- *   slice(-5)는 가장 오래된 5개다(CLAUDE.md가 금지한 패턴).
- *
- * ⚠️ smartPatternMining.js와 달리 **이 모듈은 살아 있다** — 프론트엔드(index.html)가
- *   /api/patterns/volume-dna 를 호출한다. 즉 사용자에게 뒤집힌 분석이 표시된다.
- *   다만 점수·TOP3에는 반영되지 않으므로 추천 자체를 오염시키지는 않는다.
- *
- * 보류 사유와 재개 조건은 CLAUDE.md "3-3. 선행 지표" 및 To-Do #6-A(깔때기 뒤집기) 참고.
- * 고칠 때는 입력을 오름차순으로 정규화(`[...chartData].reverse()`)하는 편이 안전하다 —
- * 이 파일 전체가 오름차순 전제로 쓰여 있기 때문이다.
+ * ⚠️ 순서 가정을 다시 바꿀 때는 backend/advancedIndicators.js와 함께 볼 것.
+ *    같은 계열의 미수정 코드: smartPatternMining.js(시간축 역전, **죽은 코드**라 방치 중).
  * ══════════════════════════════════════════════════════════════════════════
  */
 
@@ -242,7 +239,9 @@ class VolumeDnaExtractor {
       console.log(`  🔍 ${stockCode}: ${startDate} ~ ${endDate} 패턴 추출 중...`);
 
       // 1. 차트 데이터 조회 (여유 10일)
-      const chartData = await kisApi.getDailyChart(stockCode, 40);
+      // v3.96: getDailyChart는 **내림차순**([0]=최신)인데 이 파일 전체가 오름차순 전제로 쓰여 있다.
+      //   진입점에서 한 번 뒤집어 정규화한다(파일 헤더 권고안). getInvestorData는 이미 오름차순이라 그대로 둔다.
+      const chartData = this.toAscending(await kisApi.getDailyChart(stockCode, 40));
 
       // 2. 날짜 범위 필터링
       const targetPeriod = this.filterByDateRange(chartData, startDate, endDate);
@@ -469,6 +468,23 @@ class VolumeDnaExtractor {
     return sum / arr.length;
   }
 
+  /**
+   * 일봉을 오름차순([0]=가장 오래된 날)으로 정규화한다 (v3.96).
+   *
+   * 왜: kisApi.getDailyChart()는 내림차순을 반환하는데 이 파일은 오름차순 전제다.
+   *   그 결과 calculateSegmentedAverage의 early/mid/late가 뒤집혀
+   *   **accelerating(가속) 판정이 실제로는 감속을 의미**했다(v3.94에 문서화, v3.96에 수정).
+   *   프론트엔드(index.html → /api/patterns/volume-dna)가 그 뒤집힌 라벨을 그대로 표시해왔다.
+   * 방어적으로 날짜를 보고 판단한다 — 이미 오름차순이면 그대로 둔다(이중 반전 방지).
+   */
+  toAscending(data) {
+    if (!Array.isArray(data) || data.length < 2) return data || [];
+    const first = data[0]?.date || data[0]?.stck_bsop_date;
+    const last = data[data.length - 1]?.date || data[data.length - 1]?.stck_bsop_date;
+    if (!first || !last) return data;
+    return first > last ? [...data].reverse() : data;
+  }
+
   filterByDateRange(data, startDate, endDate) {
     return data.filter(item => {
       const date = item.date || item.stck_bsop_date;
@@ -559,7 +575,8 @@ class VolumeDnaExtractor {
           batch.map(async (stock) => {
             try {
               // 최근 N일 차트 데이터 조회
-              const chartData = await kisApi.getDailyChart(stock.code, days);
+              // v3.96: 내림차순 → 오름차순 정규화 (위 extractStockPattern과 동일 이유)
+              const chartData = this.toAscending(await kisApi.getDailyChart(stock.code, days));
 
               if (chartData.length < 10) {
                 console.log(`  ⚠️ ${stock.name} (${stock.code}): 데이터 부족 (${chartData.length}일)`);
