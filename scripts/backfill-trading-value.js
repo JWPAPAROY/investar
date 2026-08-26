@@ -51,7 +51,11 @@ async function loadLocal() {
   return idx;
 }
 
-/** KRX 오픈API에서 하루치 거래대금 (유가증권 + 코스닥). 실패 시 null. */
+/**
+ * KRX 오픈API에서 하루치 일별매매정보 (유가증권 + 코스닥). 실패 시 null.
+ * @returns {Map<code, {tradingValue, marketCap, listedShares, close, volume}>|null}
+ *   v3.97 이전에는 거래대금 숫자만 반환했다. 시총·주식수 대조가 필요해져 객체로 바꿨다.
+ */
 async function fetchKrxTradingValue(basDd, key = process.env.KRX_AUTH_KEY) {
   if (!key) return null;
   const out = new Map();
@@ -63,8 +67,18 @@ async function fetchKrxTradingValue(basDd, key = process.env.KRX_AUTH_KEY) {
         });
         if (r.status === 200) {
           for (const row of r.data?.OutBlock_1 || []) {
-            const v = num(row.ACC_TRDVAL);
-            if (row.ISU_CD && v != null) out.set(String(row.ISU_CD).trim(), v);
+            // v3.97: 거래대금만이 아니라 **실측 시총·상장주식수**도 가져온다.
+            //   KIS market_cap 은 "현재 시총/현재가"로 역산한 근사치라 어긋난다
+            //   (NAVER −3.1%, 018700 +42.7%, 2026-08-21 대조).
+            const code = row.ISU_CD ? String(row.ISU_CD).trim() : null;
+            if (!code) continue;
+            out.set(code, {
+              tradingValue: num(row.ACC_TRDVAL),
+              marketCap: num(row.MKTCAP),
+              listedShares: num(row.LIST_SHRS),
+              close: num(row.TDD_CLSPRC),
+              volume: num(row.ACC_TRDVOL),
+            });
           }
           break;
         }
@@ -125,8 +139,8 @@ async function main() {
     const rows = [];
     for (const code of codes) {
       const v = vals.get(code);
-      if (v == null) { missCode++; continue; }   // 상폐·우선주 등 KRX 미매칭
-      rows.push({ stock_code: code, trade_date: date, trading_value: v });
+      if (!v || v.tradingValue == null) { missCode++; continue; }   // 상폐·우선주 등 KRX 미매칭
+      rows.push({ stock_code: code, trade_date: date, trading_value: v.tradingValue });
     }
     if (!rows.length) { console.log('   ' + date + ': 매칭 0건'); continue; }
 

@@ -184,6 +184,43 @@ async function collectStock(s) {
   //   덤으로 당일치도 즉시 온다(KRX는 다음 날 공표라 하루 늦었다).
   //   KRX 백필 스크립트(scripts/backfill-trading-value.js)는 과거 구멍 메우기용으로 남긴다.
 
+  // v3.97: KRX 실측 시총·상장주식수 채우기.
+  //   market_cap 은 KIS 현재가 API에서 역산한 근사치라 어긋난다
+  //   (NAVER −3.1%, 018700 +42.7%, 2026-08-21 대조. 3% 초과가 하루 8~17종목).
+  //   저PBR·저변동 포트폴리오의 유니버스가 시총 상위 300이고, **백테스트가 KRX MKTCAP으로
+  //   검증됐다** — 실운용이 다른 시총을 쓰면 순위가 달라져 성과 비교가 성립하지 않는다.
+  //   ⚠️ KRX는 다음 날 공표라 당일치는 비어 있다. 당일 시총은 소비 측에서
+  //     krx_listed_shares(최신값) × 당일 종가로 계산한다(build-portfolio.js).
+  if (!DRY) {
+    try {
+      const { fetchKrxTradingValue } = require('./backfill-trading-value');
+      const WINDOW = BACKFILL ? 60 : 20;
+      const cutoff = new Date(Date.now() + 9 * 3600e3 - WINDOW * 86400e3).toISOString().slice(0, 10);
+      const dates = [...new Set([...writtenPairs].map(k => k.split('|')[1]))].sort().filter(d => d >= cutoff);
+      let capRows = 0, capDays = 0;
+      for (const date of dates) {
+        const vals = await fetchKrxTradingValue(date.replace(/-/g, ''));
+        if (!vals) continue;
+        capDays++;
+        const rows = [];
+        for (const [code, v] of vals) {
+          if (!writtenPairs.has(code + '|' + date)) continue;
+          if (v.marketCap == null && v.listedShares == null) continue;
+          rows.push({ stock_code: code, trade_date: date, krx_market_cap: v.marketCap, krx_listed_shares: v.listedShares });
+        }
+        for (let i2 = 0; i2 < rows.length; i2 += 500) {
+          const { error } = await supabase.from('market_flow_daily')
+            .upsert(rows.slice(i2, i2 + 500), { onConflict: 'stock_code,trade_date' });
+          if (error) { console.warn('⚠️ KRX 시총 upsert 실패(' + date + '): ' + error.message); break; }
+          capRows += Math.min(500, rows.length - i2);
+        }
+      }
+      console.log('🏛️ KRX 실측 시총: ' + capDays + '일 / ' + capRows + '행');
+    } catch (e) {
+      console.warn('⚠️ KRX 시총 채우기 실패(수집 자체는 성공):', e.message);
+    }
+  }
+
   const el = ((Date.now() - t0) / 60000).toFixed(1);
   console.log(`\n✅ 완료 (${el}분): 종목 ok=${stats.stocksOk} fail=${stats.stocksFail} | rows full=${stats.full} flowOnly=${stats.flowOnly} chartOnly=${stats.chartOnly} | 부분실패 flow=${stats.flowFail} chart=${stats.chartFail}`);
   // 실패율 20% 초과 시 비정상 종료 → Actions 실패 알림으로 감지

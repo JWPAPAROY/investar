@@ -48,7 +48,7 @@ async function fetchAll(table, cols, filter) {
   // 필요한 최소 구간은 look+1 거래일이지만, 리밸런싱 주기 판단과 성과 계산을 위해 넉넉히.
   const since = new Date(Date.now() - 200 * 864e5).toISOString().slice(0, 10);
   const flow = await fetchAll('market_flow_daily',
-    'stock_code,trade_date,close,market_cap,trading_value', q => q.gte('trade_date', since));
+    'stock_code,trade_date,close,market_cap,krx_market_cap,krx_listed_shares,trading_value', q => q.gte('trade_date', since));
   if (!flow.length) throw new Error('market_flow_daily 비어 있음');
 
   const days = [...new Set(flow.map(r => r.trade_date))].sort();
@@ -56,9 +56,34 @@ async function fetchAll(table, cols, filter) {
   for (const r of flow) {
     let s = series.get(r.stock_code);
     if (!s) { s = []; s.byDate = new Map(); series.set(r.stock_code, s); }
-    const rec = { date: r.trade_date, close: r.close, marketCap: r.market_cap, tradingValue: r.trading_value };
+    // v3.97: 시총은 **KRX 실측 우선**.
+    //   market_cap 은 KIS 역산 근사치라 어긋난다(NAVER −3.1%, 018700 +42.7%).
+    //   백테스트(strategy-search.js)가 KRX MKTCAP으로 검증됐으므로 실운용도 같은 정의를 써야
+    //   순위가 일치하고 성과 비교가 성립한다.
+    //   ⚠️ KRX는 다음 날 공표라 **당일치가 비어 있다** → 아래에서 주식수×종가로 메운다.
+    const rec = {
+      date: r.trade_date, close: r.close, tradingValue: r.trading_value,
+      marketCap: r.krx_market_cap ?? null,
+      krxShares: r.krx_listed_shares ?? null,
+      kisMarketCap: r.market_cap ?? null,
+    };
     s.push(rec); s.byDate.set(r.trade_date, rec);
   }
+  // 시총 보정: KRX 실측이 없는 날(주로 당일)은 **최신 상장주식수 × 그날 종가**로 계산한다.
+  //   상장주식수는 자주 안 바뀌므로 KIS의 시총 역산보다 훨씬 정확하다.
+  //   주식수조차 없으면 KIS 근사치로 폴백하고 몇 건인지 보고한다(조용히 섞이면 안 된다).
+  let capKrx = 0, capShares = 0, capKis = 0;
+  for (const arr of series.values()) {
+    let lastShares = null;
+    for (const rec of arr) {
+      if (rec.krxShares > 0) lastShares = rec.krxShares;
+      if (rec.marketCap > 0) { capKrx++; continue; }
+      if (lastShares > 0 && rec.close > 0) { rec.marketCap = Math.round(lastShares * rec.close); capShares++; continue; }
+      rec.marketCap = rec.kisMarketCap; if (rec.marketCap > 0) capKis++;
+    }
+  }
+  console.log(`🏛️ 시총 출처 — KRX 실측 ${capKrx} / 주식수×종가 ${capShares} / KIS 근사 폴백 ${capKis}`);
+
   const idx = days.length - 1;
   const signalDate = days[idx];
   console.log(`📅 거래일 ${days.length}일 (${days[0]} ~ ${signalDate}) / 종목 ${series.size}`);
