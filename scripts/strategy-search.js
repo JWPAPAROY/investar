@@ -173,10 +173,10 @@ for (const f of Object.keys(FACTORS)) for (const K of [10, 20, 40]) for (const H
 }
 console.log(`탐색: ${combos.length}조합 | 학습 2022-01~${SPLIT} / 검증 ${SPLIT}~2026-08\n`);
 
-const show = (title, sorted) => {
+const show = (title, sorted, lim = 5) => {
   console.log(`  ${title}`);
   console.log('    팩터          K  주기 비중 | 학습 CAGR  학습 MDD  학습승률 | **검증 CAGR  검증 MDD  검증승률**');
-  for (const c of sorted.slice(0, 5)) {
+  for (const c of sorted.slice(0, lim)) {
     const oos = simulate(c.f, c.K, c.H, c.w, SPLIT, '99999999');
     console.log(`    ${c.f.padEnd(12)} ${String(c.K).padStart(2)} ${String(c.H).padStart(3)}일 ${c.w.padEnd(4)} | ${pct(c.is.cagr)} ${pct(c.is.mdd)} ${c.is.win.toFixed(0).padStart(5)}% | ${pct(oos && oos.cagr)} ${pct(oos && oos.mdd)} ${oos ? oos.win.toFixed(0).padStart(5) + '%' : '   -'} (기간 IS ${c.is.n} / OOS ${oos ? oos.n : 0})`);
   }
@@ -196,6 +196,18 @@ for (const H of [10, 20, 60]) {
   console.log(`    ${String(H).padStart(2)}일 | 시총가중 시장  학습 ${pct(a && a.cagr)} (MDD ${pct(a && a.mdd)}) → 검증 ${pct(b && b.cagr)} (MDD ${pct(b && b.mdd)})  |  동일가중 cap300  학습 ${pct(c2 && c2.cagr)} → 검증 ${pct(d2 && d2.cagr)}`);
 }
 console.log('');
+
+// v3.97: 특정 팩터의 **전 조합**을 본다. 상위 5개만 찍으면
+//   "이 팩터의 20일 주기는 어떤가" 같은 질문에 답할 수 없다(2026-08-26 필요해짐).
+//   메모리 규칙: "이 신호는 어떠냐" 류 질문은 추측하지 말고 여기에 한 줄 더해 답할 것.
+const ONLY = arg('factor', null);
+if (ONLY) {
+  const sel = combos.filter(c => c.f === ONLY);
+  if (!sel.length) { console.log(`팩터 '${ONLY}' 없음. 가능: ${Object.keys(FACTORS).join(' / ')}`); process.exit(0); }
+  show(`▍'${ONLY}' 전 조합 (K × 주기 × 비중)`,
+    sel.sort((x, y) => (x.K - y.K) || (x.H - y.H) || x.w.localeCompare(y.w)), 99);
+  process.exit(0);
+}
 
 show('▍학습 CAGR 상위 5', [...combos].sort((a, b) => b.is.cagr - a.is.cagr));
 show('▍학습 승률 상위 5', [...combos].sort((a, b) => b.is.win - a.is.win));

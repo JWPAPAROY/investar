@@ -14,8 +14,6 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// 정적 파일 제공
-app.use(express.static('.'));
 
 // API 라우트 매핑 (Vercel Serverless Functions → Express Routes)
 const apiRoutes = {
@@ -26,7 +24,8 @@ const apiRoutes = {
   //   호출자는 0개였다(index.html의 saveRecommendationsToSupabase도 죽은 함수).
   '/api/recommendations/performance': require('./api/recommendations/performance'),
   '/api/recommendations/update-prices': require('./api/recommendations/update-prices'),
-  '/api/stocks': require('./api/stocks/index')
+  '/api/stocks': require('./api/stocks/index'),
+  '/api/portfolio': require('./api/portfolio/index')
 };
 
 // 라우트 등록
@@ -34,6 +33,12 @@ Object.entries(apiRoutes).forEach(([route, handler]) => {
   app.get(route, handler);
   app.post(route, handler); // POST도 지원
 });
+
+// 정적 파일 — **반드시 API 라우트 뒤에** 둔다 (v3.97).
+//   express.static 은 요청 경로에 같은 이름의 디렉터리가 있으면 301로 리다이렉트한다.
+//   api/portfolio, api/stocks 처럼 핸들러가 디렉터리 안에 있으면 정적 서빙이 먼저 낚아채
+//   /api/portfolio 요청에 HTML 리다이렉트가 돌아온다(2026-08-26 발견).
+app.use(express.static('.'));
 
 // 메인 페이지
 app.get('/', (req, res) => {
