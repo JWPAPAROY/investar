@@ -587,7 +587,13 @@
       const [error, setError] = useState(null);
       const [selectedStock, setSelectedStock] = useState(null);
       const [lastUpdate, setLastUpdate] = useState(null);
-      const [activeTab, setActiveTab] = useState('prediction'); // prediction, screening, performance, analyze, dna
+      const [activeTab, setActiveTab] = useState('prediction'); // prediction, screening, performance, analyze, dna, diagnostic, portfolio
+      // v3.97: 저PBR·저변동 포트폴리오 — 현행 TOP3와 **다른 라인**이다.
+      //   현행 풀(KIS 순위 API 5종 = 전부 주목도 축)의 매칭초과가 −7.39%(D+10)라
+      //   "문제는 랭킹이 아니라 풀"이라는 결론에서 나온 대안. 나란히 놓고 성적을 비교한다.
+      const [portfolio, setPortfolio] = useState(null);
+      const [portfolioWeight, setPortfolioWeight] = useState('cap'); // 'cap'(검증된 설정) | 'eq'
+      const [portfolioLoading, setPortfolioLoading] = useState(false);
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
       const [screeningDuration, setScreeningDuration] = useState(null); // 스크리닝 소요 시간(초)
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
@@ -794,6 +800,27 @@
       };
 
       // 성과 검증 데이터 불러오기
+      // v3.97: 포트폴리오 조회. 성과는 API가 매 호출 종가로 재계산한다(저장 안 함 —
+      //   저장하면 market_flow_daily와 두 출처가 갈라진다).
+      const fetchPortfolio = async () => {
+        setPortfolioLoading(true);
+        try {
+          const res = await fetch(`${API_BASE_URL}/portfolio`);
+          const data = await res.json();
+          if (!data.success) throw new Error(data.error || '로드 실패');
+          setPortfolio(data);
+        } catch (e) {
+          console.error('포트폴리오 로드 실패:', e);
+          setPortfolio({ error: e.message });
+        } finally {
+          setPortfolioLoading(false);
+        }
+      };
+
+      useEffect(() => {
+        if (activeTab === 'portfolio' && !portfolio && !portfolioLoading) fetchPortfolio();
+      }, [activeTab]);
+
       const fetchPerformanceData = async () => {
         setPerformanceLoading(true);
         setPerformanceError(null);
@@ -1013,6 +1040,15 @@
                     }`}
                 >
                   🩺 운영 진단
+                </button>
+                <button
+                  onClick={() => setActiveTab('portfolio')}
+                  className={`px-2 py-2 md:px-6 md:py-3 text-xs md:text-base font-semibold transition-all whitespace-nowrap ${activeTab === 'portfolio'
+                    ? 'text-blue-700 border-b-4 border-blue-700'
+                    : 'text-gray-500 hover:text-gray-700'
+                    }`}
+                >
+                  📦 포트폴리오
                 </button>
               </div>
             </div>
@@ -1538,6 +1574,159 @@
                   />
                 )}
               </>
+            ) : activeTab === 'portfolio' ? (
+              <div>
+                {/* v3.97: 저PBR·저변동 포트폴리오 — 현행 TOP3와 다른 라인.
+                    현행 풀(주목도 축 5종)의 매칭초과 −7.39%(D+10)에서 나온 대안이다. */}
+                <div className="mb-4 p-4 bg-amber-50 border-2 border-amber-300 rounded-lg">
+                  <div className="font-bold text-amber-900 mb-1">⚠️ 검증 중인 대안 — 현행 TOP3와 별개입니다</div>
+                  <div className="text-sm text-amber-800 leading-relaxed">
+                    현행 추천 풀은 거래량·등락률 등 <b>주목도 5개 축</b>으로 만들어지는데,
+                    2026-08-08 측정에서 <b>풀 전체 매칭초과 −7.39%(D+10)</b>였습니다.
+                    "문제는 랭킹이 아니라 풀"이라는 결론에서 나온 대안이 이 화면입니다.
+                    <br />
+                    검증 구간(2024-07~2026-08, 24기간) 성적은 <b>CAGR +65.5% / MDD −10.2% / 승률 67%</b>,
+                    같은 기간 시총가중 시장(+58.1%) 대비 <b>+7.4%p</b>였습니다.
+                    <b> 다만 24기간짜리이고 확정된 전략이 아닙니다.</b> 매매는 직접 판단하세요.
+                  </div>
+                </div>
+
+                {portfolioLoading ? (
+                  <div className="text-center py-12 text-gray-500">불러오는 중...</div>
+                ) : !portfolio || portfolio.error ? (
+                  <div className="text-center py-12 text-red-600">
+                    로드 실패: {portfolio?.error || '알 수 없음'}
+                  </div>
+                ) : !portfolio.current ? (
+                  <div className="text-center py-12 text-gray-500">
+                    아직 리밸런싱 기록이 없습니다.
+                    <div className="text-xs mt-2">scripts/build-portfolio.js 실행 필요</div>
+                  </div>
+                ) : (
+                  <div>
+                    {/* 요약 */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                      <div className="p-3 bg-white border-2 border-gray-200 rounded-lg">
+                        <div className="text-xs text-gray-500">리밸런싱일</div>
+                        <div className="text-lg font-bold">{portfolio.current.rebalanceDate}</div>
+                      </div>
+                      <div className="p-3 bg-white border-2 border-gray-200 rounded-lg">
+                        <div className="text-xs text-gray-500">매수 기준일</div>
+                        <div className="text-lg font-bold">
+                          {portfolio.current.buyDatePending
+                            ? <span className="text-amber-600">대기 중</span>
+                            : portfolio.current.buyDate}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-white border-2 border-gray-200 rounded-lg">
+                        <div className="text-xs text-gray-500">
+                          수익률 ({portfolioWeight === 'cap' ? '시총가중' : '동일가중'})
+                        </div>
+                        <div className={`text-lg font-bold ${
+                          (portfolioWeight === 'cap' ? portfolio.performance.returnCapWeighted : portfolio.performance.returnEqualWeighted) >= 0
+                            ? 'text-red-600' : 'text-blue-600'}`}>
+                          {(() => {
+                            const v = portfolioWeight === 'cap'
+                              ? portfolio.performance.returnCapWeighted
+                              : portfolio.performance.returnEqualWeighted;
+                            return v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`;
+                          })()}
+                        </div>
+                      </div>
+                      <div className="p-3 bg-white border-2 border-gray-200 rounded-lg">
+                        <div className="text-xs text-gray-500">KOSPI 대비</div>
+                        <div className="text-lg font-bold">
+                          {portfolio.performance.excessVsBenchmark == null
+                            ? '—'
+                            : `${portfolio.performance.excessVsBenchmark >= 0 ? '+' : ''}${portfolio.performance.excessVsBenchmark.toFixed(2)}%p`}
+                        </div>
+                        {portfolio.performance.benchmark && (
+                          <div className="text-xs text-gray-400">
+                            KOSPI {portfolio.performance.benchmark.returnPct >= 0 ? '+' : ''}
+                            {portfolio.performance.benchmark.returnPct.toFixed(2)}%
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 비중 방식 토글 — 기본은 검증된 시총가중 */}
+                    <div className="flex items-center gap-2 mb-3 text-sm">
+                      <span className="text-gray-600">비중:</span>
+                      <button
+                        onClick={() => setPortfolioWeight('cap')}
+                        className={`px-3 py-1 rounded border-2 ${portfolioWeight === 'cap'
+                          ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                      >시총가중 (검증된 설정)</button>
+                      <button
+                        onClick={() => setPortfolioWeight('eq')}
+                        className={`px-3 py-1 rounded border-2 ${portfolioWeight === 'eq'
+                          ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                      >동일가중</button>
+                      {portfolioWeight === 'eq' && (
+                        <span className="text-xs text-amber-700">※ 이 조합은 따로 검증되지 않았습니다</span>
+                      )}
+                    </div>
+
+                    {/* 보유 종목 */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm border-collapse">
+                        <thead>
+                          <tr className="bg-gray-100 text-gray-700">
+                            <th className="p-2 text-left">종목</th>
+                            <th className="p-2 text-right">비중</th>
+                            <th className="p-2 text-right">PBR</th>
+                            <th className="p-2 text-right">σ20</th>
+                            <th className="p-2 text-right">시총</th>
+                            <th className="p-2 text-right">매수가</th>
+                            <th className="p-2 text-right">현재가</th>
+                            <th className="p-2 text-right">수익률</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {portfolio.current.holdings.map((h, i) => (
+                            <tr key={h.code} className="border-b border-gray-200 hover:bg-gray-50">
+                              <td className="p-2">
+                                <span className="font-semibold">{h.name}</span>
+                                <span className="text-xs text-gray-400 ml-1">{h.code}</span>
+                              </td>
+                              <td className="p-2 text-right font-mono">
+                                {((portfolioWeight === 'cap' ? h.weight : h.weightEq) * 100).toFixed(1)}%
+                              </td>
+                              <td className="p-2 text-right font-mono">{h.pbr.toFixed(2)}</td>
+                              <td className="p-2 text-right font-mono text-gray-500">{h.vol20.toFixed(2)}%</td>
+                              <td className="p-2 text-right font-mono text-gray-500">{(h.cap / 1e12).toFixed(1)}조</td>
+                              <td className="p-2 text-right font-mono text-gray-500">
+                                {h.buyClose ? h.buyClose.toLocaleString() : '—'}
+                              </td>
+                              <td className="p-2 text-right font-mono">
+                                {h.lastClose ? h.lastClose.toLocaleString() : '—'}
+                              </td>
+                              <td className={`p-2 text-right font-mono font-bold ${
+                                h.returnPct == null ? 'text-gray-400'
+                                  : h.returnPct >= 0 ? 'text-red-600' : 'text-blue-600'}`}>
+                                {h.returnPct == null ? '—' : `${h.returnPct >= 0 ? '+' : ''}${h.returnPct.toFixed(2)}%`}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* 구성 규칙 */}
+                    <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600 leading-relaxed">
+                      <b>구성 규칙</b> — 유니버스: 보통주 · 시총 3,000억+ · 20일 평균 거래대금 10억+ 중 <b>시총 상위 300</b>
+                      (이번 회차 통과 {portfolio.current.universeSize}종목).
+                      팩터: <b>저PBR 백분위 + 저변동(20일 표준편차) 백분위</b> 합산 상위 {portfolio.current.params?.k}종목.
+                      리밸런싱 <b>{portfolio.current.params?.hold}거래일</b>
+                      {portfolio.current.nextDate ? ` (다음 ${portfolio.current.nextDate})` : ''}.
+                      <br />
+                      수급·모멘텀·거래량·업종·손절은 개별 검정을 통과하지 못해 <b>일부러 넣지 않았습니다</b>.
+                      매수는 신호일 <b>다음 거래일 종가</b> 기준으로 계산합니다.
+                    </div>
+                  </div>
+                )}
+              </div>
+
             ) : activeTab === 'prediction' ? (
               <div>
                 {prediction ? (() => {
