@@ -1084,11 +1084,26 @@ async function handleDiagnostics(req, res) {
         .order('changed_at', { ascending: false })
         .limit(20),
     ]);
+
+    // v3.97: KIS ↔ KRX 대조. 오늘 하루에만 출처가 조용히 갈라진 사례가 셋 나왔는데
+    //   (미확정 수급 행 / 거래대금 전 구간 NULL / 시총 역산 최대 30% 오차)
+    //   아무도 두 출처를 나란히 보지 않아 오래 살아남았다. 진단 화면에 상시 노출한다.
+    //   표가 없거나 비어 있어도 진단 전체가 실패하면 안 되므로 조용히 null로 둔다.
+    let reconciliation = [];
+    try {
+      const { data: rec } = await supabase.from('source_reconciliation')
+        .select('trade_date,compared,fields,worst')
+        .order('trade_date', { ascending: false })
+        .limit(10);
+      reconciliation = rec || [];
+    } catch (e) { /* 대조는 부가 정보 */ }
+
     return res.status(200).json({
       success: true,
       diagnostics: (diagRes.data || []).reverse(), // chronological for chart
       activePolicy: polRes.data || null,
       policyHistory: histRes.data || [],
+      reconciliation,
       timestamp: new Date().toISOString(),
     });
   } catch (e) {

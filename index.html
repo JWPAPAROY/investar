@@ -604,6 +604,7 @@
       const [latestDiagnostic, setLatestDiagnostic] = useState(null); // Phase 2-3: 최신 주간 진단
       const [diagnosticHistory, setDiagnosticHistory] = useState(null); // Phase 2-4: 시계열 12주
       const [policyHistory, setPolicyHistory] = useState([]); // Phase 2-4: 정책 변경 이력
+      const [reconciliation, setReconciliation] = useState([]); // v3.97: KIS↔KRX 대조
       const [diagnosticLoading, setDiagnosticLoading] = useState(false);
       const [entryView, setEntryView] = useState('d0'); // Phase 2-5: 'd0' | 'active'
 
@@ -689,6 +690,7 @@
           if (data.success) {
             setDiagnosticHistory(data.diagnostics || []);
             setPolicyHistory(data.policyHistory || []);
+            setReconciliation(data.reconciliation || []);
             if (data.activePolicy) setActivePolicy(data.activePolicy);
           }
         } catch (e) {
@@ -1210,6 +1212,63 @@
 
                     {/* 접이식 칼럼 설명 범례 — 표 바깥 독립 카드 */}
                     {diagnosticHistory.length > 0 && <DiagnosticLegend />}
+
+
+                    {/* v3.97: KIS ↔ KRX 대조 — 두 출처가 조용히 갈라지는 것을 상시 감시 */}
+                    {reconciliation.length > 0 && (
+                      <div className="bg-white border border-gray-300 rounded-lg p-4 mt-4 overflow-x-auto">
+                        <h3 className="text-lg font-bold text-gray-800 mb-1">🔍 KIS ↔ KRX 대조 ({reconciliation.length}일)</h3>
+                        <div className="text-xs text-gray-500 mb-3">
+                          두 출처가 어긋나면 조용히 잘못된 값이 쌓인다. 2026-08-26에만 세 건이 발견됐다
+                          (미확정 수급 행 / 거래대금 전 구간 NULL / 시총 역산 최대 30% 오차).
+                          <b> 수급은 KRX에 경로가 없어 대조 불가 — KIS 단일 출처.</b>
+                        </div>
+                        <table className="min-w-full text-xs md:text-sm">
+                          <thead>
+                            <tr className="bg-gray-100 text-gray-700">
+                              <th className="p-2 text-left">날짜</th>
+                              <th className="p-2 text-right">대조</th>
+                              <th className="p-2 text-right">종가</th>
+                              <th className="p-2 text-right">거래량</th>
+                              <th className="p-2 text-right">거래대금</th>
+                              <th className="p-2 text-right">시총(KIS역산)</th>
+                              <th className="p-2 text-right">시총(KRX저장)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {reconciliation.map(r => {
+                              const cell = (k) => {
+                                const v = r.fields && r.fields[k];
+                                if (!v || !v.n) return <td className="p-2 text-right text-gray-400">—</td>;
+                                const rate = (100 * v.eq / v.n);
+                                const cls = rate >= 99.9 ? 'text-green-600' : rate >= 99 ? 'text-amber-600' : 'text-red-600';
+                                return (
+                                  <td className={`p-2 text-right font-mono ${cls}`}>
+                                    {rate.toFixed(2)}%
+                                    {v.mismatch > 0 && <span className="text-gray-400 ml-1">({v.mismatch})</span>}
+                                  </td>
+                                );
+                              };
+                              return (
+                                <tr key={r.trade_date} className="border-b border-gray-200">
+                                  <td className="p-2">{r.trade_date}</td>
+                                  <td className="p-2 text-right text-gray-500">{r.compared?.toLocaleString()}</td>
+                                  {cell('close')}
+                                  {cell('volume')}
+                                  {cell('tradingValue')}
+                                  {cell('marketCapKis')}
+                                  {cell('marketCapKrx')}
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        <div className="mt-2 text-xs text-gray-500">
+                          괄호 안은 불일치 종목 수. <b>시총(KIS역산)</b>은 근사치라 원래 어긋난다 —
+                          포트폴리오는 <b>시총(KRX저장)</b>을 쓴다. 그 줄이 100%가 아니면 수집 경로에 문제가 있는 것.
+                        </div>
+                      </div>
+                    )}
 
                     {/* 정책 변경 이력 */}
                     {policyHistory.length > 0 && (

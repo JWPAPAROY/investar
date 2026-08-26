@@ -21,6 +21,7 @@ const { fetchKrxTradingValue } = require('./backfill-trading-value');
 
 const arg = (k, d) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.split('=')[1] : d; };
 const TOP = +arg('top', 10);
+const SAVE = process.argv.includes('--save');   // v3.97: source_reconciliation 에 기록
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY);
 
 async function fetchAll(t, c, f) {
@@ -59,14 +60,15 @@ async function fetchAll(t, c, f) {
   console.log(`KIS ${kis.length}종목 / KRX ${krx.size}종목`);
 
   const fields = [
-    ['종가',     r => r.close,         k => k.close,        0.001],
-    ['거래량',   r => r.volume,        k => k.volume,       0.001],
-    ['거래대금', r => r.trading_value, k => k.tradingValue, 0.005],
-    ['시총(KIS역산)', r => r.market_cap,     k => k.marketCap, 0.03],
-    ['시총(KRX저장)', r => r.krx_market_cap, k => k.marketCap, 0.001],
+    ['종가',          'close',         r => r.close,         k => k.close,        0.001],
+    ['거래량',        'volume',        r => r.volume,        k => k.volume,       0.001],
+    ['거래대금',      'tradingValue',  r => r.trading_value, k => k.tradingValue, 0.005],
+    ['시총(KIS역산)', 'marketCapKis',  r => r.market_cap,     k => k.marketCap,   0.03],
+    ['시총(KRX저장)', 'marketCapKrx',  r => r.krx_market_cap, k => k.marketCap,   0.001],
   ];
 
-  for (const [name, getA, getB, tol] of fields) {
+  const summary = {}, worstAll = {};
+  for (const [name, key, getA, getB, tol] of fields) {
     let n = 0, eq = 0, diffs = [], worst = [];
     for (const r of kis) {
       const k = krx.get(r.stock_code); if (!k) continue;
@@ -84,6 +86,18 @@ async function fetchAll(t, c, f) {
       console.log('   최악:', worst.slice(0, TOP).map(w =>
         `${w[0]} ${Number(w[1]).toLocaleString()}≠${Number(w[2]).toLocaleString()}(${w[3].toFixed(1)}%)`).join('  '));
     }
+    summary[key] = { n, eq, mismatch: diffs.length, medianPct: +med.toFixed(3) };
+    worstAll[key] = worst.slice(0, 5).map(w => ({ code: w[0], kis: w[1], krx: w[2], diffPct: +w[3].toFixed(2) }));
+  }
+
+  if (SAVE) {
+    const compared = Math.max(...Object.values(summary).map(v => v.n), 0);
+    const { error } = await sb.from('source_reconciliation').upsert({
+      trade_date: date, compared, fields: summary, worst: worstAll,
+    }, { onConflict: 'trade_date' });
+    if (error) console.error('⚠️ 저장 실패:', error.message, '(supabase-reconciliation.sql 실행했는지 확인)');
+    else console.log(`
+💾 저장 완료 — source_reconciliation ${date}`);
   }
   console.log('\n※ 수급(투자자별)은 KRX OpenAPI에 경로가 없어 대조 불가 — KIS 단일 출처.');
 })().catch(e => { console.error('❌', e.message); process.exit(1); });
