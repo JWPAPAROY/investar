@@ -77,12 +77,21 @@ async function fetchAll(table, cols, filter) {
     let lastShares = null;
     for (const rec of arr) {
       if (rec.krxShares > 0) lastShares = rec.krxShares;
-      if (rec.marketCap > 0) { capKrx++; continue; }
-      if (lastShares > 0 && rec.close > 0) { rec.marketCap = Math.round(lastShares * rec.close); capShares++; continue; }
-      rec.marketCap = rec.kisMarketCap; if (rec.marketCap > 0) capKis++;
+      if (rec.marketCap > 0) { rec._src = 'krx'; capKrx++; continue; }
+      if (lastShares > 0 && rec.close > 0) { rec.marketCap = Math.round(lastShares * rec.close); rec._src = 'shares'; capShares++; continue; }
+      rec.marketCap = rec.kisMarketCap; rec._src = 'kis'; if (rec.marketCap > 0) capKis++;
     }
   }
-  console.log(`🏛️ 시총 출처 — KRX 실측 ${capKrx} / 주식수×종가 ${capShares} / KIS 근사 폴백 ${capKis}`);
+  // 전체 건수는 오해를 부른다 — 순위에 실제로 쓰이는 건 **신호일 하루치**뿐이다
+  //   (과거 행의 시총은 vol20·거래대금 계산에 안 쓰인다).
+  const sigDate = days[days.length - 1];
+  let sK = 0, sS = 0, sI = 0;
+  for (const arr of series.values()) {
+    const r = arr.byDate.get(sigDate); if (!r) continue;
+    if (r._src === 'krx') sK++; else if (r._src === 'shares') sS++; else if (r.marketCap > 0) sI++;
+  }
+  console.log(`🏛️ 시총 출처(신호일 ${sigDate}) — KRX 실측 ${sK} / 주식수×종가 ${sS} / KIS 근사 폴백 ${sI}`);
+  if (sI > sK + sS) console.log('   ⚠️ KIS 근사 폴백이 과반 — KRX 수집이 밀렸는지 확인할 것');
 
   const idx = days.length - 1;
   const signalDate = days[idx];

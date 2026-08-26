@@ -41,9 +41,12 @@ async function fetchAll(t, c, f) {
 (async () => {
   let date = arg('date', null);
   if (!date) {
-    // KRX는 다음 날 공표 → 기본은 **전 거래일**
+    // KRX는 다음 날 공표 → 기본은 **전 거래일**.
+    //   ⚠️ trade_date만 400행 뽑으면 하루에 2,545종목이라 전부 같은 날짜다(2026-08-26 발견).
+    //   유동성 좋은 단일 종목의 시계열로 거래일 배열을 만든다.
     const { data } = await sb.from('market_flow_daily').select('trade_date')
-      .order('trade_date', { ascending: false }).limit(400);
+      .eq('stock_code', '005930')
+      .order('trade_date', { ascending: false }).limit(10);
     const days = [...new Set((data || []).map(r => r.trade_date))].sort();
     date = days[days.length - 2] || days[days.length - 1];
   }
