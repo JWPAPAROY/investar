@@ -120,7 +120,8 @@ async function collectStock(s) {
   const chartByDate = new Map((chart || []).map(c => [c.date, c]));
   const invByDate = new Map((inv || []).map(v => [v.date, v]));
   const dates = new Set([...chartByDate.keys(), ...invByDate.keys()]);
-  // FHKST01010400 일봉엔 거래대금 필드가 없어 NaN이 나옴 → null 정규화
+  // v3.97: getDailyChart가 FHKST03010100으로 바뀌며 거래대금이 실제로 온다.
+  //   (기존 FHKST01010400은 acml_tr_pbmn을 안 줘서 NaN → 전 구간 NULL이었다)
   const num = (v) => Number.isFinite(v) ? v : null;
 
   for (const d of dates) {
@@ -176,47 +177,12 @@ async function collectStock(s) {
   }
   for (const k of Object.keys(buffers)) await flush(k, true);
 
-  // v3.96: **거래대금은 KIS에 없다.** 일봉 TR(FHKST01010400) 응답에 acml_tr_pbmn 필드가 없어
-  //   trading_value가 전 구간 NULL이었다(161,516행 전부, 2026-08-25 발견). KRX 오픈API의
-  //   ACC_TRDVAL로 채운다 — 하루 2콜(유가증권+코스닥)이면 전 종목이 한 번에 온다.
-  //   ⚠️ 수급(투자자별)은 KRX API에 없다(404). 그쪽은 KIS가 유일 출처.
-  if (!DRY) {
-    try {
-      const { fetchKrxTradingValue } = require('./backfill-trading-value');
-      // 최근 창만 채운다. writtenPairs의 날짜 수는 DEPTH(7)가 아니라 **86일까지 벌어진다** —
-      //   거래가 뜸한 종목은 "최근 7봉"이 몇 달에 걸쳐 있기 때문이다(2026-08-25 실측).
-      //   날짜마다 KRX를 2번(유가+코스닥) 부르므로 그대로 두면 172콜 = 실행이 24분→37분이 된다
-      //   (워크플로 timeout 45분에 8분밖에 안 남았다). 과거 희소 날짜는 어차피
-      //   scripts/backfill-trading-value.js 담당이니 여기서는 최근 창만 맡는다.
-      const TV_WINDOW_DAYS = BACKFILL ? 60 : 20;
-      const tvCutoff = new Date(Date.now() + 9 * 3600e3 - TV_WINDOW_DAYS * 86400e3).toISOString().slice(0, 10);
-      const allDates = [...new Set([...writtenPairs].map(k => k.split('|')[1]))].sort();
-      const dates = allDates.filter(d => d >= tvCutoff);
-      if (allDates.length > dates.length) {
-        console.log('   거래대금 대상 날짜 ' + dates.length + '일 (' + (allDates.length - dates.length)
-          + '일은 ' + TV_WINDOW_DAYS + '일 창 밖 — backfill-trading-value.js 담당)');
-      }
-      let tvRows = 0, tvDays = 0;
-      for (const date of dates) {
-        const vals = await fetchKrxTradingValue(date.replace(/-/g, ''));
-        if (!vals) continue;
-        tvDays++;
-        const rows = [];
-        for (const [code, v] of vals) {
-          if (writtenPairs.has(code + '|' + date)) rows.push({ stock_code: code, trade_date: date, trading_value: v });
-        }
-        for (let i = 0; i < rows.length; i += 500) {
-          const { error } = await supabase.from('market_flow_daily')
-            .upsert(rows.slice(i, i + 500), { onConflict: 'stock_code,trade_date' });
-          if (error) { console.warn('⚠️ 거래대금 upsert 실패(' + date + '): ' + error.message); break; }
-          tvRows += Math.min(500, rows.length - i);
-        }
-      }
-      console.log('💰 거래대금(KRX): ' + tvDays + '일 / ' + tvRows + '행');
-    } catch (e) {
-      console.warn('⚠️ 거래대금 채우기 실패(수집 자체는 성공):', e.message);
-    }
-  }
+  // v3.97: KRX 거래대금 보충 제거 — **KIS가 직접 준다.**
+  //   v3.96에서 "거래대금은 KIS에 없다"고 판단해 KRX를 하루 2콜씩 더 부르고 161,516행을
+  //   백필했지만, 그건 TR 하나(FHKST01010400)의 한계였을 뿐이다. FHKST03010100은
+  //   acml_tr_pbmn을 준다 — 실측 대조에서 KRX와 **오차 0.000%**(5종목, 2026-08-21).
+  //   덤으로 당일치도 즉시 온다(KRX는 다음 날 공표라 하루 늦었다).
+  //   KRX 백필 스크립트(scripts/backfill-trading-value.js)는 과거 구멍 메우기용으로 남긴다.
 
   const el = ((Date.now() - t0) / 60000).toFixed(1);
   console.log(`\n✅ 완료 (${el}분): 종목 ok=${stats.stocksOk} fail=${stats.stocksFail} | rows full=${stats.full} flowOnly=${stats.flowOnly} chartOnly=${stats.chartOnly} | 부분실패 flow=${stats.flowFail} chart=${stats.chartFail}`);

@@ -268,37 +268,66 @@ class KISApi {
     try {
       const token = await this.getAccessToken();
 
-      // 종료일자 (오늘)
-      const endDate = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      // v3.97: FHKST01010400 → FHKST03010100 (국내주식기간별시세) 교체.
+      //
+      // 왜 바꿨나 (2026-08-26):
+      //   ① 기존 TR은 **거래대금(acml_tr_pbmn)을 주지 않는다.** parseInt(undefined)=NaN →
+      //      market_flow_daily.trading_value 가 전 구간 NULL이었다(161,516행).
+      //      "KIS에 거래대금이 없다"고 결론내고 KRX로 우회했지만, TR 하나의 한계였을 뿐이다.
+      //      이 TR은 준다 — 추가 벤더 호출 없이 해결된다.
+      //   ② 기존 TR은 **30일이 상한**이다. days=100을 요청하던 backfill-missing-days.js /
+      //      backfill-prices.js 는 조용히 30개만 받고 있었다. 이 TR은 기간 지정이라 100까지 된다.
+      //   ③ **분할·수정주가 판별 필드**가 붙어 온다(prtt_rate / mod_yn / flng_cls_code).
+      //      KIS와 KRX 종가가 정수배로 어긋나는 종목(하루 3~9개)의 원인을 여기서 알 수 있다.
+      //
+      // 반환 형태는 그대로 유지한다(내림차순 [0]=최신, date/open/high/low/close/volume).
+      //   순서 가정을 바꾸면 advancedIndicators·volumeIndicators가 전부 뒤집힌다.
+      const kst = new Date(Date.now() + 9 * 3600e3);
+      const endDate = kst.toISOString().slice(0, 10).replace(/-/g, '');
+      // 주말·공휴일 여유. 최소 10일은 확보해야 days=1~2 요청도 빈손이 되지 않는다.
+      const spanDays = Math.max(10, Math.ceil(days * 1.7) + 5);
+      const startDate = new Date(kst.getTime() - spanDays * 864e5)
+        .toISOString().slice(0, 10).replace(/-/g, '');
 
-      const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-price`, {
+      const response = await axios.get(`${this.baseUrl}/uapi/domestic-stock/v1/quotations/inquire-daily-itemchartprice`, {
         headers: {
           'Content-Type': 'application/json',
           'authorization': `Bearer ${token}`,
           'appkey': this.appKey,
           'appsecret': this.appSecret,
-          'tr_id': 'FHKST01010400',
+          'tr_id': 'FHKST03010100',
           'custtype': 'P'
         },
         params: {
           FID_COND_MRKT_DIV_CODE: 'J',
           FID_INPUT_ISCD: stockCode,
+          FID_INPUT_DATE_1: startDate,
+          FID_INPUT_DATE_2: endDate,
           FID_PERIOD_DIV_CODE: 'D',      // D: 일봉
-          FID_ORG_ADJ_PRC: '0',          // 0: 수정주가 미반영
-          FID_INPUT_DATE_1: endDate      // 조회 종료일
+          FID_ORG_ADJ_PRC: '0',          // 0: 수정주가 미반영 (KRX TDD_CLSPRC와 같은 기준)
         }
       });
 
       if (response.data.rt_cd === '0') {
-        const chartData = response.data.output.slice(0, days).map(item => ({
-          date: item.stck_bsop_date,     // 날짜
-          open: parseInt(item.stck_oprc),
-          high: parseInt(item.stck_hgpr),
-          low: parseInt(item.stck_lwpr),
-          close: parseInt(item.stck_clpr),
-          volume: parseInt(item.acml_vol),
-          tradingValue: parseInt(item.acml_tr_pbmn)
-        })); // 최신 날짜부터 정렬 (API 기본 순서)
+        // output2 = 일자별 배열. KIS가 빈 행으로 패딩하는 경우가 있어 유효성으로 거른다.
+        const raw = response.data.output2 || [];
+        const chartData = raw
+          .filter(item => item && item.stck_bsop_date && parseInt(item.stck_clpr) > 0)
+          .map(item => ({
+            date: item.stck_bsop_date,
+            open: parseInt(item.stck_oprc),
+            high: parseInt(item.stck_hgpr),
+            low: parseInt(item.stck_lwpr),
+            close: parseInt(item.stck_clpr),
+            volume: parseInt(item.acml_vol),
+            tradingValue: parseInt(item.acml_tr_pbmn),   // v3.97: 이제 실제로 온다
+            // 분할·수정 관련 (KRX 대조 시 불일치 원인 판별용)
+            prttRate: item.prtt_rate != null ? parseFloat(item.prtt_rate) : null,
+            modYn: item.mod_yn || null,
+            flngClsCode: item.flng_cls_code || null,
+          }))
+          .sort((a, b) => (a.date < b.date ? 1 : -1))   // 내림차순 보장 ([0]=최신)
+          .slice(0, days);
 
         return chartData;
       } else {
@@ -309,6 +338,7 @@ class KISApi {
       throw error;
     }
   }
+
 
   /**
    * 지수(KOSPI/KOSDAQ) 일봉 데이터 조회
