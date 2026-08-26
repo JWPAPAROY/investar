@@ -1437,7 +1437,7 @@ class StockScreener {
     //   같은 술어가 세 벌(여기 · selectAlertTop3 · selectSaveTop3) 있었다. 2026-08-25 시점엔
     //   의미가 같았지만, v3.94가 고친 사고 두 건이 정확히 "사본이 갈라진 것"이었다
     //   (웹만 폐기된 v3.85 정렬을 쓰고 시총 플로어가 빠져 있었음).
-    const { eligible: baseEligible, tier: usedTier } = selectEligibleWithTiers(allStocks, SCREENING_ACCESSORS);
+    let { eligible: baseEligible, tier: usedTier } = selectEligibleWithTiers(allStocks, SCREENING_ACCESSORS);
     console.log(`  └─ TOP 3 후보: ${baseEligible.length}개 (이격도 < ${usedTier})`);
 
     // v3.94: 텔레그램/DB 경로(selectSaveTop3)와 통일.
