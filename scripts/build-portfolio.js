@@ -26,10 +26,19 @@ const FORCE = args.includes('--force');
 const sb = createClient(process.env.SUPABASE_URL,
   process.env.SUPABASE_KEY || process.env.SUPABASE_ANON_KEY);
 
-async function fetchAll(table, cols, filter) {
+// ⚠️ order() 없이 .range()로 페이징하면 안 된다.
+//   PostgREST/Postgres는 ORDER BY가 없으면 페이지 간 행 순서를 보장하지 않는다.
+//   실측(2026-09-07, 184,425행): order 없는 첫 호출에서 18,688행(10.1%) 중복 + 동수 누락,
+//   거래일 3일이 통째로 사라졌다(135일 → 132일). 2·3회차는 멀쩡했다 =
+//   콜드 상태의 첫 호출에서만 터진다 → **하루 한 번 도는 cron이 정확히 그 조건**이다.
+//   그래서 정렬키를 필수 인자로 받는다. 기본값을 두면 빼먹은 걸 알 수 없다.
+async function fetchAll(table, cols, orderBy, filter) {
+  if (!orderBy || !orderBy.length) throw new Error(`fetchAll(${table}): orderBy 필수`);
   let out = [], from = 0;
   while (true) {
-    let q = sb.from(table).select(cols).range(from, from + 999);
+    let q = sb.from(table).select(cols);
+    for (const col of orderBy) q = q.order(col);
+    q = q.range(from, from + 999);
     if (filter) q = filter(q);
     const { data, error } = await q;
     if (error) throw new Error(`${table} 조회 실패: ${error.message}`);
@@ -48,7 +57,8 @@ async function fetchAll(table, cols, filter) {
   // 필요한 최소 구간은 look+1 거래일이지만, 리밸런싱 주기 판단과 성과 계산을 위해 넉넉히.
   const since = new Date(Date.now() - 200 * 864e5).toISOString().slice(0, 10);
   const flow = await fetchAll('market_flow_daily',
-    'stock_code,trade_date,close,market_cap,krx_market_cap,krx_listed_shares,trading_value', q => q.gte('trade_date', since));
+    'stock_code,trade_date,close,market_cap,krx_market_cap,krx_listed_shares,trading_value', ['trade_date', 'stock_code'],
+    q => q.gte('trade_date', since));
   if (!flow.length) throw new Error('market_flow_daily 비어 있음');
 
   const days = [...new Set(flow.map(r => r.trade_date))].sort();
@@ -105,6 +115,35 @@ async function fetchAll(table, cols, filter) {
   if (lastErr) throw new Error(`portfolio_rebalances 조회 실패: ${lastErr.message} (supabase-portfolio.sql 실행했는지 확인)`);
   const last = lastRows && lastRows[0] ? lastRows[0].rebalance_date : null;
 
+  // 2-a. 과거 행의 buy_date/next_date 소급 기록.
+  //   신호일은 정의상 거래일 배열의 마지막 원소라, 산출 시점에는 "다음 거래일"이
+  //   아직 존재하지 않는다(days[idx+1] === undefined). 그래서 두 컬럼은 그날 채울 수
+  //   없고, 거래일이 더 쌓인 뒤 이 단계에서 메운다. 멱등 — 이미 값이 있으면 건너뛴다.
+  //   판정(portfolio-verdict.js)은 이 컬럼을 쓰지 않고 매번 재계산하므로 기록용이지만,
+  //   "그때 실제 매수 기준일이 언제였나"를 사후에 재구성하려면 남아 있어야 한다.
+  if (!DRY) {
+    const { data: holes, error: holeErr } = await sb.from('portfolio_rebalances')
+      .select('rebalance_date,buy_date,next_date,params')
+      .or('buy_date.is.null,next_date.is.null').order('rebalance_date');
+    if (holeErr) throw new Error(`portfolio_rebalances 소급 조회 실패: ${holeErr.message}`);
+    let filled = 0, pending = 0;
+    for (const r of holes || []) {
+      const ri = days.indexOf(r.rebalance_date);
+      if (ri < 0) continue;                       // 배열 밖(오래된 행) — 손대지 않는다
+      const hold = (r.params && r.params.hold) || o.hold;   // 그 행이 쓴 주기로 계산
+      const patch = {};
+      if (!r.buy_date  && days[ri + 1])    patch.buy_date  = days[ri + 1];
+      if (!r.next_date && days[ri + hold]) patch.next_date = days[ri + hold];
+      if (!Object.keys(patch).length) { pending++; continue; }  // 아직 거래일이 안 왔다
+      const { error: upErr } = await sb.from('portfolio_rebalances')
+        .update(patch).eq('rebalance_date', r.rebalance_date);
+      if (upErr) throw new Error(`${r.rebalance_date} 소급 기록 실패: ${upErr.message}`);
+      console.log(`🗓️ ${r.rebalance_date} 소급 — ${Object.entries(patch).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+      filled++;
+    }
+    if (!filled && pending) console.log(`🗓️ 소급 대기 ${pending}행 (거래일 미도래)`);
+  }
+
   if (last) {
     const li = days.indexOf(last);
     const elapsed = li >= 0 ? idx - li : null;
@@ -122,7 +161,7 @@ async function fetchAll(table, cols, filter) {
   }
 
   // ── 3. 재무(point-in-time) ──────────────────────────────────────────
-  const fin = await fetchAll('stock_financials', 'stock_code,stac_yymm,bps,eps');
+  const fin = await fetchAll('stock_financials', 'stock_code,stac_yymm,bps,eps', ['stock_code', 'stac_yymm']);
   const finIdx = P.buildFinancialIndex(fin);
   console.log(`💰 재무 ${fin.length}행 / ${finIdx.size}종목`);
 
@@ -135,7 +174,7 @@ async function fetchAll(table, cols, filter) {
   const picks = P.selectPicks(top, o);
   if (picks.length < o.k) console.log(`⚠️ 선택 ${picks.length}/${o.k}종목 — PBR 결측 등으로 부족`);
 
-  const names = new Map((await fetchAll('stock_master', 'stock_code,stock_name'))
+  const names = new Map((await fetchAll('stock_master', 'stock_code,stock_name', ['stock_code']))
     .map(r => [r.stock_code, r.stock_name]));
 
   const eqW = picks.length ? 1 / picks.length : 0;
@@ -152,8 +191,9 @@ async function fetchAll(table, cols, filter) {
 
   if (DRY) { console.log('\n[DRY] DB 미기록'); return; }
 
-  const buyDate = days[idx + 1] || null;   // 신호일 다음 거래일 종가로 매수 가정
-  const nextDate = days[idx + o.hold] || null;
+  // 신호일이 배열의 마지막이라 둘 다 이 시점엔 null이다 — 위 2-a가 나중에 메운다.
+  const buyDate = days[idx + 1] || null;          // 신호일 다음 거래일 종가로 매수 가정
+  const nextDate = days[idx + o.hold] || null;    // 다음 리밸런싱 예정일
   const { error } = await sb.from('portfolio_rebalances').upsert({
     rebalance_date: signalDate, buy_date: buyDate, next_date: nextDate,
     params: o, holdings, universe_size: top.length,
