@@ -10,8 +10,8 @@
 - **목적**: 거래량 지표로 급등 "예정" 종목 선행 발굴 (Volume-Price Divergence)
 - **기술 스택**: Node.js, React (CDN), Vercel Serverless, KIS OpenAPI, Supabase
 - **배포 URL**: https://investar-xi.vercel.app
-- **버전**: 3.93
-- **최종 업데이트**: 2026-07-06
+- **버전**: 3.98
+- **최종 업데이트**: 2026-09-07
 
 **핵심 철학**: "거래량 폭발 + 가격 미반영 = 급등 예정 신호"
 
@@ -667,8 +667,18 @@ GET /api/screening/analyze?codes=005930,000660      # 종목 분석 (최대 15�
 ```
 GET /api/recommendations/performance?days=30       # 성과 조회
 GET /api/recommendations/performance?momentum=true # 장중 모멘텀 분석 (v3.71)
-POST /api/recommendations/save                     # 추천 저장
 GET /api/recommendations/update-prices             # 가격 업데이트
+```
+
+### 포트폴리오 · 무상증자 (v3.98)
+```
+GET /api/portfolio                   # 저PBR·저변동 포트폴리오 현황 + 성과
+GET /api/portfolio?view=bonus        # 📢 무상증자 실전 신호 (대기/보유/청산/누적성적)
+```
+> ⚠️ **함수 한도(12개) 때문에 별도 엔드포인트를 두지 못한다.** 본체는 `api/_bonusView.js` —
+> 언더스코어 접두라 Vercel 이 서버리스 함수로 잡지 않는다. 새 엔드포인트도 같은 방식으로.
+> `POST /api/recommendations/save` 는 v3.96 에서 제거됐다(인증 없이 호출자가 준 행을 그대로 저장).
+```
 ```
 
 ### 패턴 분석
@@ -689,6 +699,19 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 |-----|-----|------|------|
 | 23:00 (sun-thu) | 08:00 | alert | 실시간 스크리닝 TOP 3 알림 + 해외 전망 |
 | 06:35 (mon-fri) | 15:35 | save | 결산: 스크리닝 → Supabase 저장 + 텔레그램 |
+
+**GitHub Actions** (v3.98, 스케줄 지연 중앙 4시간 — 정시성이 필요한 일에는 쓰지 말 것):
+
+| 트리거 | 워크플로 | 동작 |
+|---|---|---|
+| cron 08:50 UTC | `collect-market-flow` | 전 종목 가격·수급·거래대금 (+ KRX 시총·종가) |
+| ↳ workflow_run | `portfolio` | 저PBR 리밸런싱 판단(20거래일 주기, 멱등) + KIS↔KRX 대조 |
+| ↳ workflow_run | `disclosures` | DART 공시 증분 (분류 회귀 테스트를 게이트로) |
+| ↳↳ workflow_run | `bonus-signals` | 무상증자 자격 판정 → **다음 거래일 지시**를 텔레그램으로 |
+| cron | `calc-expectations` | 기대수익 통계 |
+| cron 14:10 UTC | `render-operating-state` | DB → 운영 문서 재생성 |
+
+> `bonus-signals` 가 "내일 할 일"을 알리는 구조라 스케줄 지연이 무해하다(최악 05:25 KST, 장 시작 전).
 
 **Vercel** (`vercel.json`, 딜레이 가능):
 
@@ -747,7 +770,18 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 - `sector_outlook_stats`: 업종별 해외전망 버킷별 승률/수익률 + 모멘텀 상관계수 (v3.69)
 - `market_flow_daily`: 전 상장종목 일별 수급+가격 (v3.93, "풀 밖 수급-우선 신호" 검증용. 수집: `scripts/collect-market-flow.js`, GitHub Actions 평일 17:50 KST. 스키마/설계: `supabase-market-flow.sql`)
   - **⚠️ 실사용 구간은 2026-05-22 이후뿐** (v3.94 확인). 총 97k행이지만 **2026-01~04는 하루 2~4종목**으로 사실상 비어 있다 — 백필이 실제로 닿은 범위는 5월 하순부터다("30일 백필 시드 2026-01-27~07-06"은 행수 기준 표현이라 오해 소지). KIS가 30일치만 제공하므로 **그 이전 수급은 영구 복원 불가**. 분석 시 날짜별 종목 수 ≥2,000으로 필터링할 것 (`scripts/revalidate-supply-sort.js` 참고).
+  - **⚠️ v3.98: 종가는 `krx_close` 를 쓸 것.** `close`(KIS)는 권리락 이후 재수집 시 **수정주가가
+    덮여** 계열에 이음매가 생긴다(실측 2026-09-07: 비비안 07-23 KRX 7,080 vs close 3,544 = 정확히 1/2).
+    무결성 점검은 `scripts/audit-price-continuity.js`(|일간| > 30.5% 는 물리적으로 불가능).
   - 이 테이블은 v3.94 이후 **유일하게 올바른 과거 수급 출처**다. `screening_recommendations`의 `institution_buy_days`/`foreign_buy_days`는 방향 버그로 산출된 값이라 신뢰 금지.
+- `disclosures`: DART 공시 메타데이터 (v3.98, 549,260건 / 2022-01~. 사전등록 유형 11종 분류.
+  판정 기준은 `DISCLOSURE_VERDICT.md`. 본문은 저장하지 않는다 — `rcept_dt` 에 **접수 시각이 없어**
+  장중/장후 구분이 불가능하고, 그것이 진입을 D+1 종가로 고정하는 근거다)
+- `buyback_details`: 자기주식취득 결정 상세 (v3.98, 1,988건. 강제 흐름 축 판정 입력.
+  판정 기준은 `BUYBACK_VERDICT.md` — **기각**됐다)
+- `bonus_issue_signals`: 무상증자 실전 신호 + 성과 추적 (v3.98. 원수익과 **매칭초과**를 둘 다 남긴다 —
+  후자만 백테스트와 비교 가능하다)
+- `source_reconciliation`: KIS↔KRX 일별 대조 (v3.97)
 - `success_patterns`: +10% 달성 종목 지표 특징
 - ~~`recommendation_statistics` / `overall_performance` (뷰)~~ — 2026-08-25 제거(코드 사용처 0). 정의는 git history 참고.
 
