@@ -56,7 +56,7 @@ async function fetchAll(table, cols, filter) {
 (async () => {
   console.log(`\n🔍 market_flow_daily 종가 무결성 점검 (${FROM} ~)`);
   const rows = await fetchAll('market_flow_daily',
-    'stock_code,trade_date,close,krx_market_cap,krx_listed_shares',
+    'stock_code,trade_date,close,krx_close,krx_market_cap,krx_listed_shares',
     q => q.gte('trade_date', FROM));
   console.log(`행 ${rows.length.toLocaleString()}건 로드`);
 
@@ -72,6 +72,8 @@ async function fetchAll(table, cols, filter) {
   for (const [code, arr] of byCode) {
     for (let i = 1; i < arr.length; i++) {
       const p = arr[i - 1], q = arr[i];
+      // v3.98: krx_close 가 있으면 그것으로 본다(원천). 없으면 close 로 폴백.
+      p.close = p.krx_close ?? p.close; q.close = q.krx_close ?? q.close;
       if (!(p.close > 0) || !(q.close > 0)) continue;
       pairs++;
       const chg = ((q.close - p.close) / p.close) * 100;

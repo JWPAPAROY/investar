@@ -205,8 +205,15 @@ async function collectStock(s) {
         const rows = [];
         for (const [code, v] of vals) {
           if (!writtenPairs.has(code + '|' + date)) continue;
-          if (v.marketCap == null && v.listedShares == null) continue;
-          rows.push({ stock_code: code, trade_date: date, krx_market_cap: v.marketCap, krx_listed_shares: v.listedShares });
+          if (v.marketCap == null && v.listedShares == null && v.close == null) continue;
+          // v3.98: 종가도 KRX 원천으로 나란히 채운다.
+          //   close(KIS)는 권리락 이후 재수집 시 **수정주가가 덮여** 계열에 불연속이 생긴다
+          //   (실측 2026-09-07: 비비안 07-23 KRX 7,080 vs close 3,544 = 정확히 1/2).
+          //   close 는 지우지 않는다 — 두 출처의 괴리가 감시 지표다.
+          rows.push({
+            stock_code: code, trade_date: date,
+            krx_market_cap: v.marketCap, krx_listed_shares: v.listedShares, krx_close: v.close,
+          });
         }
         for (let i2 = 0; i2 < rows.length; i2 += 500) {
           const { error } = await supabase.from('market_flow_daily')
@@ -215,7 +222,7 @@ async function collectStock(s) {
           capRows += Math.min(500, rows.length - i2);
         }
       }
-      console.log('🏛️ KRX 실측 시총: ' + capDays + '일 / ' + capRows + '행');
+      console.log('🏛️ KRX 실측 시총·종가: ' + capDays + '일 / ' + capRows + '행');
     } catch (e) {
       console.warn('⚠️ KRX 시총 채우기 실패(수집 자체는 성공):', e.message);
     }

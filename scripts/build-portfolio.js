@@ -57,7 +57,7 @@ async function fetchAll(table, cols, orderBy, filter) {
   // 필요한 최소 구간은 look+1 거래일이지만, 리밸런싱 주기 판단과 성과 계산을 위해 넉넉히.
   const since = new Date(Date.now() - 200 * 864e5).toISOString().slice(0, 10);
   const flow = await fetchAll('market_flow_daily',
-    'stock_code,trade_date,close,market_cap,krx_market_cap,krx_listed_shares,trading_value', ['trade_date', 'stock_code'],
+    'stock_code,trade_date,close,krx_close,market_cap,krx_market_cap,krx_listed_shares,trading_value', ['trade_date', 'stock_code'],
     q => q.gte('trade_date', since));
   if (!flow.length) throw new Error('market_flow_daily 비어 있음');
 
@@ -72,7 +72,12 @@ async function fetchAll(table, cols, orderBy, filter) {
     //   순위가 일치하고 성과 비교가 성립한다.
     //   ⚠️ KRX는 다음 날 공표라 **당일치가 비어 있다** → 아래에서 주식수×종가로 메운다.
     const rec = {
-      date: r.trade_date, close: r.close, tradingValue: r.trading_value,
+      date: r.trade_date,
+      // v3.98: 종가는 **KRX 원천 우선**. close(KIS)는 권리락 구간에 수정주가가 덮여
+      //   계열에 불연속이 생긴다(2026-09-07 실측 80건/75종목).
+      //   백테스트가 KRX 종가로 검증됐으므로 실운용도 같은 정의를 써야 순위가 일치한다.
+      //   KRX는 익일 공표라 당일치는 비어 있고, 그날은 close 로 폴백한다(재수집 전이라 안전).
+      close: r.krx_close ?? r.close, tradingValue: r.trading_value,
       marketCap: r.krx_market_cap ?? null,
       krxShares: r.krx_listed_shares ?? null,
       kisMarketCap: r.market_cap ?? null,

@@ -89,7 +89,7 @@ async function telegram(text) {
   // ── 거래일 달력 + 가격·시총 (실전은 market_flow_daily 를 쓴다) ─────────
   const since = new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10);
   const flow = await fetchAll('market_flow_daily',
-    'stock_code,trade_date,close,krx_market_cap,market_cap,trading_value',
+    'stock_code,trade_date,close,krx_close,krx_market_cap,market_cap,trading_value',
     q => q.gte('trade_date', since));
   const days = [...new Set(flow.map(r => r.trade_date))].sort();
   const dIdx = new Map(days.map((d, i) => [d, i]));
@@ -97,7 +97,8 @@ async function telegram(text) {
   for (const r of flow) {
     if (!px.has(r.stock_code)) px.set(r.stock_code, new Map());
     px.get(r.stock_code).set(r.trade_date, {
-      close: r.close, cap: r.krx_market_cap ?? r.market_cap ?? null, value: r.trading_value ?? null,
+      // 종가는 KRX 원천 우선 — close(KIS)는 권리락 구간에 수정주가가 덮인다(v3.98)
+      close: r.krx_close ?? r.close, cap: r.krx_market_cap ?? r.market_cap ?? null, value: r.trading_value ?? null,
     });
   }
   const lastDay = days[days.length - 1];
