@@ -28,7 +28,6 @@ investar/
 │   │   └── prediction.js        # 해외 지수 기반 전망
 │   ├── patterns/
 │   │   ├── index.js             # 성공 패턴 분석 + 수집
-│   │   └── volume-dna.js        # 거래량 DNA API
 │   ├── recommendations/
 │   │   ├── performance.js       # 성과 추적 API
 │   │   ├── save.js              # 추천 저장 API
@@ -49,8 +48,6 @@ investar/
 │   ├── similarityMatcher.js     # 종목별 유사 매칭 (기대수익)
 │   ├── volumeIndicators.js      # 거래량 지표 (OBV, VWAP, MFI)
 │   ├── advancedIndicators.js    # 고급 지표 (고래, 탈출속도, 비대칭)
-│   ├── smartPatternMining.js    # D-5 선행 패턴 마이닝
-│   ├── volumeDnaExtractor.js    # 거래량 DNA 추출
 │   ├── overnightPredictor.js     # 해외 지수 기반 시장 방향 예측
 │   ├── momentumAnalyzer.js      # 장중 모멘텀 분석 (6차원 복합 시그널)
 │   ├── supabaseClient.js        # Supabase 클라이언트
@@ -113,7 +110,6 @@ ETF 필터링 키워드: `ETF, KODEX, TIGER, KBSTAR, ARIRANG, ACE, plus, unicorn
 - v3.94 이전엔 `checkInstitutionalFlow`가 앞에서부터 세어 수급일수가 10종목 중 8종목에서 틀렸고
   (TOP3 정렬 1차 키), `calculateStateAtDay`의 `investorData.slice(daysAgo)`는 항상 빈 배열이 되어
   "D-5 대비 기관 진입 가속"이 축퇴돼 있었다. 순서 가정을 바꾸려면 `advancedIndicators.js`,
-  `screening.js`, `volumeDnaExtractor.js`(뒤에서부터 순회 — 오름차순 가정), `collect-market-flow.js`
   (날짜 맵이라 무관)를 **함께** 확인할 것.
 
 ### Phase 3: 지표 분석
@@ -195,36 +191,26 @@ ratio = 상승일 총 거래량 / 하락일 총 거래량
 | < 0.7 | 강한 매도세 |
 | 0.7-1.5 | 없음 (중립) |
 
-#### 3-3. 선행 지표 (`smartPatternMining.js`, `volumeDnaExtractor.js`)
 
-> ## 🚨 v3.94: 이 절의 기능은 **작동하지 않는다.** (2026-07-17 확인, 보류 중)
->
-> **`leadingIndicators` 모듈은 존재하지 않는다.** "screening.js에서 통합 호출"도 사실이 아니며,
-> 선행 지표는 **점수에 전혀 반영되지 않는다**. `screening.js`는 생성자에서
-> `smartPatternMiner.loadSavedPatterns()`로 패턴을 로드해 `this.savedPatterns`에 담아둘 뿐,
-> 이후 어디서도 읽지 않는다.
->
-> **두 모듈 모두 `chartData`가 오름차순이라 가정하고 작성됐다.** 실제로는 내림차순
-> ([0]=최신)이므로 **시간축이 뒤집힌 채 동작한다.**
->
-> - `smartPatternMining.js` (945줄, **죽은 코드** — 외부 호출은 `loadSavedPatterns` 하나뿐):
->   급등 탐지가 `tenDaysAgo = chartData[i-10]`인데 내림차순에서 `i-10`은 **더 최신**이다.
->   → **하락을 급등으로 판정한다.** 실측: 삼성전자 7/2 286,000 → 7/16 255,000 (−10.8% 하락)을
->   `returnRate = +12.16%` 급등으로 라벨링. 이어 `preSurgeData = slice(surgeIndex-5, surgeIndex)`도
->   주석("급등 직전 5일")과 달리 **급등 이후 5일**이다.
-> - `volumeDnaExtractor.js` (631줄, **살아 있음** — 프론트 → `/api/patterns/volume-dna`):
->   `calculateSegmentedAverage()`의 `early = data.slice(0, ...)`가 내림차순에선 **최신 구간**이라
->   `early/mid/late`가 뒤집힌다. → `avgLate > avgMid > avgEarly`인 **`accelerating`(거래량 가속)
->   판정이 실제로는 감속을 의미한다.** `data[i-1]`(prevVolume)도 실제로는 다음날,
->   `slice(-5)`도 가장 오래된 5개(CLAUDE.md 금지 패턴)를 잡는다.
->
-> **보류 사유**: 고쳐도 검증할 데이터가 없다(올바른 수급 이력은 2026-05-22부터, 38거래일).
-> "급등 전 신호 포착"이라는 목표가 **깔때기 뒤집기(To-Do #6-A)와 동일**하므로 그 설계와
-> 통합해 판단한다. 되살릴 때는 **시간축부터 바로잡을 것.**
+#### 3-3. 선행 지표 — **2026-09-07 삭제 완료**
 
-원래 의도(미구현):
-- **스마트 패턴 마이닝**: 과거 급등 직전의 거래량 패턴을 학습하여 현재 종목에서 유사 패턴 탐지
-- **거래량 DNA**: 급등주의 거래량 변화 특성(EMA, 구간별 분석)을 추출 → 시장 스캔에서 매칭
+`smartPatternMining.js`(945줄) · `volumeDnaExtractor.js`(631줄) · `api/patterns/volume-dna.js`(201줄) ·
+프론트 `🧬 DNA 추출` 탭(461줄)을 모두 제거했다.
+
+근거는 To-Do #6-B가 스스로 정한 조건이다:
+
+> 재개 조건: #6-A 검증에서 알파가 확인되면 (…) **알파가 없으면 두 모듈은 삭제 후보.**
+
+**#6-A(깔때기 뒤집기)는 2026-08-24 641거래일·독립블록 67.3으로 기각 확정**됐다(세 번 다시 찾아 세 번 기각).
+따라서 재개 조건이 영구히 불성립 → 삭제 조건 충족.
+
+덧붙여 두 모듈은 `chartData`가 오름차순이라 가정했으나 실제는 내림차순이라 **시간축이 뒤집혀** 있었다.
+`volumeDnaExtractor`의 `accelerating`(거래량 가속) 판정은 실제로는 **감속**을 의미했고,
+`smartPatternMining`은 하락을 급등으로 라벨링했다(삼성전자 −10.8%를 +12.16%로).
+다만 둘 다 **점수·TOP3에 반영되지 않았고**, DNA 탭은 사용자 확인 결과 **한 번도 실행된 적이 없다**
+— 잘못된 신호가 실제 판단에 쓰인 적은 없다.
+
+부수 효과: 서버리스 함수 10 → 9, 탭 8 → 7(가로 스크롤 해소). 되살릴 일이 생기면 git history 참고.
 
 ### Phase 4: 점수 계산 (`screening.js`)
 
@@ -849,8 +835,10 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 - **⚠️ Vercel 서버리스 함수 12개 한도(Hobby).** `api/**/*.js` 가 12가 되면 **배포가 실패한다** —
   GitHub Actions는 초록불이고 Vercel 단계에서만 실패해 눈치채기 어렵다(2026-09-07 실측: 11→12에서 실패).
   새 엔드포인트는 기존 핸들러에 쿼리로 얹거나(`?view=`, `?mode=`) `_접두` 모듈로 뺄 것.
-  현재 11개 — `api/health.js` 는 2026-09-07 제거(2025-10-24 초기 스캐폴딩 이후 11개월간 호출처 0,
-  DB·외부 API 연결도 확인하지 않고 `{status:'OK'}` 만 반환해 실질 기능이 없었다).
+  현재 9개. 2026-09-07 두 개를 제거했다:
+    - `api/health.js` — 2025-10-24 초기 스캐폴딩 이후 11개월간 호출처 0. DB·외부 API 연결도
+      확인하지 않고 `{status:'OK'}` 만 반환해 실질 기능이 없었다.
+    - `api/patterns/volume-dna.js` — DNA 탭과 함께 삭제(3-3 절 참고).
 
 ---
 
@@ -1040,15 +1028,12 @@ SQL 파일: `supabase-weekly-diagnostics.sql`, `supabase-active-policy.sql`, `su
 > - **판정 기준**: 매칭 초과수익이 블록별로 일관되게 양수 → 깔때기 전환 설계. 일관되게 음수 또는 무차별 → 가설 기각, 시스템을 베타+리스크컨트롤 수단으로 재규정.
 > - **주의**: 이 검증의 수급은 반드시 `market_flow_daily`에서 **올바른 방향**(그날부터 과거로)으로 재계산할 것. `screening_recommendations`의 수급 컬럼은 v3.94 이전 방향 버그 산출값이라 사용 금지. 참고 구현: `scripts/revalidate-supply-sort.js`.
 
-### 6-B. 선행 지표 모듈 시간축 정정 후 재연결 (보류: 2026-07-17 ~)
+### 6-B. 선행 지표 모듈 — **2026-09-07 삭제로 종결**
 
-- **내용**: `smartPatternMining.js`(945줄)·`volumeDnaExtractor.js`(631줄)의 시간축을 바로잡고 실제 점수 경로에 연결할지 결정.
-- **현 상태**: 두 모듈 모두 `chartData`가 오름차순이라 가정하나 실제는 내림차순 → **시간 역방향**. 상세는 "3-3. 선행 지표" 참고.
-  - `smartPatternMining`: **죽은 코드**(점수 미반영). 하락을 급등으로 판정(삼성전자 −10.8%를 +12.16%로).
-  - `volumeDnaExtractor`: **살아 있음**(프론트 → `/api/patterns/volume-dna`). `accelerating` 판정이 실제로는 감속. 점수·TOP3에는 미반영이라 추천은 오염되지 않음.
-- **보류 사유**: (1) 고쳐도 검증할 데이터가 없다 — 올바른 수급 이력은 2026-05-22부터 38거래일뿐. (2) "급등 전 신호 포착"이라는 목표가 **To-Do #6-A(깔때기 뒤집기)와 동일**하므로 중복 설계를 피하고 통합 판단해야 한다.
-- **재개 조건**: #6-A 검증에서 "풀 밖 수급-우선 신호"의 알파가 확인되면, 선행 패턴을 그 파이프라인의 한 축으로 편입할지 함께 설계. 알파가 없으면 두 모듈은 삭제 후보.
-- **되살릴 때 주의**: 시간축부터 바로잡을 것. `volumeDnaExtractor`는 파일 전체가 오름차순 전제라 입력을 `[...chartData].reverse()`로 정규화하는 편이 안전하다.
+재개 조건(#6-A 알파 확인)이 2026-08-24 깔때기 기각 확정으로 불성립. 실사용 0회.
+`smartPatternMining` / `volumeDnaExtractor` / `api/patterns/volume-dna` / 프론트 DNA 탭 전부 제거.
+되살릴 일이 생기면 git history 참고. 시간축(내림차순)부터 바로잡을 것.
+
 
 ### 6. D+1 급락 종목 즉시 손절 경고 (구현 가능, 효과 검증 필요)
 

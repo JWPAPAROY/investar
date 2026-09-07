@@ -716,7 +716,7 @@ function checkInstitutionalFlow(investorData) {
   //     LG전자 4일/4일(코드) vs 0일/0일(실제), 삼성전자 1일/1일 vs 0일/0일 등.
   //   institutionDays/foreignDays는 TOP3 정렬 1차 키(supplyRank)이자 자격 필터(>=3일)라
   //   수급 신호 전체가 오염돼 있었다. (chartData는 내림차순, investorData는 오름차순 —
-  //   이 비대칭이 원인. 순서 가정을 바꾸려면 이 파일과 volumeDnaExtractor를 함께 볼 것.)
+  //   이 비대칭이 원인. 순서 가정을 바꾸려면 이 파일과 screening.js를 함께 볼 것.)
   let institutionConsecutive = 0;
   let foreignConsecutive = 0;
 
