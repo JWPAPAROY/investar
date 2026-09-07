@@ -35,7 +35,8 @@ investar/
 │   │   └── update-prices.js     # 일별 가격 업데이트
 │   ├── cron/
 │   │   └── save-daily-recommendations.js  # 결산/알림/추적 + 텔레그램 웹훅
-│   └── health.js
+│   ├── portfolio/index.js       # 저PBR 포트폴리오 + ?view=bonus 무상증자 신호
+│   └── _bonusView.js            # ↑ 무상증자 본체. **언더스코어 접두 = Vercel이 함수로 안 잡음**
 │
 ├── api/koreainvestment/          # 한국투자증권 OpenAPI 공식 문서 (카테고리별)
 │
@@ -845,6 +846,11 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 - KIS API chartData는 **내림차순** (chartData[0] = 최신, slice(0, N) = 최근 N개)
 - Vercel 타임아웃 60초 제한 주의
 - KIS API Rate Limit: 초당 20회 (200ms 간격)
+- **⚠️ Vercel 서버리스 함수 12개 한도(Hobby).** `api/**/*.js` 가 12가 되면 **배포가 실패한다** —
+  GitHub Actions는 초록불이고 Vercel 단계에서만 실패해 눈치채기 어렵다(2026-09-07 실측: 11→12에서 실패).
+  새 엔드포인트는 기존 핸들러에 쿼리로 얹거나(`?view=`, `?mode=`) `_접두` 모듈로 뺄 것.
+  현재 11개 — `api/health.js` 는 2026-09-07 제거(2025-10-24 초기 스캐폴딩 이후 11개월간 호출처 0,
+  DB·외부 API 연결도 확인하지 않고 `{status:'OK'}` 만 반환해 실질 기능이 없었다).
 
 ---
 

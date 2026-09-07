@@ -17,7 +17,6 @@ app.use(express.json());
 
 // API 라우트 매핑 (Vercel Serverless Functions → Express Routes)
 const apiRoutes = {
-  '/api/health': require('./api/health'),
   '/api/screening/recommend': require('./api/screening/recommend'),
   // v3.96: /api/recommendations/save 제거 — 인증 없이 호출자가 준 행을
   //   screening_recommendations(TOP3·알림·진단의 원천)에 그대로 쓰는 엔드포인트였고
@@ -69,7 +68,7 @@ app.listen(PORT, () => {
   console.log(`🚀 Investar 로컬 서버 실행 중`);
   console.log(`========================================`);
   console.log(`📍 URL: http://localhost:${PORT}`);
-  console.log(`📊 API: http://localhost:${PORT}/api/health`);
+  console.log(`📊 API: http://localhost:${PORT}/api/screening/recommend`);
   console.log(`🔥 스크리닝: http://localhost:${PORT}/api/screening/recommend?limit=3`);
   console.log(`========================================\n`);
 });
