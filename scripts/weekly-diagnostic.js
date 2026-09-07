@@ -681,6 +681,7 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     { table: 'market_flow_daily', col: 'trade_date', maxDays: 5, what: '전 종목 수급·거래대금' },
     { table: 'portfolio_rebalances', col: 'rebalance_date', maxDays: 35, what: '저PBR·저변동 포트폴리오(20거래일 주기)' },
     { table: 'disclosures', col: 'rcept_dt', maxDays: 5, what: 'DART 공시(이벤트 축 판정 입력)' },
+    { table: 'bonus_issue_signals', col: 'updated_at', maxDays: 30, what: '무상증자 실전 신호(연 56건이라 공백이 길 수 있다)' },
   ];
   const feedFreshness = {};
   for (const f of FEEDS) {

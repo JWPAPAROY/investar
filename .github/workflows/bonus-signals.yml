@@ -1,0 +1,51 @@
+# 무상증자 실전 신호 (2026-09-07)
+#
+# DISCLOSURE_VERDICT.md 2회차 판정에서 A1_무상증자가 ①②를 모두 통과한 유일한 유형.
+#   D+1 종가 매수 → D+5 종가 매도. 비용 차감 순초과 +0.87%p (n=248).
+#
+# disclosures 수집이 끝난 뒤에 돈다 — 그날 공시가 DB에 들어와야 신호를 뽑을 수 있다.
+#
+# ⏱ 스케줄 지연이 문제가 되지 않는 구조다.
+#   이 배치는 **다음 거래일에 할 일**을 알린다(D0 저녁 → "내일 D+1 종가 매수").
+#   collect-market-flow 는 실측 중앙 4시간 지연, 최악 05:25 KST에 돌았다.
+#   그래도 장 시작(09:00) 전이라 실행에 지장이 없다.
+#   ※ 정시성이 필요한 설계였다면 GitHub Actions를 쓰면 안 된다.
+name: bonus-signals
+
+on:
+  workflow_run:
+    workflows: [disclosures]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: '과거 전건 소급 기록 (알림 없음)'
+        required: false
+        default: 'false'
+
+permissions:
+  contents: read
+
+jobs:
+  signal:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Emit bonus issue signals
+        run: >
+          node scripts/bonus-issue-signals.js
+          ${{ github.event.inputs.backfill == 'true' && '--backfill' || '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

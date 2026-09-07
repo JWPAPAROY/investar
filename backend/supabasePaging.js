@@ -17,6 +17,7 @@
 const TABLE_ORDER = {
   active_policy: ['id'],
   active_policy_history: ['id'],
+  bonus_issue_signals: ['rcept_no'],
   buyback_details: ['rcept_no'],
   disclosures: ['rcept_no'],
   expected_return_stats: ['id'],
