@@ -1,19 +1,15 @@
 /**
- * GET /api/bonus — 무상증자 실전 신호 현황 + 성과 (v3.98)
- *
- * 근거: DISCLOSURE_VERDICT.md 2회차 판정에서 A1_무상증자가 ①②를 모두 통과한 **유일한** 유형.
- *   D+1 종가 매수 → D+5 종가 매도. 백테스트 매칭초과 중앙 +1.25% / 비용차감 +0.87%p (n=248).
- *
- * ⚠️ **Supabase anon 키를 프론트에 노출하지 않기 위해 이 엔드포인트를 둔다.**
- *    anon 정책이 `FOR ALL USING (true)` 라 읽기뿐 아니라 **쓰기도 열려 있다** —
- *    키가 공개되면 disclosures 54.9만 건과 판정 기록이 삭제·수정될 수 있다.
- *    프론트에서 Supabase를 직접 부르지 말 것.
- *
- * 성과는 저장값을 그대로 읽는다(scripts/bonus-issue-signals.js 가 채운다).
- *   여기서 재계산하면 두 출처가 갈라진다 — 이 저장소가 반복해서 당한 사고다.
+ * _bonusView.js — GET /api/portfolio?view=bonus 의 본체 (v3.98)
+ *   언더스코어 접두는 Vercel 이 서버리스 함수로 잡지 않게 하기 위함이다(12함수 한도).
  */
-const supabase = require('../../backend/supabaseClient');
+const supabase = require('./../backend/supabaseClient');
 
+// ── 📢 무상증자 실전 신호 (v3.98) ──────────────────────────────────────
+// ⚠️ **별도 함수로 두지 못한다.** Vercel Hobby 는 서버리스 함수 12개가 한도이고
+//    api/bonus/index.js 를 추가한 배포(d218abf)가 그 한도로 실패했다.
+//    CLAUDE.md 가 기록한 기존 해법(mode 통합)을 따라 여기에 얹는다 — GET /api/portfolio?view=bonus
+// ⚠️ 프론트에서 Supabase 를 직접 부르지 않기 위한 래퍼이기도 하다.
+//    anon 정책이 FOR ALL(쓰기 포함)이라 키가 노출되면 판정 기록이 삭제될 수 있다.
 const COST = 0.35;              // 수수료 무료 계정: 매도세 0.15 + 슬리피지 0.10x2
 const BASE_MEDIAN = 1.25;       // 백테스트 매칭초과 중앙
 const BASE_NET = 0.87;          // 백테스트 비용차감
@@ -26,13 +22,7 @@ const mid = (a) => {
   return x.length % 2 ? x[h] : (x[h - 1] + x[h]) / 2;
 };
 
-module.exports = async (req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (!supabase) return res.status(503).json({ success: false, error: 'Supabase 미설정' });
-
+async function bonusView(res) {
   try {
     // 신호는 연 56건 규모라 전건을 읽어도 부담이 없다.
     const { data, error } = await supabase
@@ -94,4 +84,6 @@ module.exports = async (req, res) => {
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
-};
+}
+
+module.exports = { bonusView };

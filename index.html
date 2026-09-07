@@ -826,7 +826,7 @@
       const fetchBonus = async () => {
         setBonusLoading(true);
         try {
-          const res = await fetch(`${API_BASE_URL}/bonus`);
+          const res = await fetch(`${API_BASE_URL}/portfolio?view=bonus`);
           const data = await res.json();
           if (!data.success) throw new Error(data.error || '로드 실패');
           setBonus(data);

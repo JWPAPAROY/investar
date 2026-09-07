@@ -9,6 +9,9 @@
  *   저장하면 market_flow_daily와 두 출처가 갈라진다(이 저장소가 반복해서 당한 사고).
  */
 const supabase = require('../../backend/supabaseClient');
+// v3.98: 무상증자 신호는 별도 함수로 둘 수 없다 — Vercel Hobby 12함수 한도에 걸린다
+//   (api/bonus/index.js 를 추가한 배포 d218abf 실패). ?view=bonus 로 여기에 얹는다.
+const { bonusView } = require('../_bonusView');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -16,6 +19,9 @@ module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (!supabase) return res.status(503).json({ success: false, error: 'Supabase 미설정' });
+
+  // 📢 무상증자 실전 신호 — 포트폴리오와 무관한 별도 라인이지만 함수 한도 때문에 같은 경로를 쓴다
+  if (req.query && req.query.view === 'bonus') return bonusView(res);
 
   try {
     const { data: rebs, error: rErr } = await supabase
