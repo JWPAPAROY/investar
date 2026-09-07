@@ -2,7 +2,7 @@
 #
 # collect-market-flow 가 끝난 뒤에 돈다 — 그날 종가·시총이 DB에 들어와야 산출할 수 있다.
 #   시각을 추측해 cron으로 맞추면 러너 지연(26~55분) 때문에 전일 데이터를 읽게 된다.
-#   (record-lowvol-picks 가 같은 이유로 workflow_run 방식이다)
+#   (disclosures / bonus-signals 도 같은 이유로 workflow_run 방식이다)
 #
 # 리밸런싱은 20거래일 주기이고 그 판단은 스크립트가 스스로 한다 —
 #   매일 돌려도 주기가 안 되면 "아직 아님"으로 끝난다(멱등).

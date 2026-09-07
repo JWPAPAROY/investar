@@ -21,7 +21,6 @@ const TABLE_ORDER = {
   buyback_details: ['rcept_no'],
   disclosures: ['rcept_no'],
   expected_return_stats: ['id'],
-  lowvol_observations: ['signal_date'],
   market_flow_daily: ['trade_date', 'stock_code'],
   overnight_predictions: ['id'],
   portfolio_rebalances: ['rebalance_date'],

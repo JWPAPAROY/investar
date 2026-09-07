@@ -51,8 +51,9 @@ investar/
 │   ├── overnightPredictor.js     # 해외 지수 기반 시장 방향 예측
 │   ├── momentumAnalyzer.js      # 장중 모멘텀 분석 (6차원 복합 시그널)
 │   ├── supabaseClient.js        # Supabase 클라이언트
-│   ├── patternCache.js          # 패턴 메모리 캐시
-│   └── gistStorage.js           # GitHub Gist 영구 저장
+│   ├── supabasePaging.js        # **페이지네이션 정렬키 단일 출처** (미등록 테이블은 throw)
+│   ├── portfolio.js             # 저PBR·저변동 포트폴리오 구성 규칙
+│   └── disclosureTypes.js       # 공시 유형 분류 단일 출처 (사전등록 11종)
 │
 ├── index.html                    # React SPA 프론트엔드
 ├── tracking-dashboard.html       # 성과 추적 대시보드
@@ -832,6 +833,11 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 - KIS API chartData는 **내림차순** (chartData[0] = 최신, slice(0, N) = 최근 N개)
 - Vercel 타임아웃 60초 제한 주의
 - KIS API Rate Limit: 초당 20회 (200ms 간격)
+- **저변동성 실시간 관측은 2026-09-07 종료.** 시작 근거였던 "표본 부족"이 2026-08-24~25
+  641/1,133거래일 표본으로 해소됐고 판정도 그쪽으로 이관됐다("고르는 덴 못 쓰고 버리는 덴 유효").
+  판정이 끝났는데 관측만 매 거래일 돌고 있었다(20일 기록, 읽는 코드 0곳).
+  `record-lowvol-picks.yml`·`scripts/record-lowvol-picks.js`·`lowvol_observations` 제거.
+  분석 스크립트 `scripts/lowvol-attribution.js` 는 판정 근거 재현용이므로 **남긴다**.
 - **⚠️ Vercel 서버리스 함수 12개 한도(Hobby).** `api/**/*.js` 가 12가 되면 **배포가 실패한다** —
   GitHub Actions는 초록불이고 Vercel 단계에서만 실패해 눈치채기 어렵다(2026-09-07 실측: 11→12에서 실패).
   새 엔드포인트는 기존 핸들러에 쿼리로 얹거나(`?view=`, `?mode=`) `_접두` 모듈로 뺄 것.
