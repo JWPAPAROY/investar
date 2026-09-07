@@ -145,7 +145,7 @@ async function loadHistoricalPool() {
       .from('screening_recommendations')
       .select('id, total_score, whale_detected, institution_buy_days, market_cap, volume_ratio, rsi')
       .gte('recommendation_date', cutoffStr)
-      .range(from, from + PAGE_SIZE - 1);
+      .order('id').range(from, from + PAGE_SIZE - 1);
     if (error || !data || data.length === 0) break;
     allRecs = allRecs.concat(data);
     if (data.length < PAGE_SIZE) break;
@@ -161,7 +161,7 @@ async function loadHistoricalPool() {
       .select('recommendation_id, days_since_recommendation, cumulative_return')
       .gte('days_since_recommendation', 1)
       .lte('days_since_recommendation', 15)
-      .range(from, from + PAGE_SIZE - 1);
+      .order('id').range(from, from + PAGE_SIZE - 1);
     if (error || !data || data.length === 0) break;
     allPrices = allPrices.concat(data);
     if (data.length < PAGE_SIZE) break;

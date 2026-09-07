@@ -1516,7 +1516,7 @@ module.exports = async (req, res) => {
             .select('id, recommendation_date, sector_name')
             .gte('recommendation_date', cutoffStr)
             .not('sector_name', 'is', null)
-            .range(from, from + 999);
+            .order('id').range(from, from + 999);
           if (!data || data.length === 0) break;
           sectorRecs = sectorRecs.concat(data);
           if (data.length < 1000) break;
@@ -1784,7 +1784,7 @@ module.exports = async (req, res) => {
         const { data, error } = await supabase
           .from('screening_recommendations')
           .select('id, recommendation_date, stock_code, recommendation_grade, whale_detected, total_score, institution_buy_days, market_cap, volume_ratio, rsi')
-          .range(from, from + PAGE_SIZE - 1);
+          .order('id').range(from, from + PAGE_SIZE - 1);
         if (error) { console.error('❌ recs 조회 실패:', error.message); break; }
         if (!data || data.length === 0) break;
         allRecs = allRecs.concat(data);

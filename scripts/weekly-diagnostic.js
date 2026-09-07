@@ -10,6 +10,7 @@
 // ============================================================================
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
+const { orderByPk } = require('../backend/supabasePaging');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { resolveTop3Order, DB_ACCESSORS } = require('../backend/top3Ranking');
 
@@ -19,7 +20,7 @@ const PAGE = 1000;
 async function fetchAll(table, select, filters = {}) {
   let all = [], from = 0;
   while (true) {
-    let q = sb.from(table).select(select).range(from, from + PAGE - 1);
+    let q = orderByPk(sb.from(table).select(select), table).range(from, from + PAGE - 1);
     for (const [k, v] of Object.entries(filters)) {
       if (v.gte !== undefined) q = q.gte(k, v.gte);
       if (v.lte !== undefined) q = q.lte(k, v.lte);

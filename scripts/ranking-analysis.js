@@ -14,6 +14,7 @@
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
+const { orderByPk } = require('../backend/supabasePaging');
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 const PAGE = 1000;
@@ -36,7 +37,7 @@ function supplyGrade(inst, fgn) {
 async function fetchAll(table, select) {
   let all = [], from = 0;
   while (true) {
-    const { data, error } = await sb.from(table).select(select).range(from, from + PAGE - 1);
+    const { data, error } = await orderByPk(sb.from(table).select(select), table).range(from, from + PAGE - 1);
     if (error) throw error;
     all = all.concat(data);
     if (data.length < PAGE) break;

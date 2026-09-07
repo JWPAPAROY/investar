@@ -30,7 +30,7 @@ async function main() {
       .eq('is_active', false)
       .neq('recommendation_grade', '과열')
       .gte('recommendation_date', cutoffStr)
-      .range(from, from + 999);
+      .order('id').range(from, from + 999);
     if (error) { console.error('❌ 조회 실패:', error.message); break; }
     if (!data || data.length === 0) break;
     all = all.concat(data);

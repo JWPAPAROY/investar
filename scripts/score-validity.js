@@ -62,7 +62,7 @@ function spearman(xs, ys) {
   const all = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await sb.from('screening_recommendations')
-      .select('recommendation_date,stock_code,total_score,market_cap,is_top3').not('total_score', 'is', null).range(from, from + 999);
+      .select('recommendation_date,stock_code,total_score,market_cap,is_top3').not('total_score', 'is', null).order('id').range(from, from + 999);
     if (error) throw error;
     all.push(...data);
     if (data.length < 1000) break;

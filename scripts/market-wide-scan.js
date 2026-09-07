@@ -14,6 +14,7 @@
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
+const { orderByPk } = require('../backend/supabasePaging');
 
 const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
 const PAGE = 1000;
@@ -29,7 +30,7 @@ const sign = v => (v == null ? '   -  ' : (v >= 0 ? `+${v.toFixed(2)}` : v.toFix
 async function fetchAll(table, cols, apply) {
   const out = [];
   for (let from = 0; ; from += PAGE) {
-    let q = sb.from(table).select(cols).range(from, from + PAGE - 1);
+    let q = orderByPk(sb.from(table).select(cols), table).range(from, from + PAGE - 1);
     if (apply) q = apply(q);
     const { data, error } = await q;
     if (error) throw error;

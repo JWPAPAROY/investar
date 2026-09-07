@@ -22,6 +22,7 @@
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
+const { orderByPk } = require('../backend/supabasePaging');
 const { isTradingDay, tradingDaysSince } = require('../backend/marketCalendar');
 
 const DRY = process.argv.includes('--dry');
@@ -32,7 +33,7 @@ const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY)
 async function fetchAll(table, cols) {
   let out = [], from = 0;
   for (;;) {
-    const { data, error } = await sb.from(table).select(cols).range(from, from + 999);
+    const { data, error } = await orderByPk(sb.from(table).select(cols), table).range(from, from + 999);
     if (error) throw new Error(`${table}: ${error.message}`);
     out = out.concat(data);
     if (data.length < 1000) break;

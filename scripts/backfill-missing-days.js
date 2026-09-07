@@ -20,7 +20,7 @@ async function main() {
     const { data } = await supabase.from('screening_recommendations')
       .select('id, stock_code, stock_name, recommendation_date, recommended_price')
       .gt('recommended_price', 0)
-      .range(from, from + 999);
+      .order('id').range(from, from + 999);
     if (!data || data.length === 0) break;
     allRecs = allRecs.concat(data);
     if (data.length < 1000) break;
@@ -36,7 +36,7 @@ async function main() {
       .select('recommendation_id, days_since_recommendation')
       .gte('days_since_recommendation', 0)
       .lte('days_since_recommendation', 15)
-      .range(from, from + 999);
+      .order('id').range(from, from + 999);
     if (!data || data.length === 0) break;
     allPrices = allPrices.concat(data);
     if (data.length < 1000) break;
