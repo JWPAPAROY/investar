@@ -1,0 +1,55 @@
+# DART 공시 일별 증분 수집 (2026-09-07)
+#
+# 판정 입력을 매일 채운다. 판정 조건은 DISCLOSURE_VERDICT.md에 사전 등록돼 있고,
+#   이 워크플로는 판정하지 않는다 — 모으기만 한다.
+#
+# collect-market-flow 가 끝난 뒤에 돈다 — 같은 체인에 두면 그날의 가격·시총과
+#   공시가 함께 갱신돼 최신일 정합이 맞는다. (portfolio.yml 과 같은 패턴)
+#
+# ⏱ 스케줄 지연은 문제가 되지 않는다. 이 축은 하루 단위 배치다 —
+#   실시간 60초 요구는 2026-09-07 리서치로 폐기됐다(공시 전 사전 반영이 실재).
+#   실제로 collect-market-flow 는 cron 08:50 UTC인데 중앙값 4시간 밀려 돈다.
+#
+# --resume 는 마지막 저장일 다음날부터 받는다. 하루 걸러도 다음 실행이 메운다.
+name: disclosures
+
+on:
+  workflow_run:
+    workflows: [collect-market-flow]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      from:
+        description: '소급 시작일 YYYYMMDD (비우면 --resume)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    # 수집이 성공했을 때만. 실패한 날은 가격이 없어 정합이 깨진다.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+
+      # 분류 규칙이 깨지면 잘못된 유형이 조용히 쌓인다. 수집 전에 막는다.
+      - name: Verify disclosure type rules
+        run: node scripts/verify-disclosure-types.js
+
+      - name: Collect disclosures
+        run: >
+          node scripts/collect-disclosures.js
+          ${{ github.event.inputs.from != '' && format('--from={0}', github.event.inputs.from) || '--resume' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}

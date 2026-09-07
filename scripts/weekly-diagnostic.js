@@ -679,6 +679,8 @@ async function runDiagnostic({ asOf = null, dryRun = false } = {}) {
     { table: 'stock_expected_returns', col: 'updated_at', maxDays: 5, what: '종목별 기대수익' },
     { table: 'sector_outlook_stats', col: 'updated_at', maxDays: 8, what: '업종 전망 뱃지' },
     { table: 'market_flow_daily', col: 'trade_date', maxDays: 5, what: '전 종목 수급·거래대금' },
+    { table: 'portfolio_rebalances', col: 'rebalance_date', maxDays: 35, what: '저PBR·저변동 포트폴리오(20거래일 주기)' },
+    { table: 'disclosures', col: 'rcept_dt', maxDays: 5, what: 'DART 공시(이벤트 축 판정 입력)' },
   ];
   const feedFreshness = {};
   for (const f of FEEDS) {
