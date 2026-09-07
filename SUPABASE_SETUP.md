@@ -1,14 +1,14 @@
 # Supabase 추천 종목 성과 추적 시스템 설정 가이드
 
-## 📁 SQL 파일 색인 (v3.96, 2026-08-25 덤프 v2로 검증)
+## 📁 SQL 파일 색인 (v3.98, 2026-09-07 덤프 v2로 검증)
 
 > **스키마의 단일 출처는 `supabase-schema-full.sql`**
-> 테이블 14 · 뷰 0 · 제약 25 · 인덱스 23 · RLS정책 31 · 함수 2 · 트리거 2
+> 테이블 18 · 뷰 0 · 제약 29 · 인덱스 33 · RLS정책 38 · 함수 2 · 트리거 2
 > 개별 `supabase-*.sql` 은 히스토리(언제 왜 추가했나)다.
 
 | 파일 | 성격 | 상태 |
 |---|---|---|
-| **`supabase-schema-full.sql`** | **전체 스키마** | ⚠️ 2026-08-25 덤프 — **낡음**(아래 참고) |
+| **`supabase-schema-full.sql`** | **전체 스키마** | ✅ 2026-09-07 실DB 덤프 |
 | `supabase-dump-schema.sql` | 덤프 재실행 쿼리 | 도구 (v2: 뷰·제약·함수·트리거 포함) |
 | `supabase-active-policy.sql` | 스키마 + 설계 근거 | 적용됨 |
 | `supabase-weekly-diagnostics.sql` | 〃 | 적용됨 |
@@ -23,13 +23,6 @@
 | `supabase-buyback.sql` | 〃 | ✅ 2026-09-07 적용 |
 | `supabase-bonus-signals.sql` | 〃 | ✅ 2026-09-07 적용 |
 | `supabase-krx-close.sql` | 〃 | ✅ 2026-09-07 적용 |
-
-### 🚨 `supabase-schema-full.sql` 이 낡았다
-
-2026-08-25 덤프라 그 뒤에 만든 것이 빠져 있다 —
-`disclosures` · `buyback_details` · `bonus_issue_signals` · `market_flow_daily.krx_close`.
-재덤프하려면 `supabase-dump-schema.sql` 을 SQL Editor 에서 실행하고 결과를 덮어쓸 것
-(pg_catalog 는 anon 키로 읽을 수 없어 수동이다).
 
 ### CREATE 스크립트를 남기는 이유
 

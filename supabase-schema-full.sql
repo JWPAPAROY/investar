@@ -1,37 +1,33 @@
 -- ============================================================================
--- Investar Supabase 전체 스키마 (public) — 2026-08-25 덤프 v2
+-- investar 전체 스키마 (실DB 덤프, 2026-09-07)
 --
--- 생성: supabase-dump-schema.sql 을 Supabase SQL Editor에서 실행한 결과.
--- 이 파일이 스키마의 **단일 출처**다. 개별 supabase-*.sql 은 히스토리(언제 왜 추가했나).
+-- 생성 방법: supabase-dump-schema.sql(v2, pg_catalog 기준)을 Supabase SQL Editor 에서
+--   실행하고 ddl 컬럼 전체를 여기에 저장. anon 키로는 pg_catalog 를 읽을 수 없어 수동이다.
 --
--- 재구축 순서 = 이 파일의 순서:
---   시퀀스 → 테이블 → 뷰 → 제약(PK/UNIQUE/FK/CHECK) → 인덱스
---   → RLS 활성화 → RLS 정책 → 함수 → 트리거
+-- ⚠️ **이 파일은 평소에 실행하지 않는다.** DB를 처음부터 재구성할 때만 쓴다.
+--    스키마를 바꾸는 것은 개별 supabase-*.sql 이고, 이 파일은 그 결과를 떠낸 기록이다.
 --
--- ── 이 덤프로 확인된 것 (2026-08-25) ─────────────────────────────────────────
--- 1. **트리거 trg_active_policy_history** 가 active_policy UPDATE마다
---    active_policy_history 에 INSERT한다. weekly-diagnostic.js 가 **또** 명시적으로
---    INSERT하고 있어 자동적용 1회당 이력이 2행씩 쌓였다(v3.96에서 코드 쪽 제거).
---    같은 트리거가 NEW.since_date = CURRENT_DATE 로 덮어쓰므로, 코드가 보내는
---    since_date(weekStart)는 DB에 남지 않는다.
--- 2. **FK 2개** — recommendation_daily_prices → screening_recommendations(ON DELETE CASCADE),
---    success_patterns → screening_recommendations(CASCADE 없음).
---    추천을 지울 때 가격행은 자동 삭제되지만 패턴은 먼저 지워야 한다.
--- 3. **CHECK 2개** — active_policy.id = 1 (싱글턴 강제),
---    top3_rank는 is_top3=true일 때만 1~3.
--- 4. 뷰 6개는 코드 사용처 0이라 2026-08-25에 전부 제거했다.
--- 5. 미사용 뷰 6개와 함수 2개(update_trend_scores_updated_at, get_indicator_distribution)는
---    2026-08-25에 제거했다 — supabase-drop-unused-20260825.sql 참고.
+-- ⚠️ **덤프는 COMMENT ON 을 잡지 않는다.** 컬럼이 왜 그렇게 생겼는지(설계 근거)는
+--    개별 supabase-*.sql 에만 있다. 그래서 그것들을 지우지 않는다.
+--
+-- 2026-08-25 덤프 대비 변경:
+--   + disclosures            DART 공시 메타데이터 (공시 이벤트 축 판정 입력)
+--   + buyback_details        자기주식취득 결정 상세 (강제 흐름 축)
+--   + bonus_issue_signals    무상증자 실전 신호 + 성과 추적
+--   + source_reconciliation  KIS↔KRX 일별 대조
+--   + market_flow_daily.krx_close       KRX 원천 종가 (close 는 권리락 구간에 수정주가가 덮인다)
+--   + market_flow_daily.krx_market_cap / krx_listed_shares
+--   − lowvol_observations    저변동성 실시간 관측 종료(판정이 2.5년 표본으로 이관됨)
+--
+-- 현황: 테이블 18 · 뷰 0 · 제약 29 · 인덱스 33 · RLS정책 38 · 함수 2 · 트리거 2
 -- ============================================================================
 
--- ── 1. 시퀀스 ───────────────────────────────────────────────────────────────
 CREATE SEQUENCE IF NOT EXISTS active_policy_history_id_seq;
 CREATE SEQUENCE IF NOT EXISTS expected_return_stats_id_seq;
 CREATE SEQUENCE IF NOT EXISTS overnight_predictions_id_seq;
 CREATE SEQUENCE IF NOT EXISTS stock_expected_returns_id_seq;
 CREATE SEQUENCE IF NOT EXISTS weekly_diagnostics_id_seq;
 
--- ── 2. 테이블 ───────────────────────────────────────────────────────────────
 -- ===== TABLE: active_policy =====
 CREATE TABLE active_policy (
   id integer NOT NULL DEFAULT 1,
@@ -58,6 +54,69 @@ CREATE TABLE active_policy_history (
   prev_regime_mode text
 );
 
+-- ===== TABLE: bonus_issue_signals =====
+CREATE TABLE bonus_issue_signals (
+  rcept_no text NOT NULL,
+  stock_code text NOT NULL,
+  corp_name text,
+  disclosure_date date NOT NULL,
+  ratio numeric,
+  record_date date,
+  ex_rights_date date,
+  listing_date date,
+  buy_date date,
+  sell_date date,
+  market_cap bigint,
+  cap_quintile smallint,
+  avg_value_20d bigint,
+  eligible boolean NOT NULL DEFAULT false,
+  reject_reason text,
+  buy_price numeric,
+  sell_price numeric,
+  return_pct numeric,
+  matched_excess numeric,
+  notified_buy boolean NOT NULL DEFAULT false,
+  notified_sell boolean NOT NULL DEFAULT false,
+  raw jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- ===== TABLE: buyback_details =====
+CREATE TABLE buyback_details (
+  rcept_no text NOT NULL,
+  corp_code text NOT NULL,
+  stock_code text,
+  rcept_dt date NOT NULL,
+  method text NOT NULL,
+  plan_amount bigint,
+  plan_shares bigint,
+  period_bgd date,
+  period_edd date,
+  purpose text,
+  broker text,
+  daily_limit bigint,
+  raw jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- ===== TABLE: disclosures =====
+CREATE TABLE disclosures (
+  rcept_no text NOT NULL,
+  rcept_dt date NOT NULL,
+  corp_code text NOT NULL,
+  corp_name text,
+  stock_code text,
+  corp_cls text,
+  report_nm text NOT NULL,
+  flr_nm text,
+  rm text,
+  report_type text,
+  is_amendment boolean NOT NULL DEFAULT false,
+  is_subsidiary boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
 -- ===== TABLE: expected_return_stats =====
 CREATE TABLE expected_return_stats (
   id integer NOT NULL DEFAULT nextval('expected_return_stats_id_seq'::regclass),
@@ -71,14 +130,6 @@ CREATE TABLE expected_return_stats (
   sample_count integer,
   updated_at timestamp DEFAULT now(),
   latest_data_date date
-);
-
--- ===== TABLE: lowvol_observations =====
-CREATE TABLE lowvol_observations (
-  signal_date date NOT NULL,
-  params jsonb NOT NULL,
-  picks jsonb NOT NULL,
-  recorded_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- ===== TABLE: market_flow_daily =====
@@ -98,7 +149,10 @@ CREATE TABLE market_flow_daily (
   prsn_net_value bigint,
   market_cap bigint,
   sector_name varchar(50),
-  updated_at timestamptz DEFAULT now()
+  updated_at timestamptz DEFAULT now(),
+  krx_market_cap bigint,
+  krx_listed_shares bigint,
+  krx_close numeric
 );
 
 -- ===== TABLE: overnight_predictions =====
@@ -126,6 +180,17 @@ CREATE TABLE overnight_predictions (
   kospi_close numeric,
   kosdaq_close numeric,
   alert_sent_at timestamptz
+);
+
+-- ===== TABLE: portfolio_rebalances =====
+CREATE TABLE portfolio_rebalances (
+  rebalance_date date NOT NULL,
+  buy_date date,
+  next_date date,
+  params jsonb NOT NULL,
+  holdings jsonb NOT NULL,
+  universe_size integer,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- ===== TABLE: recommendation_daily_prices =====
@@ -226,6 +291,15 @@ CREATE TABLE sector_outlook_stats (
   updated_at timestamptz DEFAULT now(),
   leading_score numeric DEFAULT 0,
   sector_daily_change numeric
+);
+
+-- ===== TABLE: source_reconciliation =====
+CREATE TABLE source_reconciliation (
+  trade_date date NOT NULL,
+  compared integer,
+  fields jsonb NOT NULL,
+  worst jsonb,
+  created_at timestamptz NOT NULL DEFAULT now()
 );
 
 -- ===== TABLE: stock_expected_returns =====
@@ -352,120 +426,133 @@ CREATE TABLE weekly_diagnostics (
   score_bucket_returns jsonb
 );
 
--- ── 3. 뷰 ───────────────────────────────────────────────────────────────────
--- 없음. 2026-08-25에 6개(overall_performance / recommendation_statistics /
---   institutional_indicator_analysis / price_indicator_analysis /
---   volume_indicator_analysis / success_pattern_insights)를 모두 제거했다 —
---   코드 사용처 0의 수동 조회용 집계 뷰였다.
---   정의가 필요하면 git history(커밋 062929c 이전)에서 복원할 것.
---   실행 기록: supabase-drop-unused-20260825.sql
-
--- ── 4. 제약 (PK / UNIQUE / FK / CHECK) ──────────────────────────────────────
--- ⚠️ v1 덤프에 통째로 빠져 있던 부분. FK 2개가 삭제 순서를 규정한다.
-ALTER TABLE active_policy ADD CONSTRAINT active_policy_pkey PRIMARY KEY (id);
+-- ===== 제약 =====
 ALTER TABLE active_policy ADD CONSTRAINT active_policy_id_check CHECK ((id = 1));
+ALTER TABLE active_policy ADD CONSTRAINT active_policy_pkey PRIMARY KEY (id);
 ALTER TABLE active_policy_history ADD CONSTRAINT active_policy_history_pkey PRIMARY KEY (id);
+ALTER TABLE bonus_issue_signals ADD CONSTRAINT bonus_issue_signals_pkey PRIMARY KEY (rcept_no);
+ALTER TABLE buyback_details ADD CONSTRAINT buyback_details_pkey PRIMARY KEY (rcept_no);
+ALTER TABLE disclosures ADD CONSTRAINT disclosures_pkey PRIMARY KEY (rcept_no);
 ALTER TABLE expected_return_stats ADD CONSTRAINT expected_return_stats_pkey PRIMARY KEY (id);
 ALTER TABLE expected_return_stats ADD CONSTRAINT expected_return_stats_grade_whale_detected_key UNIQUE (grade, whale_detected);
-ALTER TABLE lowvol_observations ADD CONSTRAINT lowvol_observations_pkey PRIMARY KEY (signal_date);
 ALTER TABLE market_flow_daily ADD CONSTRAINT market_flow_daily_pkey PRIMARY KEY (stock_code, trade_date);
-ALTER TABLE overnight_predictions ADD CONSTRAINT overnight_predictions_pkey PRIMARY KEY (id);
 ALTER TABLE overnight_predictions ADD CONSTRAINT overnight_predictions_prediction_date_key UNIQUE (prediction_date);
+ALTER TABLE overnight_predictions ADD CONSTRAINT overnight_predictions_pkey PRIMARY KEY (id);
+ALTER TABLE portfolio_rebalances ADD CONSTRAINT portfolio_rebalances_pkey PRIMARY KEY (rebalance_date);
 ALTER TABLE recommendation_daily_prices ADD CONSTRAINT recommendation_daily_prices_pkey PRIMARY KEY (id);
-ALTER TABLE recommendation_daily_prices ADD CONSTRAINT recommendation_daily_prices_recommendation_id_tracking_date_key UNIQUE (recommendation_id, tracking_date);
 ALTER TABLE recommendation_daily_prices ADD CONSTRAINT recommendation_daily_prices_recommendation_id_fkey FOREIGN KEY (recommendation_id) REFERENCES screening_recommendations(id) ON DELETE CASCADE;
+ALTER TABLE recommendation_daily_prices ADD CONSTRAINT recommendation_daily_prices_recommendation_id_tracking_date_key UNIQUE (recommendation_id, tracking_date);
 ALTER TABLE screening_recommendations ADD CONSTRAINT screening_recommendations_pkey PRIMARY KEY (id);
-ALTER TABLE screening_recommendations ADD CONSTRAINT screening_recommendations_recommendation_date_stock_code_key UNIQUE (recommendation_date, stock_code);
 ALTER TABLE screening_recommendations ADD CONSTRAINT top3_rank_valid CHECK (((top3_rank IS NULL) OR ((is_top3 = true) AND ((top3_rank >= 1) AND (top3_rank <= 3)))));
+ALTER TABLE screening_recommendations ADD CONSTRAINT screening_recommendations_recommendation_date_stock_code_key UNIQUE (recommendation_date, stock_code);
 ALTER TABLE sector_outlook_stats ADD CONSTRAINT sector_outlook_stats_pkey PRIMARY KEY (sector_name);
+ALTER TABLE source_reconciliation ADD CONSTRAINT source_reconciliation_pkey PRIMARY KEY (trade_date);
 ALTER TABLE stock_expected_returns ADD CONSTRAINT stock_expected_returns_pkey PRIMARY KEY (id);
 ALTER TABLE stock_expected_returns ADD CONSTRAINT stock_expected_returns_recommendation_date_stock_code_key UNIQUE (recommendation_date, stock_code);
 ALTER TABLE stock_financials ADD CONSTRAINT stock_financials_pkey PRIMARY KEY (stock_code, stac_yymm);
 ALTER TABLE stock_master ADD CONSTRAINT stock_master_pkey PRIMARY KEY (stock_code);
-ALTER TABLE success_patterns ADD CONSTRAINT success_patterns_pkey PRIMARY KEY (id);
 ALTER TABLE success_patterns ADD CONSTRAINT success_patterns_recommendation_id_success_date_key UNIQUE (recommendation_id, success_date);
+ALTER TABLE success_patterns ADD CONSTRAINT success_patterns_pkey PRIMARY KEY (id);
 ALTER TABLE success_patterns ADD CONSTRAINT success_patterns_recommendation_id_fkey FOREIGN KEY (recommendation_id) REFERENCES screening_recommendations(id);
-ALTER TABLE weekly_diagnostics ADD CONSTRAINT weekly_diagnostics_pkey PRIMARY KEY (id);
 ALTER TABLE weekly_diagnostics ADD CONSTRAINT weekly_diagnostics_week_start_key UNIQUE (week_start);
+ALTER TABLE weekly_diagnostics ADD CONSTRAINT weekly_diagnostics_pkey PRIMARY KEY (id);
 
--- ── 5. 인덱스 (제약이 자동 생성하는 것 제외) ────────────────────────────────
+-- ===== 인덱스 =====
 CREATE INDEX idx_policy_history_changed_at ON public.active_policy_history USING btree (changed_at DESC);
-CREATE INDEX idx_mfd_code_date ON public.market_flow_daily USING btree (stock_code, trade_date DESC);
+CREATE INDEX idx_bonus_sell ON public.bonus_issue_signals USING btree (sell_date);
+CREATE INDEX idx_bonus_stock ON public.bonus_issue_signals USING btree (stock_code, disclosure_date);
+CREATE INDEX idx_bonus_buy ON public.bonus_issue_signals USING btree (buy_date);
+CREATE INDEX idx_buyback_stock ON public.buyback_details USING btree (stock_code, rcept_dt);
+CREATE INDEX idx_buyback_method ON public.buyback_details USING btree (method, rcept_dt);
+CREATE INDEX idx_buyback_dt ON public.buyback_details USING btree (rcept_dt);
+CREATE INDEX idx_disclosures_type ON public.disclosures USING btree (report_type, rcept_dt);
+CREATE INDEX idx_disclosures_dt ON public.disclosures USING btree (rcept_dt);
+CREATE INDEX idx_disclosures_stock ON public.disclosures USING btree (stock_code, rcept_dt);
+CREATE INDEX idx_mfd_krx_close_null ON public.market_flow_daily USING btree (trade_date) WHERE (krx_close IS NULL);
 CREATE INDEX idx_mfd_date ON public.market_flow_daily USING btree (trade_date);
+CREATE INDEX idx_mfd_code_date ON public.market_flow_daily USING btree (stock_code, trade_date DESC);
 CREATE INDEX idx_overnight_predictions_hit ON public.overnight_predictions USING btree (hit) WHERE (hit IS NOT NULL);
 CREATE INDEX idx_overnight_predictions_date ON public.overnight_predictions USING btree (prediction_date DESC);
 CREATE INDEX idx_daily_prices_date ON public.recommendation_daily_prices USING btree (tracking_date DESC);
 CREATE INDEX idx_daily_prices_rec ON public.recommendation_daily_prices USING btree (recommendation_id);
-CREATE INDEX idx_recommendations_date ON public.screening_recommendations USING btree (recommendation_date DESC);
-CREATE INDEX idx_recommendations_active ON public.screening_recommendations USING btree (is_active) WHERE (is_active = true);
 CREATE INDEX idx_recommendations_stock ON public.screening_recommendations USING btree (stock_code);
-CREATE INDEX idx_rec_volume_ratio ON public.screening_recommendations USING btree (volume_ratio);
-CREATE INDEX idx_screening_top3_rank ON public.screening_recommendations USING btree (recommendation_date, top3_rank) WHERE (top3_rank IS NOT NULL);
-CREATE INDEX idx_rec_mfi ON public.screening_recommendations USING btree (mfi);
+CREATE INDEX idx_recommendations_date ON public.screening_recommendations USING btree (recommendation_date DESC);
 CREATE INDEX idx_rec_rsi ON public.screening_recommendations USING btree (rsi);
+CREATE INDEX idx_screening_top3_rank ON public.screening_recommendations USING btree (recommendation_date, top3_rank) WHERE (top3_rank IS NOT NULL);
+CREATE INDEX idx_recommendations_active ON public.screening_recommendations USING btree (is_active) WHERE (is_active = true);
+CREATE INDEX idx_rec_mfi ON public.screening_recommendations USING btree (mfi);
+CREATE INDEX idx_rec_volume_ratio ON public.screening_recommendations USING btree (volume_ratio);
 CREATE INDEX idx_stock_exp_returns_date ON public.stock_expected_returns USING btree (recommendation_date);
 CREATE INDEX idx_stock_exp_returns_code ON public.stock_expected_returns USING btree (stock_code);
 CREATE INDEX idx_stock_financials_ym ON public.stock_financials USING btree (stac_yymm);
 CREATE INDEX idx_stock_master_name ON public.stock_master USING btree (stock_name);
-CREATE INDEX idx_success_v2_date ON public.success_patterns USING btree (success_date DESC);
-CREATE INDEX idx_success_v2_grade ON public.success_patterns USING btree (recommendation_grade);
-CREATE INDEX idx_success_v2_stock ON public.success_patterns USING btree (stock_code);
 CREATE INDEX idx_success_v2_return ON public.success_patterns USING btree (max_return DESC);
+CREATE INDEX idx_success_v2_stock ON public.success_patterns USING btree (stock_code);
+CREATE INDEX idx_success_v2_grade ON public.success_patterns USING btree (recommendation_grade);
+CREATE INDEX idx_success_v2_date ON public.success_patterns USING btree (success_date DESC);
 CREATE INDEX idx_weekly_diag_week_start ON public.weekly_diagnostics USING btree (week_start DESC);
 
--- ── 6. RLS 활성화 (이게 없으면 아래 정책이 작동하지 않는다) ─────────────────
+-- ===== RLS =====
+-- ⚠️ anon 정책이 대부분 FOR ALL(쓰기 포함)이다. **anon 키를 프론트에 노출하면 안 된다** —
+--    누구나 판정 기록과 공시 54.9만 건을 삭제·수정할 수 있다.
+--    프론트는 반드시 서버리스 함수(api/)를 경유한다.
 ALTER TABLE active_policy ENABLE ROW LEVEL SECURITY;
 ALTER TABLE active_policy_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bonus_issue_signals ENABLE ROW LEVEL SECURITY;
+ALTER TABLE buyback_details ENABLE ROW LEVEL SECURITY;
+ALTER TABLE disclosures ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expected_return_stats ENABLE ROW LEVEL SECURITY;
-ALTER TABLE lowvol_observations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE market_flow_daily ENABLE ROW LEVEL SECURITY;
 ALTER TABLE overnight_predictions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE portfolio_rebalances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE recommendation_daily_prices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE screening_recommendations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE source_reconciliation ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_financials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stock_master ENABLE ROW LEVEL SECURITY;
 ALTER TABLE success_patterns ENABLE ROW LEVEL SECURITY;
 ALTER TABLE weekly_diagnostics ENABLE ROW LEVEL SECURITY;
 
--- ── 7. RLS 정책 ─────────────────────────────────────────────────────────────
--- 읽는 법: FOR ALL 이 걸린 것만 anon 키로 DELETE가 된다
---   (market_flow_daily · stock_master · expected_return_stats · stock_financials).
---   나머지는 DELETE 정책이 없어 API로 지우면 **오류 없이 0행**으로 끝난다.
 CREATE POLICY "anon read active_policy" ON active_policy FOR SELECT TO public USING (true);
 CREATE POLICY "anon update active_policy" ON active_policy FOR UPDATE TO public USING (true);
-CREATE POLICY "anon read active_policy_history" ON active_policy_history FOR SELECT TO public USING (true);
 CREATE POLICY "anon insert active_policy_history" ON active_policy_history FOR INSERT TO public WITH CHECK (true);
-CREATE POLICY "Allow public read" ON expected_return_stats FOR SELECT TO public USING (true);
+CREATE POLICY "anon read active_policy_history" ON active_policy_history FOR SELECT TO public USING (true);
+CREATE POLICY "anon read bonus_issue_signals" ON bonus_issue_signals FOR SELECT TO public USING (true);
+CREATE POLICY "anon write bonus_issue_signals" ON bonus_issue_signals FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "anon write buyback_details" ON buyback_details FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "anon read buyback_details" ON buyback_details FOR SELECT TO public USING (true);
+CREATE POLICY "anon write disclosures" ON disclosures FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "anon read disclosures" ON disclosures FOR SELECT TO public USING (true);
 CREATE POLICY "Allow service write" ON expected_return_stats FOR ALL TO public USING (true);
-CREATE POLICY "anon read lowvol_observations" ON lowvol_observations FOR SELECT TO public USING (true);
-CREATE POLICY "anon insert lowvol_observations" ON lowvol_observations FOR INSERT TO public WITH CHECK (true);
-CREATE POLICY "anon update lowvol_observations" ON lowvol_observations FOR UPDATE TO public USING (true);
-CREATE POLICY "mfd_read" ON market_flow_daily FOR SELECT TO public USING (true);
+CREATE POLICY "Allow public read" ON expected_return_stats FOR SELECT TO public USING (true);
 CREATE POLICY "mfd_write" ON market_flow_daily FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "mfd_read" ON market_flow_daily FOR SELECT TO public USING (true);
+CREATE POLICY "Allow anonymous update" ON overnight_predictions FOR UPDATE TO public USING (true);
 CREATE POLICY "Allow anonymous read" ON overnight_predictions FOR SELECT TO public USING (true);
 CREATE POLICY "Allow anonymous insert" ON overnight_predictions FOR INSERT TO public WITH CHECK (true);
-CREATE POLICY "Allow anonymous update" ON overnight_predictions FOR UPDATE TO public USING (true);
-CREATE POLICY "Public can read daily prices" ON recommendation_daily_prices FOR SELECT TO public USING (true);
-CREATE POLICY "allow_insert_daily_prices" ON recommendation_daily_prices FOR INSERT TO public WITH CHECK (true);
+CREATE POLICY "anon write portfolio_rebalances" ON portfolio_rebalances FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "anon read portfolio_rebalances" ON portfolio_rebalances FOR SELECT TO public USING (true);
 CREATE POLICY "Service can insert daily prices" ON recommendation_daily_prices FOR INSERT TO public WITH CHECK (true);
+CREATE POLICY "Public can read daily prices" ON recommendation_daily_prices FOR SELECT TO public USING (true);
 CREATE POLICY "allow_update_daily_prices" ON recommendation_daily_prices FOR UPDATE TO public USING (true) WITH CHECK (true);
+CREATE POLICY "allow_insert_daily_prices" ON recommendation_daily_prices FOR INSERT TO public WITH CHECK (true);
+CREATE POLICY "Service can update recommendations" ON screening_recommendations FOR UPDATE TO public USING (true);
 CREATE POLICY "Public can read recommendations" ON screening_recommendations FOR SELECT TO public USING (true);
 CREATE POLICY "Service can insert recommendations" ON screening_recommendations FOR INSERT TO public WITH CHECK (true);
-CREATE POLICY "Service can update recommendations" ON screening_recommendations FOR UPDATE TO public USING (true);
+CREATE POLICY "anon write source_reconciliation" ON source_reconciliation FOR ALL TO public USING (true) WITH CHECK (true);
+CREATE POLICY "anon read source_reconciliation" ON source_reconciliation FOR SELECT TO public USING (true);
 CREATE POLICY "anon read stock_financials" ON stock_financials FOR SELECT TO public USING (true);
 CREATE POLICY "anon write stock_financials" ON stock_financials FOR ALL TO public USING (true) WITH CHECK (true);
-CREATE POLICY "stock_master_read" ON stock_master FOR SELECT TO public USING (true);
 CREATE POLICY "stock_master_write" ON stock_master FOR ALL TO public USING (true);
+CREATE POLICY "stock_master_read" ON stock_master FOR SELECT TO public USING (true);
 CREATE POLICY "Allow public read success_patterns" ON success_patterns FOR SELECT TO public USING (true);
-CREATE POLICY "Allow service insert success_patterns" ON success_patterns FOR INSERT TO public WITH CHECK (true);
 CREATE POLICY "Allow service update success_patterns" ON success_patterns FOR UPDATE TO public USING (true);
+CREATE POLICY "Allow service insert success_patterns" ON success_patterns FOR INSERT TO public WITH CHECK (true);
 CREATE POLICY "anon read weekly_diagnostics" ON weekly_diagnostics FOR SELECT TO public USING (true);
-CREATE POLICY "anon insert weekly_diagnostics" ON weekly_diagnostics FOR INSERT TO public WITH CHECK (true);
 CREATE POLICY "anon update weekly_diagnostics" ON weekly_diagnostics FOR UPDATE TO public USING (true);
+CREATE POLICY "anon insert weekly_diagnostics" ON weekly_diagnostics FOR INSERT TO public WITH CHECK (true);
 
--- ── 8. 함수 ─────────────────────────────────────────────────────────────────
--- log_active_policy_change: active_policy UPDATE 시 이력을 자동 INSERT한다.
---   ⚠️ NEW.since_date = CURRENT_DATE 로 **덮어쓴다** — 코드가 보내는 weekStart는 남지 않는다.
+-- ===== 함수 =====
 CREATE OR REPLACE FUNCTION public.log_active_policy_change()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -486,7 +573,8 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$function$;
+$function$
+;
 
 CREATE OR REPLACE FUNCTION public.update_updated_at_column()
  RETURNS trigger
@@ -496,12 +584,11 @@ BEGIN
    NEW.updated_at = NOW();
    RETURN NEW;
 END;
-$function$;
+$function$
+;
 
-
-
--- ── 9. 트리거 ───────────────────────────────────────────────────────────────
-CREATE TRIGGER trg_active_policy_history BEFORE UPDATE ON public.active_policy
-  FOR EACH ROW EXECUTE FUNCTION log_active_policy_change();
-CREATE TRIGGER update_recommendations_updated_at BEFORE UPDATE ON public.screening_recommendations
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- ===== 트리거 =====
+-- ⚠️ trg_active_policy_history 가 active_policy UPDATE 마다 이력을 자동 INSERT 한다.
+--    weekly-diagnostic.js 가 **또** 명시적으로 INSERT 하면 2행이 쌓인다.
+CREATE TRIGGER trg_active_policy_history BEFORE UPDATE ON public.active_policy FOR EACH ROW EXECUTE FUNCTION log_active_policy_change();
+CREATE TRIGGER update_recommendations_updated_at BEFORE UPDATE ON public.screening_recommendations FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
