@@ -2726,7 +2726,7 @@ module.exports = async (req, res) => {
         // v3.96: success_patterns가 screening_recommendations를 FK 참조하므로 **먼저** 지운다.
         //   순서를 어기면 FK 위반으로 삭제가 실패하는데, 기존 코드는 결과를 확인하지 않아
         //   조용히 실패한 뒤 재스크리닝이 중복 행을 만들 수 있었다.
-        //   (같은 순서 규칙이 supabase-cleanup-nontrading.sql에 문서화돼 있다)
+        //   (FK 때문에 자식 → 부모 순서로만 지울 수 있다. 반대로 하면 23503)
         const delSteps = [
           supabase.from('success_patterns').delete().in('recommendation_id', oldIds),
           supabase.from('recommendation_daily_prices').delete().in('recommendation_id', oldIds),

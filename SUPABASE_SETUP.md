@@ -8,20 +8,41 @@
 
 | 파일 | 성격 | 상태 |
 |---|---|---|
-| **`supabase-schema-full.sql`** | **전체 스키마** | ✅ 2026-08-25 실DB 덤프 v2 |
+| **`supabase-schema-full.sql`** | **전체 스키마** | ⚠️ 2026-08-25 덤프 — **낡음**(아래 참고) |
 | `supabase-dump-schema.sql` | 덤프 재실행 쿼리 | 도구 (v2: 뷰·제약·함수·트리거 포함) |
-| `supabase-migrate-20260825.sql` | 마이그레이션 3건 | ✅ 2026-08-25 실행 |
-| `supabase-drop-unused-20260825.sql` | 미사용 뷰6·함수2 제거 | ✅ 2026-08-25 실행 |
-| `supabase-active-policy.sql` | 스키마 히스토리 | 적용됨 |
+| `supabase-active-policy.sql` | 스키마 + 설계 근거 | 적용됨 |
 | `supabase-weekly-diagnostics.sql` | 〃 | 적용됨 |
 | `supabase-market-flow.sql` | 〃 | 적용됨 |
-| `supabase-lowvol-observation.sql` | 〃 | 적용됨 |
-| `supabase-stock-financials.sql` | 〃 | ✅ 2026-08-25 적용 |
-| `supabase-top3-rank.sql` | 마이그레이션 히스토리 | 적용됨 |
+| `supabase-stock-financials.sql` | 〃 | 적용됨 |
+| `supabase-top3-rank.sql` | 〃 | 적용됨 |
 | `supabase-meta-monitor.sql` | 〃 | 적용됨 |
 | `supabase-policy-diff.sql` | 〃 | 적용됨 |
-| `supabase-cleanup-nontrading.sql` | 일회성 정리 기록 | 2026-07-17 실행 |
-| `supabase-cleanup-20251231.sql` | 〃 | 2026-08-25 실행 |
+| `supabase-krx-cap.sql` | 〃 | ✅ 2026-08-26 적용 |
+| `supabase-reconciliation.sql` | 〃 | ✅ 2026-08-26 적용 |
+| `supabase-disclosures.sql` | 〃 | ✅ 2026-09-07 적용 |
+| `supabase-buyback.sql` | 〃 | ✅ 2026-09-07 적용 |
+| `supabase-bonus-signals.sql` | 〃 | ✅ 2026-09-07 적용 |
+| `supabase-krx-close.sql` | 〃 | ✅ 2026-09-07 적용 |
+
+### 🚨 `supabase-schema-full.sql` 이 낡았다
+
+2026-08-25 덤프라 그 뒤에 만든 것이 빠져 있다 —
+`disclosures` · `buyback_details` · `bonus_issue_signals` · `market_flow_daily.krx_close`.
+재덤프하려면 `supabase-dump-schema.sql` 을 SQL Editor 에서 실행하고 결과를 덮어쓸 것
+(pg_catalog 는 anon 키로 읽을 수 없어 수동이다).
+
+### CREATE 스크립트를 남기는 이유
+
+**덤프는 `COMMENT ON` 을 잡지 않는다.** 개별 `supabase-*.sql` 에는 스키마뿐 아니라
+**왜 그렇게 만들었는지**가 들어 있고, 그건 여기 말고 어디에도 없다. 예:
+
+> `supabase-disclosures.sql` — `rcept_dt` 는 날짜만 있고 접수 시각이 없다.
+> 따라서 장중/장후를 구분할 수 없고, **진입을 D+1 종가로 고정하는 근거**가 된다.
+
+반면 **일회성 DROP/UPDATE 스크립트는 2026-09-07 에 삭제했다**(실행 완료 후 재실행할 일이
+없고, 무엇을 했는지는 CHANGELOG 와 커밋 메시지에 남아 있다):
+`cleanup-20251231` · `cleanup-nontrading` · `drop-unused-20260825` ·
+`migrate-20260825` · `drop-lowvol-20260907` · `lowvol-observation`
 
 ### 덤프 v2가 드러낸 것
 
@@ -41,7 +62,7 @@ INSERT하고 있었다(v3.96에서 코드 쪽 제거 — 트리거가 `prev_*` �
 **3. CHECK 2개** — `active_policy.id = 1`(싱글턴 강제),
 `top3_rank`는 `is_top3=true` 일 때만 1~3.
 
-**4. 뷰 6개는 코드 사용처 0이었다** → 2026-08-25에 전부 제거(`supabase-drop-unused-20260825.sql`).
+**4. 뷰 6개는 코드 사용처 0이었다** → 2026-08-25에 전부 제거.
 
 **5. 함수 2개 제거** — `update_trend_scores_updated_at()`(고아) · `get_indicator_distribution()`(사용처 0).
 남은 함수는 트리거가 실제로 쓰는 `log_active_policy_change()` · `update_updated_at_column()` 둘뿐이다.
