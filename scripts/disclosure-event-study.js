@@ -35,7 +35,9 @@ const { orderByPk } = require('../backend/supabasePaging');
 const BUY = 1, SELL = 5;
 const ALT_SELLS = [2, 10];
 const CURVE = [-10, 10];
-const COST = 0.38;
+// 사전 등록 기본값 0.38 = 수수료 0.015%x2 + 매도세 0.15% + 슬리피지 0.10%x2.
+// 이 계정은 수수료 무료라 실비용은 0.35다(--cost=0.35). 판정 재현성을 위해 기본값은 바꾸지 않는다.
+const COST = Number((process.argv.find(a => a.startsWith('--cost=')) || '').split('=')[1]) || 0.38;
 const PASS_EXCESS = 0.5;
 const PASS_RESIDUAL = 0.5;
 const FAIL_RESIDUAL = 0.3;
