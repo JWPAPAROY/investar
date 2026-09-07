@@ -31,6 +31,7 @@ const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
 const NO_ALERT = args.includes('--no-alert') || DRY;
 const BACKFILL = args.includes('--backfill');
+const REFRESH = args.includes('--refresh');   // 상세(신주배정기준일)가 비어 있는 기록을 재조회
 
 const BUY_OFFSET = 1;      // D+1 종가 매수  (사전 등록 판정과 동일)
 const SELL_OFFSET = 5;     // D+5 종가 매도
@@ -130,10 +131,15 @@ async function telegram(text) {
   // ── 신규 A1 감지 ───────────────────────────────────────────────────────
   const a1 = await fetchAll('disclosures', 'rcept_no,rcept_dt,corp_code,corp_name,stock_code',
     q => q.eq('report_type', 'A1_무상증자').eq('is_amendment', false).eq('is_subsidiary', false));
-  const known = new Set((await fetchAll('bonus_issue_signals', 'rcept_no')).map(r => r.rcept_no));
-  const fresh = a1.filter(r => !known.has(r.rcept_no) && r.stock_code)
-    .filter(r => BACKFILL || r.rcept_dt >= days[Math.max(0, days.length - 30)]);
-  console.log(`무상증자 공시 ${a1.length}건 / 기록됨 ${known.size}건 / 신규 ${fresh.length}건`);
+  const kept = await fetchAll('bonus_issue_signals', 'rcept_no,record_date');
+  const known = new Map(kept.map(r => [r.rcept_no, r.record_date]));
+  // --refresh: 상세가 비어 있는 기록도 다시 받는다.
+  //   fricDecsn 이 **정정본 rcept_no** 로 응답한다는 걸 몰랐을 때 저장된 행이 이에 해당한다.
+  const fresh = a1.filter(r => r.stock_code)
+    .filter(r => !known.has(r.rcept_no) || (REFRESH && known.get(r.rcept_no) == null))
+    .filter(r => BACKFILL || REFRESH || r.rcept_dt >= days[Math.max(0, days.length - 30)]);
+  console.log(`무상증자 공시 ${a1.length}건 / 기록됨 ${known.size}건 / 처리 대상 ${fresh.length}건`
+    + (REFRESH ? ' (--refresh: 상세 결측분 포함)' : ''));
 
   // ── 상세 조회 → 자격 판정 ──────────────────────────────────────────────
   const rows = [];
@@ -151,7 +157,23 @@ async function telegram(text) {
     await sleep(220);
 
     for (const ev of evs) {
-      const d = list.find(x => x.rcept_no === ev.rcept_no) || null;
+      // ⚠️ fricDecsn 은 **정정된 최신본의 rcept_no** 로 돌려준다.
+      //   실측: 디바이스 공시목록 20260410000865 vs fricDecsn 20260416000263.
+      //   그래서 rcept_no 정확 일치로 조인하면 정정이 있었던 건을 통째로 놓친다(실측 35%).
+      //   ① 이사회 결의일(bddd)이 공시일과 같은 건 → ② 없으면 공시일 전후 60일 내 최근접.
+      let d = list.find(x => x.rcept_no === ev.rcept_no) || null;
+      if (!d) d = list.find(x => date(x.bddd) === ev.rcept_dt) || null;
+      if (!d) {
+        const evT = new Date(ev.rcept_dt).getTime();
+        const near = list
+          .map(x => {
+            const dt = date(x.bddd) || (String(x.rcept_no).slice(0, 8).replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3'));
+            return { x, gap: Math.abs(new Date(dt).getTime() - evT) / 864e5 };
+          })
+          .filter(o => Number.isFinite(o.gap) && o.gap <= 60)
+          .sort((a, b) => a.gap - b.gap)[0];
+        d = near ? near.x : null;
+      }
       const recordDate = d ? date(d.nstk_asstd) : null;
       const ratio = d ? num(d.nstk_ascnt_ps_ostk) : null;
       const exRights = recordDate ? dayBefore(recordDate) : null;
@@ -211,7 +233,7 @@ async function telegram(text) {
 
   // ── 성과 갱신: 매수·매도일이 지난 건의 실제 가격 채우기 ────────────────
   const open = await fetchAll('bonus_issue_signals',
-    'rcept_no,stock_code,buy_date,sell_date,buy_price,sell_price,eligible',
+    'rcept_no,stock_code,disclosure_date,buy_date,sell_date,buy_price,sell_price,eligible,reject_reason',
     q => q.eq('eligible', true).is('sell_price', null));
   const upd = [];
   for (const s of open) {
@@ -219,8 +241,42 @@ async function telegram(text) {
     const bp = s.buy_price ?? (s.buy_date && s.buy_date <= lastDay ? m.get(s.buy_date)?.close ?? null : null);
     const sp = s.sell_date && s.sell_date <= lastDay ? m.get(s.sell_date)?.close ?? null : null;
     if (bp == null && sp == null) continue;
+    // 🚨 가격 계열 무결성 검사 — 한국 주식은 일간 ±30% 제한이 있다.
+    //   그것을 넘는 일간 변동은 시세가 아니라 **가격 계열의 결함**이다:
+    //   권리락·액면분할 후 재수집된 행은 수정주가, 그 이전 행은 원주가로 남아
+    //   경계에 불연속이 생긴다(수집이 최근 20일 창을 다시 채우기 때문).
+    //   실측 2026-07: 비비안 -50.3%, RF머트리얼즈 -42.6%, 티앤엘 -50%대.
+    //   이런 창에서는 **수익률을 기록하지 않는다** — 기록하면 실전 성적이 통째로 오염된다.
+    let broken = null;
+    if (s.buy_date && s.sell_date) {
+      const bi = dIdx.get(s.buy_date), si = dIdx.get(s.sell_date);
+      if (bi != null && si != null) {
+        for (let k = bi + 1; k <= si; k++) {
+          const a = m.get(days[k - 1])?.close, b = m.get(days[k])?.close;
+          if (!(a > 0) || !(b > 0)) continue;
+          const ch = ((b - a) / a) * 100;
+          if (Math.abs(ch) > 30.5) { broken = `${days[k]} ${ch.toFixed(1)}%`; break; }
+        }
+      }
+    }
+    if (broken) {
+      console.log(`  ⚠️ 가격 불연속 — ${s.stock_code} ${broken} → 수익률 기록 안 함(권리락·수정주가 혼재 의심)`);
+      upd.push({
+        rcept_no: s.rcept_no, stock_code: s.stock_code, disclosure_date: s.disclosure_date,
+        buy_price: bp, sell_price: null, return_pct: null,
+        reject_reason: (s.reject_reason ? s.reject_reason + ' / ' : '') + `가격 불연속(${broken})`,
+        eligible: false, updated_at: new Date().toISOString(),
+      });
+      continue;
+    }
     const ret = (bp > 0 && sp > 0) ? ((sp - bp) / bp) * 100 : null;
-    upd.push({ rcept_no: s.rcept_no, buy_price: bp, sell_price: sp, return_pct: ret, updated_at: new Date().toISOString() });
+    // upsert 는 ON CONFLICT DO UPDATE 라 INSERT 경로의 NOT NULL 도 만족해야 한다.
+    //   부분 payload 만 보내면 stock_code NOT NULL 위반으로 실패한다(실측).
+    upd.push({
+      rcept_no: s.rcept_no, stock_code: s.stock_code, disclosure_date: s.disclosure_date,
+      eligible: true,   // upsert 는 INSERT 경로의 NOT NULL 도 만족해야 한다 (이 목록은 eligible=true 만)
+      buy_price: bp, sell_price: sp, return_pct: ret, updated_at: new Date().toISOString(),
+    });
   }
   if (upd.length && !DRY) {
     const { error } = await sb.from('bonus_issue_signals').upsert(upd, { onConflict: 'rcept_no' });
@@ -228,7 +284,19 @@ async function telegram(text) {
   }
   if (upd.length) console.log(`\n성과 갱신 ${upd.length}건`);
 
-  if (BACKFILL) { console.log('\n[--backfill] 알림 없이 종료'); return; }
+  // 상세 확보율 — 이 전략의 핵심 자격(권리락 회피)이 여기에 달려 있다
+  {
+    const all0 = await fetchAll('bonus_issue_signals', 'record_date,eligible,reject_reason');
+    const withRec = all0.filter(r => r.record_date).length;
+    const exReject = all0.filter(r => (r.reject_reason || '').includes('권리락')).length;
+    const p = (a, b) => (100 * a / Math.max(1, b)).toFixed(1);
+    console.log(`\n📋 누적 ${all0.length}건`);
+    console.log(`   신주배정기준일 확보 ${withRec}건 (${p(withRec, all0.length)}%)`);
+    console.log(`   권리락 사유 탈락   ${exReject}건 (기준일 확보분의 ${p(exReject, withRec)}%)`);
+    console.log(`   자격 통과          ${all0.filter(r => r.eligible).length}건`);
+  }
+
+  if (BACKFILL || REFRESH) { console.log('\n[소급 모드] 알림 없이 종료'); return; }
 
   // ── 알림: "다음 거래일에 할 일" ────────────────────────────────────────
   const nextIdx = dIdx.get(lastDay) + 1;
@@ -270,9 +338,10 @@ async function telegram(text) {
   await telegram(L.join('\n'));
 
   if (!DRY) {
+    const base = s => ({ rcept_no: s.rcept_no, stock_code: s.stock_code, disclosure_date: s.disclosure_date, updated_at: new Date().toISOString() });
     const mark = [
-      ...toBuy.map(s => ({ rcept_no: s.rcept_no, notified_buy: true, updated_at: new Date().toISOString() })),
-      ...toSell.map(s => ({ rcept_no: s.rcept_no, notified_sell: true, updated_at: new Date().toISOString() })),
+      ...toBuy.map(s => ({ ...base(s), notified_buy: true })),
+      ...toSell.map(s => ({ ...base(s), notified_sell: true })),
     ];
     if (mark.length) {
       const { error } = await sb.from('bonus_issue_signals').upsert(mark, { onConflict: 'rcept_no' });
