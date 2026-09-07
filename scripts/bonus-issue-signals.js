@@ -118,6 +118,86 @@ async function telegram(text) {
     return i > 0 ? days[i - 1] : null;
   };
 
+  // ── 매칭초과(추정량 C) — 백테스트와 같은 자 ────────────────────────────
+  //   disclosure-event-study.js 와 동일한 정의:
+  //     창 수익 − **같은 창을 온전히 관측한** 동일일·동일 시총분위 동료들의 중앙값.
+  //   이벤트와 대조군에 같은 통계량·같은 생존 조건이 걸려야 편향이 없다
+  //   (위약 편향 실측 +0.000%. 평균 기준선을 쓰면 -0.5%p 하방 편향이 생긴다).
+  //
+  //   원수익만으로는 백테스트(+1.25%)와 비교할 수 없다 — 그건 매칭초과이기 때문이다.
+  //   같은 기간 시장이 빠지면 원수익이 나쁜 것이 당연하고, 그건 전략의 문제가 아니다.
+
+  /** 창 수익(%). 창 안에 |일간| > 30.5% 가 있으면 null — 가격 계열 결함이다. */
+  const winRetSafe = (code, i0, a, b) => {
+    const m = px.get(code); if (!m) return null;
+    if (i0 + a - 1 < 0 || i0 + b >= days.length) return null;
+    const p0 = m.get(days[i0 + a - 1])?.close, p1 = m.get(days[i0 + b])?.close;
+    if (!(p0 > 0) || !(p1 > 0)) return null;
+    for (let k = i0 + a; k <= i0 + b; k++) {
+      const x = m.get(days[k - 1])?.close, y = m.get(days[k])?.close;
+      if (!(x > 0) || !(y > 0)) return null;
+      if (Math.abs((y - x) / x) > 0.305) return null;
+    }
+    return ((p1 - p0) / p0) * 100;
+  };
+
+  const quintCache = new Map();
+  const quintOn = (i0) => {
+    let q = quintCache.get(i0); if (q) return q;
+    const rows = [];
+    for (const [code, m] of px) { const c = m.get(days[i0])?.cap; if (c > 0) rows.push([code, c]); }
+    rows.sort((x, y) => x[1] - y[1]);
+    q = new Map();
+    rows.forEach(([code], k) => q.set(code, Math.min(4, Math.floor((k / rows.length) * 5))));
+    quintCache.set(i0, q); return q;
+  };
+
+  const baseCache = new Map();
+  const peerMedian = (i0, quint, a, b) => {
+    const key = i0 + '|' + quint + '|' + a + '|' + b;
+    if (baseCache.has(key)) return baseCache.get(key);
+    const qmap = quintOn(i0);
+    const vals = [];
+    for (const code of px.keys()) {
+      if (qmap.get(code) !== quint) continue;
+      const w = winRetSafe(code, i0, a, b);
+      if (w != null) vals.push(w);
+    }
+    let v = null;
+    if (vals.length >= 20) {
+      vals.sort((x, y) => x - y);
+      const h = vals.length >> 1;
+      v = vals.length % 2 ? vals[h] : (vals[h - 1] + vals[h]) / 2;
+    }
+    baseCache.set(key, v); return v;
+  };
+
+  /** 추정량 C. 매수일 종가 → 매도일 종가 구간. */
+  const matchedExcess = (code, i0, a, b) => {
+    const own = winRetSafe(code, i0, a, b); if (own == null) return null;
+    const quint = quintOn(i0).get(code); if (quint == null) return null;
+    const base = peerMedian(i0, quint, a, b); if (base == null) return null;
+    return own - base;
+  };
+
+  /** 실전 누적 성적. 원수익과 매칭초과를 나란히 — 후자만 백테스트와 비교 가능하다. */
+  const summary = async () => {
+    const rows2 = await fetchAll('bonus_issue_signals', 'eligible,return_pct,matched_excess',
+      q => q.eq('eligible', true));
+    const closed = rows2.filter(r => r.return_pct != null);
+    if (!closed.length) return;
+    const mid = a => { const x = [...a].sort((u, v) => u - v); const h = x.length >> 1; return x.length % 2 ? x[h] : (x[h - 1] + x[h]) / 2; };
+    const mx = closed.filter(r => r.matched_excess != null).map(r => r.matched_excess);
+    console.log(`\n📊 실전 누적 — 자격 ${rows2.length}건 / 청산 ${closed.length}건`);
+    console.log(`   원수익   중앙 ${pct(mid(closed.map(r => r.return_pct)))}  (시장 방향이 섞여 백테스트와 직접 비교 불가)`);
+    if (mx.length) {
+      const m = mid(mx);
+      const win = mx.filter(v => v > COST).length;
+      console.log(`   매칭초과 중앙 ${pct(m)}  비용차감 ${pct(m - COST)}  승률 ${(100 * win / mx.length).toFixed(0)}%   ← 백테스트와 같은 자 (n=${mx.length})`);
+      console.log(`   백테스트 기준선: 매칭초과 중앙 +1.25% / 비용차감 +0.87%p (n=248)`);
+    } else console.log('   매칭초과: 산출 불가(동료 표본 부족 또는 가격 결함)');
+  };
+
   // 테이블 존재 확인 (anon 키로는 CREATE TABLE 이 안 된다)
   {
     const { error } = await sb.from('bonus_issue_signals').select('rcept_no').limit(1);
@@ -276,7 +356,11 @@ async function telegram(text) {
     upd.push({
       rcept_no: s.rcept_no, stock_code: s.stock_code, disclosure_date: s.disclosure_date,
       eligible: true,   // upsert 는 INSERT 경로의 NOT NULL 도 만족해야 한다 (이 목록은 eligible=true 만)
-      buy_price: bp, sell_price: sp, return_pct: ret, updated_at: new Date().toISOString(),
+      buy_price: bp, sell_price: sp, return_pct: ret,
+      // 백테스트와 같은 자로도 재둔다. 원수익만으로는 시장 방향과 섞여 비교가 성립하지 않는다.
+      matched_excess: (ret != null && idxOnOrAfter(s.disclosure_date) >= 0)
+        ? matchedExcess(s.stock_code, idxOnOrAfter(s.disclosure_date), BUY_OFFSET + 1, SELL_OFFSET) : null,
+      updated_at: new Date().toISOString(),
     });
   }
   if (upd.length && !DRY) {
@@ -297,7 +381,7 @@ async function telegram(text) {
     console.log(`   자격 통과          ${all0.filter(r => r.eligible).length}건`);
   }
 
-  if (BACKFILL || REFRESH) { console.log('\n[소급 모드] 알림 없이 종료'); return; }
+  if (BACKFILL || REFRESH) { await summary(); console.log('\n[소급 모드] 알림 없이 종료'); return; }
 
   // ── 알림: "다음 거래일에 할 일" ────────────────────────────────────────
   const nextIdx = dIdx.get(lastDay) + 1;
@@ -351,15 +435,5 @@ async function telegram(text) {
   }
 
   // ── 누적 실전 성적 (백테스트와 같은 눈으로) ────────────────────────────
-  const done = all.filter(s => s.eligible).length;
-  const closed = (await fetchAll('bonus_issue_signals', 'return_pct', q => q.eq('eligible', true).not('return_pct', 'is', null)))
-    .map(r => r.return_pct);
-  if (closed.length) {
-    const sorted = [...closed].sort((a, b) => a - b);
-    const m = sorted[sorted.length >> 1];
-    const win = closed.filter(v => v > COST).length;
-    console.log(`\n📊 실전 누적 — 자격 ${done}건 / 청산 ${closed.length}건 / `
-      + `원수익 중앙 ${pct(m)} / 비용차감 ${pct(m - COST)} / 승률(비용 초과) ${(100 * win / closed.length).toFixed(0)}%`);
-    console.log(`   백테스트 기준선: 매칭초과 중앙 +1.25% / 비용차감 +0.87%p`);
-  }
+  await summary();
 })();
