@@ -57,6 +57,22 @@ const DEFAULTS = {
   factor: 'PBR+저변동',
 };
 
+/**
+ * 병행 관측 전략 (2026-10-06 추가).
+ *   pbr_lowvol  — 기존(v3.97). 판정 PORTFOLIO_VERDICT.md, 벤치 KOSPI.
+ *   ep_lowturn  — 이익수익률(E/P) + 저회전(20일 평균 거래대금/시총). 판정 PORTFOLIO_VERDICT_EP.md.
+ *     출처: scripts/logic-search.js --exclude=005930,000660 (사전등록 IS 선택 → OOS 통과).
+ *     설계 2022-01~2024-06 KOSPI ex-2 대비 연 +26.2%p → 판정 2024-07~2026-08 연 +3.1%p,
+ *     MDD −10.8%(벤치 −18.1%). **삼성전자·SK하이닉스는 유니버스와 벤치마크 양쪽에서 제외**한다 —
+ *     두 종목은 따로 보유(또는 지수 ETF)한다는 전제의 "나머지 시장" 전략이다.
+ *     ⚠️ 제외 조건은 OOS를 본 뒤 정한 것이라 엄격한 판정보다 한 단계 약하다 → 실시간 관측 대상.
+ */
+const MEGA = ['005930', '000660'];
+const STRATEGIES = {
+  pbr_lowvol: { ...DEFAULTS },
+  ep_lowturn: { ...DEFAULTS, factor: 'E/P+저회전', weight: 'eq', exclude: MEGA, bench: 'kospi_ex_mega' },
+};
+
 const avg = a => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : null);
 const sd = (a) => {
   if (a.length < 2) return null;
@@ -70,16 +86,20 @@ const sd = (a) => {
  * @param {Map<string, Array>} series  code -> [{date, close, marketCap, tradingValue}] (날짜 오름차순, 전 구간)
  * @param {number} idx                 신호일의 인덱스(공용 거래일 배열 기준)
  * @param {string[]} days              공용 거래일 배열(오름차순)
- * @param {Function} bpsAt             (code, date) => bps | null  — point-in-time
+ * @param {Function|object} fin        (code, date) => bps | null, 또는 buildFinancialIndex() 결과(roe 포함)
  * @param {object} opts
  * @returns {Array} 시총상위 N, 각 행에 p_pbr/p_vol20/p_cap(1 = 저PBR/저변동/대형)
  */
-function buildUniverse(series, idx, days, bpsAt, opts = {}) {
+function buildUniverse(series, idx, days, fin, opts = {}) {
   const o = { ...DEFAULTS, ...opts };
+  const bpsAt = typeof fin === 'function' ? fin : fin.bpsAt;
+  const roeAt = typeof fin === 'function' ? () => null : (fin.roeAt || (() => null));
+  const excl = new Set(o.exclude || []);
   const date = days[idx];
   const rows = [];
 
   for (const [code, arr] of series) {
+    if (excl.has(code)) continue;
     const byDate = arr.byDate || null;
     const at = (k) => (byDate ? byDate.get(days[k]) : null);
     const cur = at(idx);
@@ -109,12 +129,17 @@ function buildUniverse(series, idx, days, bpsAt, opts = {}) {
     const rets = [];
     for (let k = 1; k < closes.length; k++) rets.push(((closes[k] - closes[k - 1]) / closes[k - 1]) * 100);
     const bps = bpsAt(code, date);
+    const roe = roeAt(code, date);
 
     rows.push({
       code, close: cur.close, cap: cur.marketCap, val20,
       vol20: sd(rets),
       pbr: bps > 0 ? cur.close / bps : null,
       bps: bps > 0 ? bps : null,
+      // E/P = ROE × BPS / 주가 (logic-search.js와 같은 정의 — EPS 필드의 분기/누적 모호성을 피한다)
+      ep: bps > 0 && roe != null && isFinite(roe) ? (roe / 100) * bps / cur.close : null,
+      // 회전율 = 20일 평균 거래대금 / 시총 (낮을수록 '무관심')
+      turn: cur.marketCap > 0 ? val20 / cur.marketCap : null,
     });
   }
 
@@ -122,12 +147,14 @@ function buildUniverse(series, idx, days, bpsAt, opts = {}) {
   const top = rows.slice(0, o.univ);
 
   // 백분위: 1 = 가장 좋음(저PBR / 저변동 / 대형)
-  const rank = (key, asc) => {
-    const a = top.filter(r => r[key] != null && isFinite(r[key]) && r[key] > 0);
+  const rank = (key, asc, allowNonPos = false) => {
+    const a = top.filter(r => r[key] != null && isFinite(r[key]) && (allowNonPos || r[key] > 0));
     a.sort((x, y) => (asc ? x[key] - y[key] : y[key] - x[key]));
     a.forEach((r, k) => { r['p_' + key] = a.length > 1 ? 1 - k / (a.length - 1) : 1; });
   };
   rank('pbr', true); rank('vol20', true); rank('cap', false);
+  rank('ep', false, true);   // 적자(음수 E/P)도 순위에 넣는다 — 맨 아래로 간다(백테스트와 동일)
+  rank('turn', true);
   return top;
 }
 
@@ -137,6 +164,7 @@ const FACTORS = {
   'PBR+저변동': r => (r.p_pbr != null && r.p_vol20 != null) ? r.p_pbr + r.p_vol20 : null,
   'PBR+대형': r => (r.p_pbr != null && r.p_cap != null) ? r.p_pbr + r.p_cap : null,
   '저변동': r => r.p_vol20,
+  'E/P+저회전': r => (r.p_ep != null && r.p_turn != null) ? r.p_ep + r.p_turn : null,
 };
 
 /**
@@ -173,8 +201,8 @@ function selectPicks(top, opts = {}) {
  * (scripts/strategy-search.js가 쓰던 규칙을 여기로 올렸다 — 실운용과 백테스트가
  *  다른 지연을 쓰면 성과가 비교 불가능해진다)
  *
- * @param {Array} rows [{stock_code|code, stac_yymm|ym, bps, eps}]
- * @returns {{bpsAt:Function, epsAt:Function, size:number}}
+ * @param {Array} rows [{stock_code|code, stac_yymm|ym, bps, eps, roe}]
+ * @returns {{bpsAt:Function, epsAt:Function, roeAt:Function, size:number}}
  */
 function buildFinancialIndex(rows) {
   const by = new Map();
@@ -187,7 +215,7 @@ function buildFinancialIndex(rows) {
     const lagDays = (m === 12 ? 90 : 45);
     const avail = new Date(end.getTime() + lagDays * 864e5).toISOString().slice(0, 10);
     if (!by.has(code)) by.set(code, []);
-    by.get(code).push({ avail, bps: r.bps, eps: r.eps });
+    by.get(code).push({ avail, bps: r.bps, eps: r.eps, roe: r.roe == null ? null : +r.roe });
   }
   for (const a of by.values()) a.sort((x, y2) => x.avail.localeCompare(y2.avail));
 
@@ -205,7 +233,31 @@ function buildFinancialIndex(rows) {
     size: by.size,
     bpsAt: (c, d) => { const f = at(c, d); return f && f.bps > 0 ? f.bps : null; },
     epsAt: (c, d) => { const f = at(c, d); return f && f.eps > 0 ? f.eps : null; },
+    roeAt: (c, d) => { const f = at(c, d); return f && f.roe != null && isFinite(f.roe) ? f.roe : null; },
   };
 }
 
-module.exports = { DEFAULTS, FACTORS, buildUniverse, selectPicks, buildFinancialIndex, avg, sd };
+/**
+ * 벤치마크: KOSPI 보통주 시총가중 매수후보유 수익(%) — 지정 종목 제외.
+ *   d0 시총 가중 × (d1 종가 / d0 종가). 구간이 리밸런싱 1회(약 20거래일)라 편입 변동은 무시한다.
+ *   일간 가격제한(±30%)을 넘는 비율이 나오면 액면분할·병합 이음매로 보고 시총 비율로 대체한다.
+ * @param {Array} rows0 [{stock_code, close, cap}] d0
+ * @param {Array} rows1 [{stock_code, close, cap}] d1
+ * @param {Set} kospiCodes  KOSPI 소속 코드
+ */
+function capWeightedReturn(rows0, rows1, kospiCodes, exclude = []) {
+  const ex = new Set(exclude);
+  const m1 = new Map(rows1.map(r => [r.stock_code, r]));
+  let w = 0, x = 0;
+  for (const a of rows0) {
+    if (!kospiCodes.has(a.stock_code) || ex.has(a.stock_code) || !/0$/.test(a.stock_code)) continue;
+    const b = m1.get(a.stock_code);
+    if (!b || !(a.close > 0) || !(b.close > 0) || !(a.cap > 0)) continue;
+    let r = b.close / a.close;
+    if ((r > 3 || r < 1 / 3) && b.cap > 0) r = b.cap / a.cap;
+    w += a.cap; x += a.cap * r;
+  }
+  return w > 0 ? (x / w - 1) * 100 : null;
+}
+
+module.exports = { DEFAULTS, STRATEGIES, MEGA, FACTORS, capWeightedReturn, buildUniverse, selectPicks, buildFinancialIndex, avg, sd };

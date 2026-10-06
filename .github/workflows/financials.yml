@@ -1,0 +1,36 @@
+# 분기 재무비율 갱신 (2026-10-06)
+#
+# 왜: stock_financials는 2026-08-20 수동 수집 이후 갱신되지 않았다. 2분기(6월 결산) 실적은
+#   8월 중순에 공시되는데 DB엔 179종목뿐이라, 포트폴리오가 한 분기 묵은 BPS·ROE로 골랐다.
+#   E/P+저회전(ep_lowturn)은 ROE를 직접 쓰므로 이 지연이 순위를 바꾼다.
+#
+# 주기: 매주 토요일. 공시 시기가 종목마다 흩어져 있어 분기 1회로는 늦게 들어온 종목을 놓친다.
+#   종목당 KIS 1콜(~2,600콜, 3~4분), 멱등 upsert.
+name: financials
+
+on:
+  schedule:
+    - cron: '0 1 * * 6'   # 토 10:00 KST
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Collect financial ratios → stock_financials
+        run: node scripts/collect-financials.js --push
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
+          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}

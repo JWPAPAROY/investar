@@ -104,26 +104,32 @@ async function withRetry(fn) {
   }
 }
 
+// (stock_code, stac_yymm)은 PK다. 원본에 같은 키가 7건 있는데 한쪽이 전부 0인
+//   빈 레코드다(KIS가 같은 분기를 두 번 주며 하나는 공백). 그대로 upsert하면
+//   'ON CONFLICT DO UPDATE command cannot affect row a second time'로 실패한다.
+//   → 값이 채워진 쪽(0이 아닌 필드가 많은 쪽)을 남긴다.
+//   2026-10-06: --push 경로엔 이 처리가 없어 재수집 후 업로드가 실패했다 → 두 경로 공용으로.
+function dedupeRows(rows) {
+  const score = (r) => ['grs','opInc','niInc','roe','eps','sps','bps','rsrv','debt']
+    .reduce((n, k) => n + (r[k] ? 1 : 0), 0);
+  const uniq = new Map();
+  for (const r of rows) {
+    const k = r.code + '|' + r.ym;
+    const prev = uniq.get(k);
+    if (!prev || score(r) > score(prev)) uniq.set(k, r);
+  }
+  if (uniq.size !== rows.length) console.log(`   중복 키 ${rows.length - uniq.size}건 제거 (빈 레코드 쪽 폐기)`);
+  return [...uniq.values()];
+}
+
 (async () => {
   if (PUSH_ONLY) {
     const cached = JSON.parse(fs.readFileSync(OUT, 'utf8'));
     const rows = cached.rows || [];
-    // (stock_code, stac_yymm)은 PK다. 원본에 같은 키가 7건 있는데 한쪽이 전부 0인
-    //   빈 레코드다(KIS가 같은 분기를 두 번 주며 하나는 공백). 그대로 upsert하면
-    //   'ON CONFLICT DO UPDATE command cannot affect row a second time'로 실패한다.
-    //   → 값이 채워진 쪽(0이 아닌 필드가 많은 쪽)을 남긴다.
-    const score = (r) => ['grs','opInc','niInc','roe','eps','sps','bps','rsrv','debt']
-      .reduce((n, k) => n + (r[k] ? 1 : 0), 0);
-    const uniq = new Map();
-    for (const r of rows) {
-      const k = r.code + '|' + r.ym;
-      const prev = uniq.get(k);
-      if (!prev || score(r) > score(prev)) uniq.set(k, r);
-    }
-    if (uniq.size !== rows.length) console.log(`   중복 키 ${rows.length - uniq.size}건 제거 (빈 레코드 쪽 폐기)`);
+    const uniq = dedupeRows(rows);
 
     console.log(`📤 ${OUT} → stock_financials (${rows.length}행, 수집시각 ${cached.collectedAt})`);
-    const batch = [...uniq.values()].map(r => ({
+    const batch = uniq.map(r => ({
       stock_code: r.code, stac_yymm: r.ym, revenue_growth: r.grs, op_profit_growth: r.opInc,
       net_income_growth: r.niInc, roe: r.roe, eps: r.eps, sps: r.sps, bps: r.bps,
       reserve_rate: r.rsrv, debt_ratio: r.debt,
@@ -174,7 +180,7 @@ async function withRetry(fn) {
   console.log(`결산년월: ${yms[0]} ~ ${yms[yms.length - 1]} (${yms.length}개 분기)`);
 
   if (PUSH) {
-    const batch = rows.map(r => ({
+    const batch = dedupeRows(rows).map(r => ({
       stock_code: r.code, stac_yymm: r.ym, revenue_growth: r.grs, op_profit_growth: r.opInc,
       net_income_growth: r.niInc, roe: r.roe, eps: r.eps, sps: r.sps, bps: r.bps,
       reserve_rate: r.rsrv, debt_ratio: r.debt,

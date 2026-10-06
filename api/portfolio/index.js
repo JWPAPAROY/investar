@@ -12,6 +12,35 @@ const supabase = require('../../backend/supabaseClient');
 // v3.98: 무상증자 신호는 별도 함수로 둘 수 없다 — Vercel Hobby 12함수 한도에 걸린다
 //   (api/bonus/index.js 를 추가한 배포 d218abf 실패). ?view=bonus 로 여기에 얹는다.
 const { bonusView } = require('../_bonusView');
+const P = require('../../backend/portfolio');
+
+// 2026-10-06: 전략 2개 병행. ?strategy=pbr_lowvol(기본) | ep_lowturn
+//   ep_lowturn은 삼성전자·SK하이닉스를 뺀 "나머지 시장" 전략이라 벤치마크도 두 종목을 뺀
+//   KOSPI 시총가중 수익을 같은 구간으로 직접 계산한다(backend/portfolio.js capWeightedReturn).
+async function fetchDay(date) {
+  const out = [];
+  for (let f = 0; ; f += 1000) {
+    const { data, error } = await supabase.from('market_flow_daily')
+      .select('stock_code,close,market_cap,krx_market_cap')
+      .eq('trade_date', date).order('stock_code').range(f, f + 999);
+    if (error) throw new Error(error.message);
+    out.push(...data);
+    if (data.length < 1000) break;
+  }
+  return out.map(r => ({ stock_code: r.stock_code, close: r.close, cap: r.krx_market_cap ?? r.market_cap }));
+}
+async function kospiExMega(d0, d1) {
+  const codes = new Set();
+  for (let f = 0; ; f += 1000) {
+    const { data, error } = await supabase.from('stock_master').select('stock_code')
+      .eq('market', 'KOSPI').order('stock_code').range(f, f + 999);
+    if (error) throw new Error(error.message);
+    data.forEach(r => codes.add(r.stock_code));
+    if (data.length < 1000) break;
+  }
+  const [a, b] = await Promise.all([fetchDay(d0), fetchDay(d1)]);
+  return P.capWeightedReturn(a, b, codes, P.MEGA);
+}
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -23,16 +52,23 @@ module.exports = async (req, res) => {
   // 📢 무상증자 실전 신호 — 포트폴리오와 무관한 별도 라인이지만 함수 한도 때문에 같은 경로를 쓴다
   if (req.query && req.query.view === 'bonus') return bonusView(res);
 
+  const strategy = (req.query && req.query.strategy) || 'pbr_lowvol';
+  if (!P.STRATEGIES[strategy]) return res.status(400).json({ success: false, error: `알 수 없는 전략: ${strategy}` });
+
   try {
-    const { data: rebs, error: rErr } = await supabase
-      .from('portfolio_rebalances')
-      .select('*')
-      .order('rebalance_date', { ascending: false })
-      .limit(12);
+    const q = () => supabase.from('portfolio_rebalances').select('*')
+      .order('rebalance_date', { ascending: false }).limit(12);
+    let { data: rebs, error: rErr } = await q().eq('strategy', strategy);
+    // strategy 컬럼 마이그레이션(supabase-portfolio-strategy.sql) 전: 기존 전략만 존재
+    if (rErr && /strategy/.test(rErr.message)) {
+      if (strategy !== 'pbr_lowvol') rebs = [];
+      else ({ data: rebs, error: rErr } = await q());
+      if (strategy !== 'pbr_lowvol') rErr = null;
+    }
     if (rErr) throw new Error(rErr.message);
     if (!rebs || !rebs.length) {
       return res.status(200).json({
-        success: true, current: null, history: [],
+        success: true, strategy, current: null, history: [],
         message: '아직 리밸런싱 기록이 없습니다 (scripts/build-portfolio.js 실행 필요)',
       });
     }
@@ -95,7 +131,16 @@ module.exports = async (req, res) => {
     // 벤치마크: 같은 구간 KOSPI (overnight_predictions.kospi_close 시계열)
     //   ⚠️ kospi_close_change 가 아니라 close 시계열을 쓴다 — CLAUDE.md 벤치마크 주의.
     let bench = null;
-    try {
+    const so = P.STRATEGIES[strategy];
+    if (so.bench === 'kospi_ex_mega') {
+      try {
+        if (buyDate && latestDate && latestDate > buyDate) {
+          const r = await kospiExMega(buyDate, latestDate);
+          if (r != null) bench = { name: 'KOSPI(삼성전자·SK하이닉스 제외)', returnPct: +r.toFixed(2), from: buyDate, to: latestDate };
+        }
+      } catch (e) { /* 벤치마크는 선택 사항 */ }
+    } else {
+      try {
       const { data: kp } = await supabase
         .from('overnight_predictions')
         .select('prediction_date,kospi_close')
@@ -108,9 +153,11 @@ module.exports = async (req, res) => {
         if (a > 0) bench = { name: 'KOSPI', returnPct: +(((b - a) / a) * 100).toFixed(2), from: kp[0].prediction_date, to: kp[kp.length - 1].prediction_date };
       }
     } catch (e) { /* 벤치마크는 선택 사항 — 없으면 null */ }
+    }
 
     return res.status(200).json({
       success: true,
+      strategy,
       current: {
         rebalanceDate: cur.rebalance_date,
         buyDate,
@@ -125,7 +172,11 @@ module.exports = async (req, res) => {
         returnCapWeighted: retCap,
         returnEqualWeighted: retEq,
         benchmark: bench,
-        excessVsBenchmark: (retCap != null && bench) ? +(retCap - bench.returnPct).toFixed(2) : null,
+        // 전략의 기본 비중(cap/eq)으로 초과를 계산한다 — ep_lowturn은 동일가중이 검증된 설정
+        excessVsBenchmark: (() => {
+          const base = so.weight === 'eq' ? retEq : retCap;
+          return (base != null && bench) ? +(base - bench.returnPct).toFixed(2) : null;
+        })(),
       },
       history: rebs.map(r => ({
         rebalanceDate: r.rebalance_date,

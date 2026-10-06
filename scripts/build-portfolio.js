@@ -1,5 +1,5 @@
 /**
- * build-portfolio.js — 저PBR·저변동 포트폴리오 리밸런싱 (v3.97, 2026-08-26)
+ * build-portfolio.js — 포트폴리오 리밸런싱 (v3.97 저PBR·저변동, 2026-10-06 E/P+저회전 병행)
  *
  * 왜: 현행 추천 풀(KIS 순위 API 5종 = 전부 주목도 축)이 2026-08-08 측정에서
  *   풀 전체 매칭초과 −7.39%(D+10). "문제는 랭킹이 아니라 풀"이라는 결론의 대안이다.
@@ -114,95 +114,122 @@ async function fetchAll(table, cols, orderBy, filter) {
 
   if (idx < o.look + 1) throw new Error(`이력 부족: ${days.length}일 (최소 ${o.look + 2}일 필요)`);
 
-  // ── 2. 리밸런싱 시점인가 ────────────────────────────────────────────
-  const { data: lastRows, error: lastErr } = await sb.from('portfolio_rebalances')
-    .select('rebalance_date').order('rebalance_date', { ascending: false }).limit(1);
-  if (lastErr) throw new Error(`portfolio_rebalances 조회 실패: ${lastErr.message} (supabase-portfolio.sql 실행했는지 확인)`);
-  const last = lastRows && lastRows[0] ? lastRows[0].rebalance_date : null;
+  // 2026-10-06: 전략 2개 병행(pbr_lowvol / ep_lowturn). strategy 컬럼은 supabase-portfolio-strategy.sql로 추가한다.
+  //   마이그레이션 전이면 기존 전략만 돌린다 — 배포 순서가 어긋나도 기존 관측이 끊기지 않게.
+  const { error: colErr } = await sb.from('portfolio_rebalances').select('strategy').limit(1);
+  const hasStrategy = !colErr;
+  if (!hasStrategy) console.log('ℹ️ strategy 컬럼 없음 — pbr_lowvol만 실행 (supabase-portfolio-strategy.sql 미적용)');
 
-  // 2-a. 과거 행의 buy_date/next_date 소급 기록.
-  //   신호일은 정의상 거래일 배열의 마지막 원소라, 산출 시점에는 "다음 거래일"이
-  //   아직 존재하지 않는다(days[idx+1] === undefined). 그래서 두 컬럼은 그날 채울 수
-  //   없고, 거래일이 더 쌓인 뒤 이 단계에서 메운다. 멱등 — 이미 값이 있으면 건너뛴다.
-  //   판정(portfolio-verdict.js)은 이 컬럼을 쓰지 않고 매번 재계산하므로 기록용이지만,
-  //   "그때 실제 매수 기준일이 언제였나"를 사후에 재구성하려면 남아 있어야 한다.
-  if (!DRY) {
-    const { data: holes, error: holeErr } = await sb.from('portfolio_rebalances')
-      .select('rebalance_date,buy_date,next_date,params')
-      .or('buy_date.is.null,next_date.is.null').order('rebalance_date');
-    if (holeErr) throw new Error(`portfolio_rebalances 소급 조회 실패: ${holeErr.message}`);
-    let filled = 0, pending = 0;
-    for (const r of holes || []) {
-      const ri = days.indexOf(r.rebalance_date);
-      if (ri < 0) continue;                       // 배열 밖(오래된 행) — 손대지 않는다
-      const hold = (r.params && r.params.hold) || o.hold;   // 그 행이 쓴 주기로 계산
-      const patch = {};
-      if (!r.buy_date  && days[ri + 1])    patch.buy_date  = days[ri + 1];
-      if (!r.next_date && days[ri + hold]) patch.next_date = days[ri + hold];
-      if (!Object.keys(patch).length) { pending++; continue; }  // 아직 거래일이 안 왔다
-      const { error: upErr } = await sb.from('portfolio_rebalances')
-        .update(patch).eq('rebalance_date', r.rebalance_date);
-      if (upErr) throw new Error(`${r.rebalance_date} 소급 기록 실패: ${upErr.message}`);
-      console.log(`🗓️ ${r.rebalance_date} 소급 — ${Object.entries(patch).map(([k, v]) => `${k}=${v}`).join(' ')}`);
-      filled++;
-    }
-    if (!filled && pending) console.log(`🗓️ 소급 대기 ${pending}행 (거래일 미도래)`);
-  }
-
-  if (last) {
-    const li = days.indexOf(last);
-    const elapsed = li >= 0 ? idx - li : null;
-    if (elapsed == null) {
-      console.log(`⚠️ 마지막 리밸런싱(${last})이 현재 거래일 배열 밖 — 주기 판단 불가, 강제 산출로 진행`);
-    } else if (elapsed < o.hold && !FORCE) {
-      console.log(`⏸ 마지막 리밸런싱 ${last} 이후 ${elapsed}거래일 (주기 ${o.hold}일) — 아직 아님`);
-      console.log(`   다음 예정: ${days[li + o.hold] || `약 ${o.hold - elapsed}거래일 뒤`}`);
-      return;
-    } else if (FORCE) {
-      console.log(`🔁 --force: 주기(${elapsed}/${o.hold}일) 무시하고 재산출`);
-    }
-  } else {
-    console.log('🆕 첫 리밸런싱');
-  }
-
-  // ── 3. 재무(point-in-time) ──────────────────────────────────────────
-  const fin = await fetchAll('stock_financials', 'stock_code,stac_yymm,bps,eps', ['stock_code', 'stac_yymm']);
+  // ── 재무(point-in-time) · 종목명 — 전략 공통 ─────────────────────────
+  const fin = await fetchAll('stock_financials', 'stock_code,stac_yymm,bps,eps,roe', ['stock_code', 'stac_yymm']);
   const finIdx = P.buildFinancialIndex(fin);
   console.log(`💰 재무 ${fin.length}행 / ${finIdx.size}종목`);
-
-  // ── 4. 유니버스 + 선택 ──────────────────────────────────────────────
-  const top = P.buildUniverse(series, idx, days, finIdx.bpsAt, o);
-  const withPbr = top.filter(r => r.pbr != null).length;
-  console.log(`🌐 유니버스 ${top.length}종목 (PBR 확보 ${withPbr})`);
-  if (top.length < o.univ * 0.5) throw new Error(`유니버스 이상: ${top.length}종목 (기대 ${o.univ})`);
-
-  const picks = P.selectPicks(top, o);
-  if (picks.length < o.k) console.log(`⚠️ 선택 ${picks.length}/${o.k}종목 — PBR 결측 등으로 부족`);
-
   const names = new Map((await fetchAll('stock_master', 'stock_code,stock_name', ['stock_code']))
     .map(r => [r.stock_code, r.stock_name]));
 
-  const eqW = picks.length ? 1 / picks.length : 0;
-  const holdings = picks.map(r => ({
-    code: r.code, name: names.get(r.code) || r.code,
-    close: r.close, cap: r.cap, pbr: +r.pbr.toFixed(3), vol20: +r.vol20.toFixed(3),
-    score: +r.score.toFixed(4), weight: +r.weight.toFixed(5), weightEq: +eqW.toFixed(5),
-  }));
+  let failed = 0;
+  for (const [key, so] of Object.entries(P.STRATEGIES)) {
+    if (!hasStrategy && key !== 'pbr_lowvol' && !DRY) continue;   // --dry는 기록하지 않으니 미리보기 허용
+    console.log(`
+━━━━━━━━ [${key}] ${so.factor} ━━━━━━━━`);
+    try { await runStrategy(key, so); } catch (e) { failed++; console.error(`❌ [${key}] ${e.message}`); }
+  }
+  if (failed) process.exit(1);   // 한 전략이 실패해도 나머지는 끝까지 돌리고, 잡은 빨간불로 남긴다
 
-  console.log(`\n📦 ${signalDate} 포트폴리오 (${o.factor}, K=${o.k}, ${o.hold}거래일, ${o.weight}가중)`);
-  holdings.forEach((h, i) => console.log(
-    `  ${String(i + 1).padStart(2)}. ${h.name.padEnd(14)} PBR ${h.pbr.toFixed(2)} σ20 ${h.vol20.toFixed(2)}% ` +
-    `시총 ${(h.cap / 1e12).toFixed(1)}조 비중 ${(h.weight * 100).toFixed(1)}%`));
+  async function runStrategy(key, so) {
+    const scoped = q => (hasStrategy ? q.eq('strategy', key) : q);
 
-  if (DRY) { console.log('\n[DRY] DB 미기록'); return; }
+    // ── 2. 리밸런싱 시점인가 ──────────────────────────────────────────
+    const { data: lastRows, error: lastErr } = await scoped(sb.from('portfolio_rebalances')
+      .select('rebalance_date')).order('rebalance_date', { ascending: false }).limit(1);
+    if (lastErr) throw new Error(`portfolio_rebalances 조회 실패: ${lastErr.message} (supabase-portfolio.sql 실행했는지 확인)`);
+    const last = lastRows && lastRows[0] ? lastRows[0].rebalance_date : null;
 
-  // 신호일이 배열의 마지막이라 둘 다 이 시점엔 null이다 — 위 2-a가 나중에 메운다.
-  const buyDate = days[idx + 1] || null;          // 신호일 다음 거래일 종가로 매수 가정
-  const nextDate = days[idx + o.hold] || null;    // 다음 리밸런싱 예정일
-  const { error } = await sb.from('portfolio_rebalances').upsert({
-    rebalance_date: signalDate, buy_date: buyDate, next_date: nextDate,
-    params: o, holdings, universe_size: top.length,
-  }, { onConflict: 'rebalance_date' });
-  if (error) throw new Error(`저장 실패: ${error.message}`);
-  console.log(`\n✅ 저장 완료 — 다음 리밸런싱 ${nextDate || `${o.hold}거래일 뒤`}`);
+    // 2-a. 과거 행의 buy_date/next_date 소급 기록.
+    //   신호일은 정의상 거래일 배열의 마지막 원소라, 산출 시점에는 "다음 거래일"이
+    //   아직 존재하지 않는다(days[idx+1] === undefined). 그래서 두 컬럼은 그날 채울 수
+    //   없고, 거래일이 더 쌓인 뒤 이 단계에서 메운다. 멱등 — 이미 값이 있으면 건너뛴다.
+    //   판정(portfolio-verdict.js)은 이 컬럼을 쓰지 않고 매번 재계산하므로 기록용이지만,
+    //   "그때 실제 매수 기준일이 언제였나"를 사후에 재구성하려면 남아 있어야 한다.
+    if (!DRY) {
+      const { data: holes, error: holeErr } = await scoped(sb.from('portfolio_rebalances')
+        .select('rebalance_date,buy_date,next_date,params'))
+        .or('buy_date.is.null,next_date.is.null').order('rebalance_date');
+      if (holeErr) throw new Error(`portfolio_rebalances 소급 조회 실패: ${holeErr.message}`);
+      let filled = 0, pending = 0;
+      for (const r of holes || []) {
+        const ri = days.indexOf(r.rebalance_date);
+        if (ri < 0) continue;                       // 배열 밖(오래된 행) — 손대지 않는다
+        const hold = (r.params && r.params.hold) || so.hold;   // 그 행이 쓴 주기로 계산
+        const patch = {};
+        if (!r.buy_date  && days[ri + 1])    patch.buy_date  = days[ri + 1];
+        if (!r.next_date && days[ri + hold]) patch.next_date = days[ri + hold];
+        if (!Object.keys(patch).length) { pending++; continue; }  // 아직 거래일이 안 왔다
+        const { error: upErr } = await scoped(sb.from('portfolio_rebalances')
+          .update(patch).eq('rebalance_date', r.rebalance_date));
+        if (upErr) throw new Error(`${r.rebalance_date} 소급 기록 실패: ${upErr.message}`);
+        console.log(`🗓️ ${r.rebalance_date} 소급 — ${Object.entries(patch).map(([k, v]) => `${k}=${v}`).join(' ')}`);
+        filled++;
+      }
+      if (!filled && pending) console.log(`🗓️ 소급 대기 ${pending}행 (거래일 미도래)`);
+    }
+
+    if (last) {
+      const li = days.indexOf(last);
+      const elapsed = li >= 0 ? idx - li : null;
+      if (elapsed == null) {
+        console.log(`⚠️ 마지막 리밸런싱(${last})이 현재 거래일 배열 밖 — 주기 판단 불가, 강제 산출로 진행`);
+      } else if (elapsed < so.hold && !FORCE) {
+        console.log(`⏸ 마지막 리밸런싱 ${last} 이후 ${elapsed}거래일 (주기 ${so.hold}일) — 아직 아님`);
+        console.log(`   다음 예정: ${days[li + so.hold] || `약 ${so.hold - elapsed}거래일 뒤`}`);
+        return;
+      } else if (FORCE) {
+        console.log(`🔁 --force: 주기(${elapsed}/${so.hold}일) 무시하고 재산출`);
+      }
+    } else {
+      console.log('🆕 첫 리밸런싱');
+    }
+
+    // ── 4. 유니버스 + 선택 ────────────────────────────────────────────
+    const top = P.buildUniverse(series, idx, days, finIdx, so);
+    const withPbr = top.filter(r => r.pbr != null).length;
+    const withEp = top.filter(r => r.ep != null).length;
+    console.log(`🌐 유니버스 ${top.length}종목 (PBR 확보 ${withPbr} / E/P 확보 ${withEp})${so.exclude ? ` · 제외 ${so.exclude.join(',')}` : ''}`);
+    if (top.length < so.univ * 0.5) throw new Error(`유니버스 이상: ${top.length}종목 (기대 ${so.univ})`);
+
+    const picks = P.selectPicks(top, so);
+    if (picks.length < so.k) console.log(`⚠️ 선택 ${picks.length}/${so.k}종목 — 팩터 결측 등으로 부족`);
+
+    const eqW = picks.length ? 1 / picks.length : 0;
+    const r4 = v => (v == null ? null : +v.toFixed(4));
+    const holdings = picks.map(r => ({
+      code: r.code, name: names.get(r.code) || r.code,
+      close: r.close, cap: r.cap, pbr: r.pbr == null ? null : +r.pbr.toFixed(3), vol20: +r.vol20.toFixed(3),
+      ep: r4(r.ep), turn: r.turn == null ? null : +(r.turn * 100).toFixed(4),   // turn은 % 단위로 저장
+      score: +r.score.toFixed(4), weight: +r.weight.toFixed(5), weightEq: +eqW.toFixed(5),
+    }));
+
+    console.log(`
+📦 ${signalDate} 포트폴리오 (${so.factor}, K=${so.k}, ${so.hold}거래일, ${so.weight}가중)`);
+    holdings.forEach((h, i) => console.log(
+      `  ${String(i + 1).padStart(2)}. ${h.name.padEnd(14)} PBR ${h.pbr == null ? '—' : h.pbr.toFixed(2)} ` +
+      `E/P ${h.ep == null ? '—' : (h.ep * 100).toFixed(1) + '%'} 회전 ${h.turn == null ? '—' : h.turn.toFixed(3) + '%'} ` +
+      `σ20 ${h.vol20.toFixed(2)}% 시총 ${(h.cap / 1e12).toFixed(1)}조 비중 ${(h.weight * 100).toFixed(1)}%`));
+
+    if (DRY) { console.log('\n[DRY] DB 미기록'); return; }
+
+    // 신호일이 배열의 마지막이라 둘 다 이 시점엔 null이다 — 위 2-a가 나중에 메운다.
+    const buyDate = days[idx + 1] || null;          // 신호일 다음 거래일 종가로 매수 가정
+    const nextDate = days[idx + so.hold] || null;   // 다음 리밸런싱 예정일
+    const row = {
+      rebalance_date: signalDate, buy_date: buyDate, next_date: nextDate,
+      params: so, holdings, universe_size: top.length,
+    };
+    if (hasStrategy) row.strategy = key;
+    const { error } = await sb.from('portfolio_rebalances')
+      .upsert(row, { onConflict: hasStrategy ? 'strategy,rebalance_date' : 'rebalance_date' });
+    if (error) throw new Error(`저장 실패: ${error.message}`);
+    console.log(`
+✅ 저장 완료 — 다음 리밸런싱 ${nextDate || `${so.hold}거래일 뒤`}`);
+  }
 })().catch(e => { console.error('❌', e.message); process.exit(1); });

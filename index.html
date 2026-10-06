@@ -594,7 +594,9 @@
       const [portfolio, setPortfolio] = useState(null);
       const [bonus, setBonus] = useState(null);
       const [bonusLoading, setBonusLoading] = useState(false);
-      const [portfolioWeight, setPortfolioWeight] = useState('cap'); // 'cap'(검증된 설정) | 'eq'
+      const [portfolioWeight, setPortfolioWeight] = useState('cap'); // 'cap'(검증된 설정) | 'eq'
+      // 2026-10-06: 전략 2개 병행 관측. ep_lowturn은 동일가중이 검증된 설정이다.
+      const [portfolioStrategy, setPortfolioStrategy] = useState('pbr_lowvol'); // 'pbr_lowvol' | 'ep_lowturn'
       const [portfolioLoading, setPortfolioLoading] = useState(false);
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
       const [screeningDuration, setScreeningDuration] = useState(null); // 스크리닝 소요 시간(초)
@@ -806,10 +808,10 @@
       // 성과 검증 데이터 불러오기
       // v3.97: 포트폴리오 조회. 성과는 API가 매 호출 종가로 재계산한다(저장 안 함 —
       //   저장하면 market_flow_daily와 두 출처가 갈라진다).
-      const fetchPortfolio = async () => {
+      const fetchPortfolio = async (strategy = portfolioStrategy) => {
         setPortfolioLoading(true);
         try {
-          const res = await fetch(`${API_BASE_URL}/portfolio`);
+          const res = await fetch(`${API_BASE_URL}/portfolio?strategy=${strategy}`);
           const data = await res.json();
           if (!data.success) throw new Error(data.error || '로드 실패');
           setPortfolio(data);
@@ -842,6 +844,14 @@
         if (activeTab === 'portfolio' && !portfolio && !portfolioLoading) fetchPortfolio();
         if (activeTab === 'bonus' && !bonus && !bonusLoading) fetchBonus();
       }, [activeTab]);
+
+      const switchPortfolioStrategy = (st) => {
+        if (st === portfolioStrategy) return;
+        setPortfolioStrategy(st);
+        setPortfolioWeight(st === 'ep_lowturn' ? 'eq' : 'cap');   // 각 전략의 검증된 비중으로
+        setPortfolio(null);
+        fetchPortfolio(st);
+      };
 
       const fetchPerformanceData = async () => {
         setPerformanceLoading(true);
@@ -1655,6 +1665,28 @@
               <div>
                 {/* v3.97: 저PBR·저변동 포트폴리오 — 현행 TOP3와 다른 라인.
                     현행 풀(주목도 축 5종)의 매칭초과 −7.39%(D+10)에서 나온 대안이다. */}
+                <div className="flex gap-2 mb-3">
+                  {[['pbr_lowvol', '저PBR·저변동'], ['ep_lowturn', 'E/P·저회전 (신규)']].map(([k, label]) => (
+                    <button key={k} onClick={() => switchPortfolioStrategy(k)}
+                      className={`px-4 py-2 rounded-lg border-2 font-semibold text-sm ${portfolioStrategy === k
+                        ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-600 border-gray-300'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {portfolioStrategy === 'ep_lowturn' ? (
+                <div className="mb-4 p-4 bg-amber-50 border-2 border-amber-300 rounded-lg">
+                  <div className="font-bold text-amber-900 mb-1">⚠️ 관측 중인 신규 전략 — 삼성전자·SK하이닉스를 뺀 "나머지 시장" 전략</div>
+                  <div className="text-sm text-amber-800 leading-relaxed">
+                    이익수익률(E/P)이 높고 <b>거래가 적은(무관심) 종목</b> 10개를 동일가중으로 담습니다.
+                    삼성전자·SK하이닉스는 <b>따로 보유한다는 전제</b>로 후보와 비교 기준에서 모두 뺐습니다.
+                    <br />
+                    백테스트(2024-07~2026-08): 두 종목 뺀 KOSPI 대비 <b>연 +3.1%p</b>, 최대낙폭 <b>−10.8%</b>(지수 −18.1%).
+                    설계 구간 +26.2%p에서 크게 줄었고, 두 종목 제외 조건은 결과를 본 뒤 정했습니다.
+                    <b> 판정일 2027-04-06 (PORTFOLIO_VERDICT_EP.md).</b> 매매는 직접 판단하세요.
+                  </div>
+                </div>
+                ) : (
                 <div className="mb-4 p-4 bg-amber-50 border-2 border-amber-300 rounded-lg">
                   <div className="font-bold text-amber-900 mb-1">⚠️ 검증 중인 대안 — 현행 TOP3와 별개입니다</div>
                   <div className="text-sm text-amber-800 leading-relaxed">
@@ -1667,6 +1699,7 @@
                     <b> 다만 24기간짜리이고 확정된 전략이 아닙니다.</b> 매매는 직접 판단하세요.
                   </div>
                 </div>
+                )}
 
                 {portfolioLoading ? (
                   <div className="text-center py-12 text-gray-500">불러오는 중...</div>
@@ -1711,7 +1744,9 @@
                         </div>
                       </div>
                       <div className="p-3 bg-white border-2 border-gray-200 rounded-lg">
-                        <div className="text-xs text-gray-500">KOSPI 대비</div>
+                        <div className="text-xs text-gray-500">
+                          {portfolioStrategy === 'ep_lowturn' ? 'KOSPI(두 종목 제외) 대비' : 'KOSPI 대비'}
+                        </div>
                         <div className="text-lg font-bold">
                           {portfolio.performance.excessVsBenchmark == null
                             ? '—'
@@ -1719,7 +1754,7 @@
                         </div>
                         {portfolio.performance.benchmark && (
                           <div className="text-xs text-gray-400">
-                            KOSPI {portfolio.performance.benchmark.returnPct >= 0 ? '+' : ''}
+                            {portfolio.performance.benchmark.name} {portfolio.performance.benchmark.returnPct >= 0 ? '+' : ''}
                             {portfolio.performance.benchmark.returnPct.toFixed(2)}%
                           </div>
                         )}
@@ -1733,13 +1768,13 @@
                         onClick={() => setPortfolioWeight('cap')}
                         className={`px-3 py-1 rounded border-2 ${portfolioWeight === 'cap'
                           ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
-                      >시총가중 (검증된 설정)</button>
+                      >시총가중{portfolioStrategy === 'pbr_lowvol' ? ' (검증된 설정)' : ''}</button>
                       <button
                         onClick={() => setPortfolioWeight('eq')}
                         className={`px-3 py-1 rounded border-2 ${portfolioWeight === 'eq'
                           ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
-                      >동일가중</button>
-                      {portfolioWeight === 'eq' && (
+                      >동일가중{portfolioStrategy === 'ep_lowturn' ? ' (검증된 설정)' : ''}</button>
+                      {((portfolioStrategy === 'pbr_lowvol' && portfolioWeight === 'eq') || (portfolioStrategy === 'ep_lowturn' && portfolioWeight === 'cap')) && (
                         <span className="text-xs text-amber-700">※ 이 조합은 따로 검증되지 않았습니다</span>
                       )}
                     </div>
@@ -1752,7 +1787,12 @@
                             <th className="p-2 text-left">종목</th>
                             <th className="p-2 text-right">비중</th>
                             <th className="p-2 text-right">PBR</th>
-                            <th className="p-2 text-right">σ20</th>
+                            {portfolioStrategy === 'ep_lowturn' ? (<>
+                              <th className="p-2 text-right">E/P</th>
+                              <th className="p-2 text-right">회전율</th>
+                            </>) : (
+                              <th className="p-2 text-right">σ20</th>
+                            )}
                             <th className="p-2 text-right">시총</th>
                             <th className="p-2 text-right">매수가</th>
                             <th className="p-2 text-right">현재가</th>
@@ -1769,8 +1809,13 @@
                               <td className="p-2 text-right font-mono">
                                 {((portfolioWeight === 'cap' ? h.weight : h.weightEq) * 100).toFixed(1)}%
                               </td>
-                              <td className="p-2 text-right font-mono">{h.pbr.toFixed(2)}</td>
-                              <td className="p-2 text-right font-mono text-gray-500">{h.vol20.toFixed(2)}%</td>
+                              <td className="p-2 text-right font-mono">{h.pbr == null ? '—' : h.pbr.toFixed(2)}</td>
+                              {portfolioStrategy === 'ep_lowturn' ? (<>
+                                <td className="p-2 text-right font-mono">{h.ep == null ? '—' : `${(h.ep * 100).toFixed(1)}%`}</td>
+                                <td className="p-2 text-right font-mono text-gray-500">{h.turn == null ? '—' : `${h.turn.toFixed(3)}%`}</td>
+                              </>) : (
+                                <td className="p-2 text-right font-mono text-gray-500">{h.vol20.toFixed(2)}%</td>
+                              )}
                               <td className="p-2 text-right font-mono text-gray-500">{(h.cap / 1e12).toFixed(1)}조</td>
                               <td className="p-2 text-right font-mono text-gray-500">
                                 {h.buyClose ? h.buyClose.toLocaleString() : '—'}
@@ -1793,7 +1838,9 @@
                     <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded text-xs text-gray-600 leading-relaxed">
                       <b>구성 규칙</b> — 유니버스: 보통주 · 시총 3,000억+ · 20일 평균 거래대금 10억+ 중 <b>시총 상위 300</b>
                       (이번 회차 통과 {portfolio.current.universeSize}종목).
-                      팩터: <b>저PBR 백분위 + 저변동(20일 표준편차) 백분위</b> 합산 상위 {portfolio.current.params?.k}종목.
+                      {portfolioStrategy === 'ep_lowturn'
+                        ? <>삼성전자·SK하이닉스 제외. 팩터: <b>E/P(ROE×BPS/주가) 백분위 + 저회전(20일 평균 거래대금/시총) 백분위</b> 합산 상위 {portfolio.current.params?.k}종목, 동일가중.</>
+                        : <>팩터: <b>저PBR 백분위 + 저변동(20일 표준편차) 백분위</b> 합산 상위 {portfolio.current.params?.k}종목.</>}
                       리밸런싱 <b>{portfolio.current.params?.hold}거래일</b>
                       {portfolio.current.nextDate ? ` (다음 ${portfolio.current.nextDate})` : ''}.
                       <br />

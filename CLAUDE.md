@@ -672,7 +672,8 @@ GET /api/recommendations/update-prices             # 가격 업데이트
 
 ### 포트폴리오 · 무상증자 (v3.98)
 ```
-GET /api/portfolio                   # 저PBR·저변동 포트폴리오 현황 + 성과
+GET /api/portfolio                   # 저PBR·저변동 포트폴리오 현황 + 성과 (?strategy=pbr_lowvol 기본)
+GET /api/portfolio?strategy=ep_lowturn # E/P+저회전 (2026-10-06, 삼성·하이닉스 제외 · 벤치 KOSPI ex-2)
 GET /api/portfolio?view=bonus        # 📢 무상증자 실전 신호 (대기/보유/청산/누적성적)
 ```
 > ⚠️ **함수 한도(12개) 때문에 별도 엔드포인트를 두지 못한다.** 본체는 `api/_bonusView.js` —
@@ -709,6 +710,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 | ↳ workflow_run | `disclosures` | DART 공시 증분 (분류 회귀 테스트를 게이트로) |
 | ↳↳ workflow_run | `bonus-signals` | 무상증자 자격 판정 → **다음 거래일 지시**를 텔레그램으로 |
 | cron | `calc-expectations` | 기대수익 통계 |
+| cron 토 01:00 UTC | `financials` | 분기 재무비율 → `stock_financials` (2026-10-06 신설 — 그전엔 8/20 수동 수집 후 방치돼 2분기 실적이 179종목뿐이었다) |
 | cron 일 13:00 UTC | `render-operating-state` | **주간진단 계산·저장·텔레그램** → 운영 문서 재생성 |
 
 > `bonus-signals` 가 "내일 할 일"을 알리는 구조라 스케줄 지연이 무해하다(최악 05:25 KST, 장 시작 전).
