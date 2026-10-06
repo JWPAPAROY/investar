@@ -1,4 +1,5 @@
 const axios = require('axios');
+const crypto = require('crypto');
 require('dotenv').config();
 
 // Supabase 기반 토큰 캐싱 (Vercel 환경 등에서 토큰 재사용을 위함)
@@ -7,6 +8,25 @@ try {
   supabase = require('./supabaseClient');
 } catch (e) {
   console.warn('⚠️ Supabase 클라이언트를 불러올 수 없어 토큰 캐싱을 비활성화합니다.');
+}
+
+// overnight_predictions는 anon 읽기/쓰기가 열려 있어 토큰을 평문으로 두면 누구나 읽는다.
+// 서버에만 있는 APP_SECRET에서 키를 유도해 AES-256-GCM으로 저장 — 읽혀도 암호문, 조작되면 복호화 실패.
+function tokenCacheKey(appSecret) {
+  return crypto.createHash('sha256').update('kis-token-cache:' + appSecret).digest();
+}
+function encryptTokenCache(appSecret, payload) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', tokenCacheKey(appSecret), iv);
+  const enc = Buffer.concat([cipher.update(JSON.stringify(payload), 'utf8'), cipher.final()]);
+  return { v: 1, iv: iv.toString('base64'), tag: cipher.getAuthTag().toString('base64'), data: enc.toString('base64') };
+}
+function decryptTokenCache(appSecret, box) {
+  if (!box || box.v !== 1) return null; // 구 평문 형식은 무시하고 재발급
+  const decipher = crypto.createDecipheriv('aes-256-gcm', tokenCacheKey(appSecret), Buffer.from(box.iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(box.tag, 'base64'));
+  const dec = Buffer.concat([decipher.update(Buffer.from(box.data, 'base64')), decipher.final()]);
+  return JSON.parse(dec.toString('utf8'));
 }
 
 /**
@@ -83,8 +103,11 @@ class KISApi {
           .eq('prediction_date', this.TOKEN_CACHE_DATE)
           .single();
 
-        if (cacheRow && cacheRow.factors && cacheRow.factors.token) {
-          const { token, expiry } = cacheRow.factors;
+        const cached = cacheRow && cacheRow.factors && this.appSecret
+          ? decryptTokenCache(this.appSecret, cacheRow.factors)
+          : null;
+        if (cached && cached.token) {
+          const { token, expiry } = cached;
           // 여유 시간 5분 남기고 유효한지 확인
           if (expiry && Date.now() < (expiry - 5 * 60 * 1000)) {
             this.accessToken = token;
@@ -120,13 +143,13 @@ class KISApi {
       console.log('✅ Access Token 발급 성공 (App Key:', this.appKey.substring(0, 10) + '...)');
 
       // 4. Supabase에 토큰 캐싱 저장
-      if (supabase) {
+      if (supabase && this.appSecret) {
         try {
           await supabase
             .from('overnight_predictions')
             .upsert({
               prediction_date: this.TOKEN_CACHE_DATE,
-              factors: { token, expiry },
+              factors: encryptTokenCache(this.appSecret, { token, expiry }),
               score: 0,
               signal: 'TOKEN_CACHE'
             }, { onConflict: 'prediction_date' });

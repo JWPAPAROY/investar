@@ -7,12 +7,16 @@
 #   "권장 매수일 D+1 / 건강도 ✅ 양호"를 계속 보여줬다(실제로는 D+2로 자동 변경됨).
 #   계산(Vercel)과 기록(CI)을 분리해 같은 사고가 반복되지 않게 한다.
 #
-# 시각: 주간진단 cron이 일요일 13:00 UTC라 그 뒤인 14:10 UTC(=23:10 KST)에 돈다.
+# 2026-10-06: 주간진단 계산도 여기로 옮겼다. Vercel cron이 60초 한도를 넘어 2026-08-30부터
+#   매주 FUNCTION_INVOCATION_TIMEOUT으로 죽었는데, 이 워크플로는 따로 돌아 문서가 매주 렌더돼
+#   진단이 멈춘 걸 6주간 아무도 못 봤다. 계산→렌더를 한 잡에 묶어 진단이 실패하면 잡도 실패한다.
+#
+# 시각: 일요일 13:00 UTC(=22:00 KST), 기존 Vercel 진단 cron과 같은 시각.
 name: render-operating-state
 
 on:
   schedule:
-    - cron: '10 14 * * 0'
+    - cron: '0 13 * * 0'
   workflow_dispatch:
 
 permissions:
@@ -21,7 +25,7 @@ permissions:
 jobs:
   render:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,6 +33,14 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci
+      - name: Weekly diagnostic (compute + save + telegram)
+        run: node scripts/run-weekly-diagnostic.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       - name: Render docs from DB
         run: node scripts/render-operating-state.js
         env:

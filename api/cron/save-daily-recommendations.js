@@ -3411,3 +3411,8 @@ module.exports = async (req, res) => {
     });
   }
 };
+
+// 주간진단은 Vercel 60초 한도를 넘어(2026-08-30~ FUNCTION_INVOCATION_TIMEOUT) GitHub Actions로 옮겼다.
+// scripts/run-weekly-diagnostic.js가 같은 메시지 포맷을 쓰도록 노출.
+module.exports.formatWeeklyDiagnosticMessage = formatWeeklyDiagnosticMessage;
+module.exports.sendTelegramMessage = sendTelegramMessage;
