@@ -231,7 +231,11 @@ function summarize(periods, lo, hi) {
 
 const pc = v => (v == null ? '   -' : ((v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%')).padStart(8);
 const results = [];
-for (const name of Object.keys(SIGNALS)) for (const K of [10, 20]) for (const W of ['eq', 'cap']) {
+// --ks=3,5,10 : 종목 수 후보 지정 (기본 10,20 — 사전등록 선택은 기본값으로만 한다). --sig=신호명 으로 한정 가능
+const KS = arg('ks', '10,20').split(',').map(Number);
+const SIG_ONLY = arg('sig', '');
+for (const name of Object.keys(SIGNALS)) for (const K of KS) for (const W of ['eq', 'cap']) {
+  if (SIG_ONLY && name !== SIG_ONLY) continue;
   const per = run(name, K, W);
   const is = summarize(per, '0', SPLIT);
   const sub = [['20220101', '20230101'], ['20230101', '20240101'], ['20240101', SPLIT]].map(([a, b]) => summarize(per, a, b));
