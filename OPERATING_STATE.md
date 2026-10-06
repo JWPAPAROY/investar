@@ -6,7 +6,7 @@
 > 로컬 `node scripts/render-operating-state.js`.
 > ※ Vercel cron은 read-only FS라 이 파일을 쓰지 못합니다. 그래서 갱신을 CI로 분리했습니다.
 
-**최종 렌더**: 2026-10-06 10:57 KST
+**최종 렌더**: 2026-10-06 11:06 KST
 **최신 진단 주**: 2026-10-05 (asOf 기준 주의 시작일)
 
 ---
