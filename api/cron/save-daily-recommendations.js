@@ -293,7 +293,9 @@ function formatWeeklyDiagnosticMessage(row, prev) {
   // 5. 경고
   if (row.warnings && row.warnings.length) {
     msg += `<b>⚠️ 경고</b>\n`;
-    for (const w of row.warnings) msg += `   • ${w}\n`;
+    // parse_mode=HTML이라 경고 문구의 '<3' 같은 부등호가 태그로 해석돼 전송 자체가 거부된다.
+    const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    for (const w of row.warnings) msg += `   • ${esc(w)}\n`;
     msg += `\n`;
   }
 
