@@ -36,6 +36,8 @@ const ONLY = arg('only', '');          // OOS 단계에서 지정한 조합만 �
 const SPLIT = '20240701';
 const COST = 0.35 / 100;
 const CAPMIN = 3000e8, VALMIN = 10e8, UNIV = 300;
+// --exclude=005930,000660 : 후보와 벤치마크 양쪽에서 제외 (메가캡 효과 제거 검정, 2026-10-06)
+const EXCL = new Set(arg('exclude', '').split(',').filter(Boolean));
 
 // ── 가격 ────────────────────────────────────────────────────────────────
 const lines = fs.readFileSync(path.resolve(__dirname, '../data/krx-daily.jsonl'), 'utf-8')
@@ -52,6 +54,23 @@ for (let i = 0; i < N; i++) {
   }
 }
 lines.length = 0;
+// 벤치마크: KOSPI 보통주 시총가중 일별 연쇄(전일 시총 가중). EXCL 종목 제외.
+//   KOSPI 소속은 krx-master(2026-08 상장 기준)로 판정 → 상폐 종목은 빠진다(소폭 근사).
+const MASTER = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../data/krx-master.json'), 'utf-8')).rows;
+const isKospi = new Set(MASTER.filter(r => r.market === 'KOSPI').map(r => r.code));
+function benchNav(excl) {
+  const nav = new Float64Array(N); nav[0] = 1;
+  for (let i = 1; i < N; i++) {
+    let wsum = 0, rsum = 0;
+    for (const [c, s] of S) {
+      if (!isKospi.has(c) || excl.has(c) || !(s.cap[i - 1] > 0) || !(s.c[i - 1] > 0) || !(s.c[i] > 0)) continue;
+      wsum += s.cap[i - 1]; rsum += s.cap[i - 1] * dayRet(s, i);
+    }
+    nav[i] = nav[i - 1] * (1 + (wsum ? rsum / wsum : 0));
+  }
+  return nav;
+}
+for (const c of EXCL) S.delete(c);
 for (const s of S.values()) { let L = -1; for (let i = 0; i < N; i++) if (s.c[i] > 0) L = i; s.last = L; }
 
 // 일간 수익(이음매 보정). 거래 없는 날(c=0)은 0으로 간주.
@@ -189,7 +208,10 @@ function run(sigName, K, W) {
   }
   return periods;
 }
-const kret = (d0, d1) => kospi.get(d1) / kospi.get(d0) - 1;
+const dIdx = new Map(days.map((d, i) => [d, i]));
+const BN = EXCL.size ? benchNav(new Set()) : null;   // (EXCL 종목은 이미 S에서 삭제됨 → 이게 곧 'KOSPI ex-EXCL')
+const kret = BN ? (d0, d1) => BN[dIdx.get(d1)] / BN[dIdx.get(d0)] - 1 : (d0, d1) => kospi.get(d1) / kospi.get(d0) - 1;
+if (BN) console.log(`벤치마크 = KOSPI 보통주 시총가중 (제외: ${[...EXCL].join(',')}) — 직접 계산`);
 
 function summarize(periods, lo, hi) {
   const ps = periods.filter(p => p.d0 >= lo && p.d0 < hi);
