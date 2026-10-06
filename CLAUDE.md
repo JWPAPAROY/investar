@@ -709,7 +709,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 | ↳ workflow_run | `disclosures` | DART 공시 증분 (분류 회귀 테스트를 게이트로) |
 | ↳↳ workflow_run | `bonus-signals` | 무상증자 자격 판정 → **다음 거래일 지시**를 텔레그램으로 |
 | cron | `calc-expectations` | 기대수익 통계 |
-| cron 14:10 UTC | `render-operating-state` | DB → 운영 문서 재생성 |
+| cron 일 13:00 UTC | `render-operating-state` | **주간진단 계산·저장·텔레그램** → 운영 문서 재생성 |
 
 > `bonus-signals` 가 "내일 할 일"을 알리는 구조라 스케줄 지연이 무해하다(최악 05:25 KST, 장 시작 전).
 
@@ -884,7 +884,7 @@ curl http://localhost:3001/api/recommendations/performance?days=7
 
 ## 🔁 자동 운영 진단 시스템 (v3.86, 2026-04-28)
 
-매주 일요일 22:00 KST(13:00 UTC) `weekly-diagnostic` cron이 3가지 진단을 자동 산출하여 `weekly_diagnostics` 테이블에 누적. 권장 timing이 현재 정책과 다르면 **즉시 `active_policy` 자동 갱신 (Phase 3)**.
+매주 일요일 22:00 KST(13:00 UTC) GitHub Actions `render-operating-state`(→ `scripts/run-weekly-diagnostic.js`)가 3가지 진단을 자동 산출하여 `weekly_diagnostics` 테이블에 누적. 권장 timing이 현재 정책과 다르면 **즉시 `active_policy` 자동 갱신 (Phase 3)**.
 
 ### 3가지 주간 진단
 
@@ -958,7 +958,13 @@ SQL 파일: `supabase-weekly-diagnostics.sql`, `supabase-active-policy.sql`, `su
 
 | 시각 (KST) | 모드 | 비고 |
 |----------|------|------|
-| 일 22:00 | `weekly-diagnostic` | Phase 1 진단 INSERT + 풀 메시지 발송 |
+| 일 22:00 | GitHub Actions `render-operating-state` | 진단 INSERT + 풀 메시지 발송 + 문서 렌더 |
+
+> **⚠️ 2026-10-06: Vercel cron에서 이전.** `?mode=weekly-diagnostic`이 60초 한도를 넘어
+> 2026-08-30부터 매주 `FUNCTION_INVOCATION_TIMEOUT` → 6주간 `weekly_diagnostics` 공백.
+> 문서 렌더는 따로 돌아 "멈춘 진단"이 정상처럼 보였다. 이제 진단이 실패하면 워크플로가 빨간불이 된다.
+> 텔레그램 `/진단` 명령은 여전히 Vercel 경로라 타임아웃될 수 있다. 누락 주는 백필하지 않았다
+> (`--asOf` 백필이 active_policy 자동적용을 건드릴 수 있어서).
 
 (alert/save는 Cloudflare Workers로 이관. 12함수 한도 회피 위해 `save-daily-recommendations.js`에 mode 통합.)
 
