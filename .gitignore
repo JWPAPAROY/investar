@@ -52,3 +52,6 @@ scripts/top1-recent.js
 #   (collect-krx-daily.js / collect-price-history.js 로 다시 만들 수 있다)
 data/*.jsonl
 !data/lowvol-picks.jsonl
+
+# DART 다중회사 주요계정 캐시 (build-kospi-valuation.js, 재수집 가능)
+data/dart-multi/
