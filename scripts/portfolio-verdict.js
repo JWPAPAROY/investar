@@ -127,9 +127,12 @@ async function fetchAll(t, c, f) {
     }
     bench = (bnav - 1) * 100;
   } else if (firstBuy) {
+    // 끝 날짜를 포트폴리오 마지막 가격일에 맞춘다 — overnight_predictions 는 당일 장마감 직후 채워져
+    // market_flow_daily(저녁 수집)보다 하루 앞설 수 있다 (2026-10-22: 10/22 −3.2% 가 벤치에만 들어가 초과 +3%p 부풀림)
+    const lastEnd = periods.filter(p => p.end).at(-1)?.end;
     const { data: kp } = await sb.from('overnight_predictions')
       .select('prediction_date,kospi_close').lt('prediction_date', '2027-01-01')
-      .not('kospi_close', 'is', null).gte('prediction_date', firstBuy)
+      .not('kospi_close', 'is', null).gte('prediction_date', firstBuy).lte('prediction_date', lastEnd || '9999-12-31')
       .order('prediction_date');
     if (kp && kp.length >= 2) {
       const a = kp[0].kospi_close, b = kp[kp.length - 1].kospi_close;

@@ -20,7 +20,7 @@
  *   data/krx-master.json   — 종목기본정보(유가+코스닥). 우선주 배제·상장일 확인용.
  *
  * 재개 가능: 이미 수집된 일자는 건너뛴다. 중단 후 같은 명령으로 다시 실행하면 이어간다.
- * 실행: node scripts/collect-krx-daily.js [--from=20220101] [--to=20260821] [--delay=400] [--no-index]
+ * 실행: node scripts/collect-krx-daily.js [--from=20220101] [--to=20260821] [--delay=400] [--no-index] [--out=krx-daily.jsonl]
  */
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const fs = require('fs');
@@ -37,7 +37,8 @@ const KEY = process.env.KRX_AUTH_KEY;
 if (!KEY) { console.error('❌ .env에 KRX_AUTH_KEY 없음'); process.exit(1); }
 
 const BASE = 'http://data-dbg.krx.co.kr/svc/apis';
-const DAILY = path.resolve(__dirname, '../data/krx-daily.jsonl');
+// --out: 2022 이전 소급은 별도 파일로 (2026-10-22 시장 폭 검정). 기존 분석들이 krx-daily.jsonl = 2022~ 를 전제한다.
+const DAILY = path.resolve(__dirname, '../data', arg('out', 'krx-daily.jsonl'));
 const INDEX = path.resolve(__dirname, '../data/krx-index.jsonl');
 const MASTER = path.resolve(__dirname, '../data/krx-master.json');
 
@@ -125,10 +126,12 @@ function weekdays(from, to) {
     if (needDaily) {
       const [ks, kq] = [await fetchPath('/sto/stk_bydd_trd', d), await (sleep(DELAY).then(() => fetchPath('/sto/ksq_bydd_trd', d)))];
       if (ks === null || kq === null) { await sleep(DELAY); continue; }
-      const rows = [...ks, ...kq]
-        .filter(x => n(x.TDD_CLSPRC) > 0)
+      // 9번째 원소 = 시장(K=유가, Q=코스닥). 상폐 종목은 krx-master 에 없어 시장을 복원할 수 없으므로 여기서 남긴다.
+      // (2026-10-22 추가 — 그 이전 행은 8원소. 읽는 쪽은 s[8] 없으면 미상으로 취급)
+      const tag = (arr, m) => arr.filter(x => n(x.TDD_CLSPRC) > 0)
         .map(x => [x.ISU_CD, n(x.TDD_OPNPRC), n(x.TDD_HGPRC), n(x.TDD_LWPRC), n(x.TDD_CLSPRC),
-                   n(x.ACC_TRDVOL), n(x.ACC_TRDVAL), n(x.MKTCAP)]);
+                   n(x.ACC_TRDVOL), n(x.ACC_TRDVAL), n(x.MKTCAP), m]);
+      const rows = [...tag(ks, 'K'), ...tag(kq, 'Q')];
       if (rows.length === 0) { nHol++; }
       else {
         fs.appendFileSync(DAILY, JSON.stringify({ d, s: rows }) + '\n');
