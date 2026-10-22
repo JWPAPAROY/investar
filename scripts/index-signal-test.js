@@ -4,13 +4,16 @@
  * 판정 기준은 INDEX_SIGNAL_VERDICT.md 에 돌리기 전에 등록했다. 신호·임계값·구간을 여기서 바꾸지 말 것.
  * 데이터: kospi-index-long.jsonl(+krx-index 보충) · us-daily.json · kospi-investor-daily.jsonl
  *
- * 실행: node scripts/index-signal-test.js [--only=A|B|C|D|E|F]
+ * 실행: node scripts/index-signal-test.js [--only=A|B|C|D|E|F] [--freq=W]
+ *   --freq=W: 신호를 매주 마지막 거래일 종가에만 판단 → 다음 거래일 종가 체결 (주간 관측 변형, 2026-10-22).
+ *             기본(D)은 매 거래일 판단. 판정 기준·임계값은 동일.
  */
 const fs = require('fs');
 const path = require('path');
 
 const arg = (k, d) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.split('=')[1] : d; };
 const ONLY = arg('only', 'ABCDEF');
+const FREQ = arg('freq', 'D');
 const COST = 0.0005, BAND = 0.1;
 const fp = f => path.resolve(__dirname, '../data', f);
 const lines = f => fs.existsSync(fp(f)) ? fs.readFileSync(fp(f), 'utf-8').split('\n').filter(s => s.trim()) : [];
@@ -27,6 +30,9 @@ const C = D.map(d => px.get(d)[0]), O = D.map(d => px.get(d)[1]);
 const i0 = D.findIndex(d => d >= '20110103');
 const isEnd = D.findIndex(d => d >= '20190101') - 1;
 const SEG = { '전 구간': [i0, n - 1], 'IS 2011-18': [i0, isEnd], 'OOS 2019-': [isEnd, n - 1] };
+// 주의 마지막 거래일 (월요일 시작 주; 다음 거래일이 다른 주면 그 주의 끝)
+const wk = d => Math.floor((Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6, 8)) / 864e5 + 3) / 7);
+const weekEnd = D.map((d, i) => i === n - 1 || wk(D[i + 1]) !== wk(d));
 const ret = D.map((_, i) => i ? C[i] / C[i - 1] - 1 : 0);
 const gap = D.map((_, i) => i ? O[i] / C[i - 1] - 1 : 0);
 const intra = D.map((_, i) => C[i] / O[i] - 1);
@@ -79,7 +85,7 @@ function lagged(sig, init = 1) {
   for (let i = i0 + 1; i < n; i++) {
     r[i] = h * ret[i];
     if (pending !== null) { r[i] = (1 + r[i]) * (1 - COST * Math.abs(pending - h)) - 1; h = pending; pending = null; }
-    const w = sig(i); if (w !== null && Math.abs(w - h) >= BAND) pending = w;
+    const w = FREQ === 'W' && !weekEnd[i] ? null : sig(i); if (w !== null && Math.abs(w - h) >= BAND) pending = w;
   }
   return r;
 }
@@ -232,7 +238,9 @@ if (ONLY.includes('D')) {
   const bh = perf(ret, start, n - 1);
   console.log(`  보유                    CAGR ${pct(bh.cagr).padStart(7)} MDD ${pct(bh.mdd).padStart(7)} Calmar ${bh.calmar.toFixed(2)}`);
   for (const [key, rule] of Object.entries(RULES)) {
-    const sig = i => { const k = byDate.get(D[i]); return k !== undefined && k >= W - 1 ? rule(k) : null; };
+    // 주간 모드: 월말 값은 그 주말에야 판단에 쓴다 (가장 최근 월말 값을 매주 판단)
+    let lastK;
+    const sig = i => { const k0 = byDate.get(D[i]); if (k0 !== undefined) lastK = k0; const k = FREQ === 'W' ? lastK : k0; return k !== undefined && k >= W - 1 ? rule(k) : null; };
     const r = lagged(sig, 1);
     let avgW = 0, h = 1; for (let i = start + 1; i <= n - 1; i++) { const k = byDate.get(D[i - 1]); if (k !== undefined && k >= W - 1) h = rule(k); avgW += h; }
     const s = perf(r, start, n - 1), ex = s.cagr - bh.cagr;

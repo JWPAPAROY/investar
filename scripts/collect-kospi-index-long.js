@@ -60,6 +60,9 @@ function weekdays(from, to) {
   const days = weekdays(FROM, TO).filter(d => !done.has(d));
   console.log(`📥 KOSPI 지수 ${FROM}~${TO} | 남은 평일 ${days.length}일 (이미 ${done.size})`);
   const ohlc = x => [n(x.CLSPRC_IDX), n(x.OPNPRC_IDX), n(x.HGPRC_IDX), n(x.LWPRC_IDX)];
+  // KRX OpenAPI 는 D 일자를 D+1 아침에 올린다 → 어제·오늘의 빈 응답은 휴장이 아니라 미게시.
+  // 휴장으로 남기면 재개 시 영영 건너뛰므로 기록하지 않는다 (2026-10-22, 10/22 당일 실행 시 h:1 오기록).
+  const ydayKst = new Date(Date.now() + 9 * 3600e3 - 864e5).toISOString().slice(0, 10).replace(/-/g, '');
   let i = 0, nTrade = 0;
   for (const d of days) {
     const rows = await fetchDay(d);
@@ -67,6 +70,7 @@ function weekdays(from, to) {
       const k = rows.find(x => x.IDX_NM === '코스피');
       const k200 = rows.find(x => x.IDX_NM === '코스피 200');
       const rec = k && k200 ? { d, k: ohlc(k), k200: ohlc(k200) } : { d, h: 1 };
+      if (rec.h && d >= ydayKst) { console.log(`\n  ⏳ ${d} 미게시 — 기록 안 함 (나중에 다시 실행)`); continue; }
       if (!rec.h) nTrade++;
       fs.appendFileSync(OUT, JSON.stringify(rec) + '\n');
     }
