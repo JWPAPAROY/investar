@@ -711,7 +711,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 | ↳↳ workflow_run | `bonus-signals` | 무상증자 자격 판정 → **다음 거래일 지시**를 텔레그램으로 |
 | cron | `calc-expectations` | 기대수익 통계 |
 | cron 토 01:00 UTC | `financials` | 분기 재무비율 → `stock_financials` (2026-10-06 신설 — 그전엔 8/20 수동 수집 후 방치돼 2분기 실적이 179종목뿐이었다) |
-| cron 일 13:00 UTC | `render-operating-state` | **주간진단 계산·저장·텔레그램** → 운영 문서 재생성 |
+| cron 일 13:00 UTC | `render-operating-state` | **주간진단 계산·저장·텔레그램** → 운영 문서 재생성 → **S3 시총 쏠림 관측**(`scripts/s3-observation.js`, 2026-10-23~, 판정 2028-10-23, `S3_OBSERVATION.md`. 관측 전용 — 매매 신호 아님) |
 
 > `bonus-signals` 가 "내일 할 일"을 알리는 구조라 스케줄 지연이 무해하다(최악 05:25 KST, 장 시작 전).
 

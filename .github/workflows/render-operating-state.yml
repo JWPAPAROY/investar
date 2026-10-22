@@ -57,3 +57,13 @@ jobs:
           git add OPERATING_STATE.md WEEKLY_DIAGNOSTICS.md
           git commit -m "chore: 운영 상태 문서 렌더 (DB 기준, 자동)"
           git push
+      # 2026-10-23: S3 시총 쏠림 실시간 관측 (S3_OBSERVATION.md, 판정 2028-10-23).
+      #   문서 커밋 뒤에 둔다 — 이 단계가 실패해도 진단·문서는 이미 반영되고, 잡은 빨간불이 돼 실패가 보인다.
+      - name: S3 concentration observation (update + telegram)
+        run: node scripts/s3-observation.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
