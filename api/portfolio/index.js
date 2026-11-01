@@ -147,6 +147,10 @@ module.exports = async (req, res) => {
         .lt('prediction_date', '2027-01-01')
         .not('kospi_close', 'is', null)
         .gte('prediction_date', buyDate || cur.rebalance_date)
+        // 보유 종목과 같은 날에서 끝낸다. kospi_close 는 16:20 KST 에 채워지고 market_flow_daily 는
+        //   자정 무렵에 들어와, 그 사이 벤치만 하루 더 반영돼 초과수익이 틀렸다(10/22 −3.2% 가 벤치에만).
+        //   portfolio-verdict.js 의 lte(lastEnd) 와 같은 수정.
+        .lte('prediction_date', latestDate || '9999-12-31')
         .order('prediction_date');
       if (kp && kp.length >= 2) {
         const a = kp[0].kospi_close, b = kp[kp.length - 1].kospi_close;

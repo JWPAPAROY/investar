@@ -14,6 +14,8 @@ const COST = 0.35;              // 수수료 무료 계정: 매도세 0.15 + 슬
 const BASE_MEDIAN = 1.25;       // 백테스트 매칭초과 중앙
 const BASE_NET = 0.87;          // 백테스트 비용차감
 const BASE_N = 248;
+// 파이프라인 가동일. 그 전 공시는 소급 기록이다 — 탈락 사유 분포를 흐리지 않도록 따로 센다.
+const LIVE_START = '2026-09-07';
 
 const mid = (a) => {
   if (!a.length) return null;
@@ -29,7 +31,7 @@ async function bonusView(res) {
       .from('bonus_issue_signals')
       .select('rcept_no,stock_code,corp_name,disclosure_date,ratio,record_date,ex_rights_date,'
         + 'buy_date,sell_date,market_cap,cap_quintile,avg_value_20d,eligible,reject_reason,'
-        + 'buy_price,sell_price,return_pct,matched_excess')
+        + 'buy_price,sell_price,return_pct,matched_excess,notified_buy')
       .order('disclosure_date', { ascending: false })
       .limit(500);
     if (error) throw new Error(error.message);
@@ -43,13 +45,28 @@ async function bonusView(res) {
     const holding = ok.filter(r => r.buy_date && r.buy_date <= today && r.return_pct == null);
     const closed = ok.filter(r => r.return_pct != null);
 
-    const mx = closed.filter(r => r.matched_excess != null).map(r => r.matched_excess);
-    const raw = closed.map(r => r.return_pct);
-    const mxMed = mid(mx);
+    // **실전 = 매수 알림이 실제로 나간 건만.** 소급 기록(가동 전)과 재판정분(달력 버그로 놓친 건)은
+    //   그때 따라 할 수 없었던 매매라 "사후 계산"으로 따로 보여준다. 섞으면 실전 성적이 부풀거나 흐려진다.
+    const live = closed.filter(r => r.notified_buy);
+    const retro = closed.filter(r => !r.notified_buy);
+    const statsOf = (xs) => {
+      const mx = xs.filter(r => r.matched_excess != null).map(r => r.matched_excess);
+      const mxMed = mid(mx);
+      return {
+        closedCount: xs.length,
+        rawMedian: mid(xs.map(r => r.return_pct)),
+        matchedMedian: mxMed,
+        matchedNet: mxMed == null ? null : mxMed - COST,
+        matchedN: mx.length,
+        winRate: mx.length ? (100 * mx.filter(v => v > COST).length) / mx.length : null,
+      };
+    };
+    const liveStats = statsOf(live);
 
-    // 탈락 사유 분포 (사유가 여러 개면 중복 집계)
+    // 탈락 사유 분포 (사유가 여러 개면 중복 집계). 가동 이후 공시만 — 소급분 249건이 분포를 덮던 문제.
     const rejects = {};
-    for (const r of rows) {
+    const liveRows = rows.filter(r => r.disclosure_date >= LIVE_START);
+    for (const r of liveRows) {
       if (r.eligible) continue;
       for (const part of String(r.reject_reason || '기타').split(' / ')) {
         const k = part.replace(/\(.*/, '').trim();
@@ -65,20 +82,19 @@ async function bonusView(res) {
       stats: {
         total: rows.length,
         eligible: ok.length,
-        closedCount: closed.length,
-        rawMedian: mid(raw),
-        matchedMedian: mxMed,
-        matchedNet: mxMed == null ? null : mxMed - COST,
-        matchedN: mx.length,
-        winRate: mx.length ? (100 * mx.filter(v => v > COST).length) / mx.length : null,
+        ...liveStats,
         cost: COST,
       },
+      retroStats: statsOf(retro),
+      liveStart: LIVE_START,
+      liveTotal: liveRows.length,
+      liveEligible: liveRows.filter(r => r.eligible).length,
       // 프론트가 나란히 보여줄 기준선. 괴리를 눈으로 보게 하는 것이 이 탭의 목적이다.
       baseline: { median: BASE_MEDIAN, net: BASE_NET, n: BASE_N },
       rejects,
       // 표본이 얇을 때 화면이 성급한 결론을 내지 않도록 서버가 직접 문구를 준다.
-      caution: mx.length < 30
-        ? `표본 ${mx.length}건 — 백테스트는 ${BASE_N}건이다. 이 숫자로 전략을 판단하지 말 것.`
+      caution: liveStats.matchedN < 30
+        ? `실전 표본 ${liveStats.matchedN}건(알림 발송분만) — 백테스트는 ${BASE_N}건이다. 이 숫자로 전략을 판단하지 말 것.`
         : null,
     });
   } catch (e) {

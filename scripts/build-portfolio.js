@@ -19,6 +19,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
 const P = require('../backend/portfolio');
+const cal = require('../backend/marketCalendar');
 
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
@@ -62,6 +63,10 @@ async function fetchAll(table, cols, orderBy, filter) {
   if (!flow.length) throw new Error('market_flow_daily 비어 있음');
 
   const days = [...new Set(flow.map(r => r.trade_date))].sort();
+  // i 에서 n거래일 뒤. 데이터 달력을 넘어가면 marketCalendar(휴장일 단일 출처)로 이어서 센다.
+  //   next_date 는 "예정일"이라 미래여도 정해진다 — 데이터 달력만 쓰면 산출 시점엔 늘 null 이었다
+  //   (화면의 "다음 리밸런싱"이 한 번도 표시된 적 없음, 2026-11-02 수정). buy_date 는 실제 매수 기준일이라 그대로 둔다.
+  const afterN = (i, n) => days[i + n] || cal.addTradingDays(days[days.length - 1], i + n - (days.length - 1));
   const series = new Map();
   for (const r of flow) {
     let s = series.get(r.stock_code);
@@ -163,7 +168,7 @@ async function fetchAll(table, cols, orderBy, filter) {
         const hold = (r.params && r.params.hold) || so.hold;   // 그 행이 쓴 주기로 계산
         const patch = {};
         if (!r.buy_date  && days[ri + 1])    patch.buy_date  = days[ri + 1];
-        if (!r.next_date && days[ri + hold]) patch.next_date = days[ri + hold];
+        if (!r.next_date) patch.next_date = afterN(ri, hold);
         if (!Object.keys(patch).length) { pending++; continue; }  // 아직 거래일이 안 왔다
         const { error: upErr } = await scoped(sb.from('portfolio_rebalances')
           .update(patch).eq('rebalance_date', r.rebalance_date));
@@ -181,7 +186,7 @@ async function fetchAll(table, cols, orderBy, filter) {
         console.log(`⚠️ 마지막 리밸런싱(${last})이 현재 거래일 배열 밖 — 주기 판단 불가, 강제 산출로 진행`);
       } else if (elapsed < so.hold && !FORCE) {
         console.log(`⏸ 마지막 리밸런싱 ${last} 이후 ${elapsed}거래일 (주기 ${so.hold}일) — 아직 아님`);
-        console.log(`   다음 예정: ${days[li + so.hold] || `약 ${so.hold - elapsed}거래일 뒤`}`);
+        console.log(`   다음 예정: ${afterN(li, so.hold)}`);
         return;
       } else if (FORCE) {
         console.log(`🔁 --force: 주기(${elapsed}/${so.hold}일) 무시하고 재산출`);
@@ -218,9 +223,9 @@ async function fetchAll(table, cols, orderBy, filter) {
 
     if (DRY) { console.log('\n[DRY] DB 미기록'); return; }
 
-    // 신호일이 배열의 마지막이라 둘 다 이 시점엔 null이다 — 위 2-a가 나중에 메운다.
+    // 신호일이 배열의 마지막이라 buy_date 는 이 시점엔 null 이다 — 위 2-a가 나중에 메운다.
     const buyDate = days[idx + 1] || null;          // 신호일 다음 거래일 종가로 매수 가정
-    const nextDate = days[idx + so.hold] || null;   // 다음 리밸런싱 예정일
+    const nextDate = afterN(idx, so.hold);          // 다음 리밸런싱 예정일 (달력으로 미리 계산)
     const row = {
       rebalance_date: signalDate, buy_date: buyDate, next_date: nextDate,
       params: so, holdings, universe_size: top.length,

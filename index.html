@@ -598,6 +598,9 @@
       // 2026-10-06: 전략 2개 병행 관측. ep_lowturn은 동일가중이 검증된 설정이다.
       const [portfolioStrategy, setPortfolioStrategy] = useState('pbr_lowvol'); // 'pbr_lowvol' | 'ep_lowturn'
       const [portfolioLoading, setPortfolioLoading] = useState(false);
+      // 마지막으로 요청한 전략. 전환을 빠르게 하면 늦게 온 이전 전략 응답이 화면을 덮었다
+      //   (ep_lowturn 콜드 스타트 ~30초 vs pbr_lowvol ~3초).
+      const portfolioReq = useRef(null);
       const [screeningMetadata, setScreeningMetadata] = useState(null); // 스크리닝 메타데이터
       const [screeningDuration, setScreeningDuration] = useState(null); // 스크리닝 소요 시간(초)
       const [top3Recommendations, setTop3Recommendations] = useState([]); // 🆕 TOP 3 추천 종목
@@ -809,17 +812,20 @@
       // v3.97: 포트폴리오 조회. 성과는 API가 매 호출 종가로 재계산한다(저장 안 함 —
       //   저장하면 market_flow_daily와 두 출처가 갈라진다).
       const fetchPortfolio = async (strategy = portfolioStrategy) => {
+        portfolioReq.current = strategy;
         setPortfolioLoading(true);
         try {
           const res = await fetch(`${API_BASE_URL}/portfolio?strategy=${strategy}`);
           const data = await res.json();
+          if (portfolioReq.current !== strategy) return;   // 그사이 다른 전략으로 바뀜 — 버린다
           if (!data.success) throw new Error(data.error || '로드 실패');
           setPortfolio(data);
         } catch (e) {
+          if (portfolioReq.current !== strategy) return;
           console.error('포트폴리오 로드 실패:', e);
           setPortfolio({ error: e.message });
         } finally {
-          setPortfolioLoading(false);
+          if (portfolioReq.current === strategy) setPortfolioLoading(false);
         }
       };
 
@@ -1884,13 +1890,16 @@
                             <tr><th className="text-left py-1">구분</th><th className="text-right">매칭초과 중앙</th><th className="text-right">비용차감</th><th className="text-right">승률</th><th className="text-right">표본</th></tr>
                           </thead>
                           <tbody>
-                            <tr className="border-t">
-                              <td className="py-2 font-semibold">실전</td>
-                              <td className="text-right font-mono">{bonus.stats.matchedMedian == null ? '—' : `${bonus.stats.matchedMedian >= 0 ? '+' : ''}${bonus.stats.matchedMedian.toFixed(2)}%`}</td>
-                              <td className={`text-right font-mono ${(bonus.stats.matchedNet ?? 0) >= 0 ? 'text-red-600' : 'text-blue-600'}`}>{bonus.stats.matchedNet == null ? '—' : `${bonus.stats.matchedNet >= 0 ? '+' : ''}${bonus.stats.matchedNet.toFixed(2)}%p`}</td>
-                              <td className="text-right font-mono">{bonus.stats.winRate == null ? '—' : `${bonus.stats.winRate.toFixed(0)}%`}</td>
-                              <td className="text-right font-mono">{bonus.stats.matchedN}</td>
-                            </tr>
+                            {/* 실전 = 매수 알림이 실제로 나간 건만. 소급·재판정분은 따라 할 수 없었던 매매라 따로 둔다. */}
+                            {[['실전 (알림 발송분)', bonus.stats, 'font-semibold'], ['사후 계산 (소급·재판정)', bonus.retroStats, 'text-gray-600']].map(([label, st, cls]) => st && (
+                              <tr key={label} className="border-t">
+                                <td className={`py-2 ${cls}`}>{label}</td>
+                                <td className="text-right font-mono">{st.matchedMedian == null ? '—' : `${st.matchedMedian >= 0 ? '+' : ''}${st.matchedMedian.toFixed(2)}%`}</td>
+                                <td className={`text-right font-mono ${(st.matchedNet ?? 0) >= 0 ? 'text-red-600' : 'text-blue-600'}`}>{st.matchedNet == null ? '—' : `${st.matchedNet >= 0 ? '+' : ''}${st.matchedNet.toFixed(2)}%p`}</td>
+                                <td className="text-right font-mono">{st.winRate == null ? '—' : `${st.winRate.toFixed(0)}%`}</td>
+                                <td className="text-right font-mono">{st.matchedN}</td>
+                              </tr>
+                            ))}
                             <tr className="border-t text-gray-500">
                               <td className="py-2">백테스트 기준선</td>
                               <td className="text-right font-mono">+{bonus.baseline.median.toFixed(2)}%</td>
@@ -1902,7 +1911,8 @@
                         </table>
                       </div>
                       <div className="text-xs text-gray-500 mt-2">
-                        원수익 중앙 {bonus.stats.rawMedian == null ? '—' : `${bonus.stats.rawMedian >= 0 ? '+' : ''}${bonus.stats.rawMedian.toFixed(2)}%`} — 시장 방향이 섞여 있어 백테스트와 직접 비교할 수 없다.
+                        실전 원수익 중앙 {bonus.stats.rawMedian == null ? '—' : `${bonus.stats.rawMedian >= 0 ? '+' : ''}${bonus.stats.rawMedian.toFixed(2)}%`} — 시장 방향이 섞여 있어 백테스트와 직접 비교할 수 없다.
+                        사후 계산은 가동({bonus.liveStart}) 전 소급분과, 판정 버그로 알림이 안 나갔다가 다시 판정한 건이다.<br />
                         위 표는 <b>동일일×시총분위 매칭초과</b>로 같은 자를 쓴다. 비용 가정 왕복 {bonus.stats.cost}% (수수료 무료 계정).
                       </div>
                     </div>
@@ -1935,13 +1945,14 @@
                       <div className="overflow-x-auto">
                         <table className="w-full text-sm">
                           <thead className="text-gray-500 text-xs">
-                            <tr><th className="text-left py-1">공시일</th><th className="text-left">종목</th><th className="text-right">비율</th><th className="text-right">원수익</th><th className="text-right">매칭초과</th><th className="text-right">분위</th></tr>
+                            <tr><th className="text-left py-1">공시일</th><th className="text-left">종목</th><th className="text-left">구분</th><th className="text-right">비율</th><th className="text-right">원수익</th><th className="text-right">매칭초과</th><th className="text-right">분위</th></tr>
                           </thead>
                           <tbody>
                             {bonus.closed.map(r => (
                               <tr key={r.rcept_no} className="border-t">
                                 <td className="py-1.5 text-xs text-gray-500">{r.disclosure_date}</td>
                                 <td className="text-xs">{r.corp_name}</td>
+                                <td className="text-xs">{r.notified_buy ? <span className="font-semibold text-gray-900">실전</span> : <span className="text-gray-400">사후</span>}</td>
                                 <td className="text-right text-xs">{r.ratio ? `1:${r.ratio}` : '—'}</td>
                                 <td className={`text-right font-mono text-xs ${r.return_pct >= 0 ? 'text-red-600' : 'text-blue-600'}`}>{r.return_pct >= 0 ? '+' : ''}{Number(r.return_pct).toFixed(2)}%</td>
                                 <td className={`text-right font-mono text-xs ${(r.matched_excess ?? 0) >= 0 ? 'text-red-600' : 'text-blue-600'}`}>{r.matched_excess == null ? '—' : `${r.matched_excess >= 0 ? '+' : ''}${Number(r.matched_excess).toFixed(2)}%`}</td>
@@ -1954,7 +1965,7 @@
                     </div>
 
                     <div className="p-4 bg-gray-50 border rounded-lg">
-                      <div className="font-bold mb-2 text-sm">자격 탈락 사유 <span className="text-gray-400 font-normal">(전체 {bonus.stats.total}건 중 자격 {bonus.stats.eligible}건)</span></div>
+                      <div className="font-bold mb-2 text-sm">자격 탈락 사유 <span className="text-gray-400 font-normal">(가동 {bonus.liveStart} 이후 {bonus.liveTotal}건 중 자격 {bonus.liveEligible}건 · 소급 포함 전체 {bonus.stats.total}건)</span></div>
                       <div className="flex flex-wrap gap-2">
                         {Object.entries(bonus.rejects).sort((a, b) => b[1] - a[1]).map(([k, n]) => (
                           <span key={k} className="text-xs bg-white border px-2 py-1 rounded">{k} <b>{n}</b></span>

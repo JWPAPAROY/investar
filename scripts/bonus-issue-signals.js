@@ -26,6 +26,7 @@
 require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 const { createClient } = require('@supabase/supabase-js');
 const { orderByPk } = require('../backend/supabasePaging');
+const cal = require('../backend/marketCalendar');
 
 const args = process.argv.slice(2);
 const DRY = args.includes('--dry');
@@ -111,11 +112,26 @@ async function telegram(text) {
     while (lo <= hi) { const m = (lo + hi) >> 1; if (days[m] >= d) { f = m; hi = m - 1; } else lo = m + 1; }
     return f;
   };
+  // 🚨 2026-11-01 수정: 미래 날짜를 과거 달력으로 풀던 버그.
+  //   `days` 는 market_flow_daily 에 **이미 있는** 거래일뿐이라, 공시 당일 저녁 판정 시점엔
+  //   D+1·D+5 가 달력에 없다 → 9/7 가동 이후 실전 신호 6건이 전부 "거래일 달력 밖"으로 탈락했고
+  //   (코나아이·알파칩스는 그 사유 하나뿐이었다), 미래 기준일의 권리락일은 "달력의 마지막 날"로 저장됐다.
+  //   달력 안은 데이터 달력을 그대로 쓰고, 넘어가는 부분만 marketCalendar(휴장일 단일 출처)로 이어서 센다.
+
+  /** 인덱스 i0 에서 n거래일 뒤 */
+  const dayAfter = (i0, n) => (i0 + n < days.length
+    ? days[i0 + n]
+    : cal.addTradingDays(lastDay, i0 + n - (days.length - 1)));
+
   /** 날짜 미만인 마지막 거래일 (권리락일 = 신주배정기준일 직전 거래일) */
   const dayBefore = (d) => {
-    const i = idxOnOrAfter(d);
-    if (i < 0) return days[days.length - 1] || null;   // 아직 달력 밖 → 미래
-    return i > 0 ? days[i - 1] : null;
+    if (d <= lastDay) {
+      const i = idxOnOrAfter(d);
+      return i > 0 ? days[i - 1] : null;
+    }
+    let c = cal.addCalendarDays(d, -1);
+    while (!cal.isTradingDay(c)) c = cal.addCalendarDays(c, -1);
+    return c;
   };
 
   // ── 매칭초과(추정량 C) — 백테스트와 같은 자 ────────────────────────────
@@ -180,22 +196,28 @@ async function telegram(text) {
     return own - base;
   };
 
-  /** 실전 누적 성적. 원수익과 매칭초과를 나란히 — 후자만 백테스트와 비교 가능하다. */
+  /** 누적 성적. 원수익과 매칭초과를 나란히 — 후자만 백테스트와 비교 가능하다.
+   *  **실전 = 매수 알림이 실제로 나간 건(notified_buy)만.** 소급 기록·재판정분은 따라 할 수 없었던
+   *  매매라 "사후 계산"으로 따로 센다(화면 _bonusView.js 와 같은 정의). */
   const summary = async () => {
-    const rows2 = await fetchAll('bonus_issue_signals', 'eligible,return_pct,matched_excess',
+    const rows2 = await fetchAll('bonus_issue_signals', 'eligible,return_pct,matched_excess,notified_buy',
       q => q.eq('eligible', true));
-    const closed = rows2.filter(r => r.return_pct != null);
-    if (!closed.length) return;
     const mid = a => { const x = [...a].sort((u, v) => u - v); const h = x.length >> 1; return x.length % 2 ? x[h] : (x[h - 1] + x[h]) / 2; };
-    const mx = closed.filter(r => r.matched_excess != null).map(r => r.matched_excess);
-    console.log(`\n📊 실전 누적 — 자격 ${rows2.length}건 / 청산 ${closed.length}건`);
-    console.log(`   원수익   중앙 ${pct(mid(closed.map(r => r.return_pct)))}  (시장 방향이 섞여 백테스트와 직접 비교 불가)`);
-    if (mx.length) {
-      const m = mid(mx);
-      const win = mx.filter(v => v > COST).length;
-      console.log(`   매칭초과 중앙 ${pct(m)}  비용차감 ${pct(m - COST)}  승률 ${(100 * win / mx.length).toFixed(0)}%   ← 백테스트와 같은 자 (n=${mx.length})`);
-      console.log(`   백테스트 기준선: 매칭초과 중앙 +1.25% / 비용차감 +0.87%p (n=248)`);
-    } else console.log('   매칭초과: 산출 불가(동료 표본 부족 또는 가격 결함)');
+    const report = (label, closed) => {
+      console.log(`\n📊 ${label} — 청산 ${closed.length}건`);
+      if (!closed.length) return;
+      console.log(`   원수익   중앙 ${pct(mid(closed.map(r => r.return_pct)))}  (시장 방향이 섞여 백테스트와 직접 비교 불가)`);
+      const mx = closed.filter(r => r.matched_excess != null).map(r => r.matched_excess);
+      if (mx.length) {
+        const m = mid(mx);
+        const win = mx.filter(v => v > COST).length;
+        console.log(`   매칭초과 중앙 ${pct(m)}  비용차감 ${pct(m - COST)}  승률 ${(100 * win / mx.length).toFixed(0)}%   ← 백테스트와 같은 자 (n=${mx.length})`);
+      } else console.log('   매칭초과: 산출 불가(동료 표본 부족 또는 가격 결함)');
+    };
+    const closed = rows2.filter(r => r.return_pct != null);
+    report('실전 (알림 발송분)', closed.filter(r => r.notified_buy));
+    report('사후 계산 (소급·재판정)', closed.filter(r => !r.notified_buy));
+    console.log(`   백테스트 기준선: 매칭초과 중앙 +1.25% / 비용차감 +0.87%p (n=248)`);
   };
 
   // 테이블 존재 확인 (anon 키로는 CREATE TABLE 이 안 된다)
@@ -212,13 +234,17 @@ async function telegram(text) {
   // ── 신규 A1 감지 ───────────────────────────────────────────────────────
   const a1 = await fetchAll('disclosures', 'rcept_no,rcept_dt,corp_code,corp_name,stock_code',
     q => q.eq('report_type', 'A1_무상증자').eq('is_amendment', false).eq('is_subsidiary', false));
-  const kept = await fetchAll('bonus_issue_signals', 'rcept_no,record_date');
+  const kept = await fetchAll('bonus_issue_signals', 'rcept_no,record_date,reject_reason');
   const known = new Map(kept.map(r => [r.rcept_no, r.record_date]));
+  // 위 달력 버그로 탈락한 행은 기간과 무관하게 다시 판정한다(한 번 기록되면 재판정하지 않는 구조라 저절로 안 풀린다).
+  //   매수일이 이미 지난 건은 알림 대상이 아니고(toBuy 는 buy_date > lastDay 만) 성과 갱신만 받는다.
+  const stale = new Set(kept.filter(r => /거래일 달력 밖/.test(r.reject_reason || '')).map(r => r.rcept_no));
   // --refresh: 상세가 비어 있는 기록도 다시 받는다.
   //   fricDecsn 이 **정정본 rcept_no** 로 응답한다는 걸 몰랐을 때 저장된 행이 이에 해당한다.
   const fresh = a1.filter(r => r.stock_code)
-    .filter(r => !known.has(r.rcept_no) || (REFRESH && known.get(r.rcept_no) == null))
-    .filter(r => BACKFILL || REFRESH || r.rcept_dt >= days[Math.max(0, days.length - 30)]);
+    .filter(r => !known.has(r.rcept_no) || stale.has(r.rcept_no) || (REFRESH && known.get(r.rcept_no) == null))
+    .filter(r => BACKFILL || REFRESH || stale.has(r.rcept_no) || r.rcept_dt >= days[Math.max(0, days.length - 30)]);
+  if (stale.size) console.log(`달력 버그 탈락분 재판정 ${stale.size}건`);
   console.log(`무상증자 공시 ${a1.length}건 / 기록됨 ${known.size}건 / 처리 대상 ${fresh.length}건`
     + (REFRESH ? ' (--refresh: 상세 결측분 포함)' : ''));
 
@@ -260,8 +286,11 @@ async function telegram(text) {
       const exRights = recordDate ? dayBefore(recordDate) : null;
 
       const i0 = idxOnOrAfter(ev.rcept_dt);
-      const buyDate = i0 >= 0 ? days[i0 + BUY_OFFSET] || null : null;
-      const sellDate = i0 >= 0 ? days[i0 + SELL_OFFSET] || null : null;
+      // 신호일 가격이 아직 수집되지 않았으면(공시일이 데이터 달력보다 뒤) 기록하지 않고 다음 실행으로 미룬다.
+      //   지금 기록하면 'KRX 가격 없음'으로 영구 탈락한다.
+      if (i0 < 0) { console.log(`  ⏸ ${ev.rcept_dt} ${ev.corp_name}: 신호일 가격 미수집 — 다음 실행에서 판정`); continue; }
+      const buyDate = dayAfter(i0, BUY_OFFSET);
+      const sellDate = dayAfter(i0, SELL_OFFSET);
 
       const snap = px.get(ev.stock_code)?.get(days[i0]) || null;
       const cap = snap?.cap ?? null;
@@ -356,6 +385,9 @@ async function telegram(text) {
     upd.push({
       rcept_no: s.rcept_no, stock_code: s.stock_code, disclosure_date: s.disclosure_date,
       eligible: true,   // upsert 는 INSERT 경로의 NOT NULL 도 만족해야 한다 (이 목록은 eligible=true 만)
+      // 자격 행에 남은 옛 탈락 사유를 지운다. KIS 종가(수정주가 혼재)로 판정하던 때의 "가격 불연속"이
+      //   krx_close 로 재계산해 정상이 된 뒤에도 남아 있었다(비비안·티앤엘).
+      reject_reason: null,
       buy_price: bp, sell_price: sp, return_pct: ret,
       // 백테스트와 같은 자로도 재둔다. 원수익만으로는 시장 방향과 섞여 비교가 성립하지 않는다.
       matched_excess: (ret != null && idxOnOrAfter(s.disclosure_date) >= 0)
