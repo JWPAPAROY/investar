@@ -35,6 +35,7 @@ const {
 const { detectMarketRegime } = require('../../backend/marketRegime');
 
 
+const crypto = require('crypto');
 const supabase = require('../../backend/supabaseClient');
 const kisApi = require('../../backend/kisApi');
 const overnightPredictor = require('../../backend/overnightPredictor');
@@ -1336,6 +1337,37 @@ async function supportsTop3Rank() {
   return _hasTop3Rank;
 }
 
+/**
+ * 텔레그램 웹훅 요청 검증 (2026-11-02).
+ * 그전엔 body 모양만 보고 처리해서, URL을 아는 누구나 `/policy`로 active_policy를
+ * 바꾸거나 /결산·/진단을 실행할 수 있었다. 두 겹으로 막는다:
+ *   1. TELEGRAM_WEBHOOK_SECRET 이 설정돼 있으면 Telegram이 붙이는
+ *      X-Telegram-Bot-Api-Secret-Token 헤더가 일치해야 한다 (setWebhook secret_token).
+ *      이것이 진짜 방어선이다 — chat id는 요청 본문이라 위조할 수 있다.
+ *   2. 메시지의 chat id 가 TELEGRAM_CHAT_ID 와 같아야 한다. 미설정이면 거부(fail-closed).
+ * 환경변수 미설정 시 1은 건너뛰는 이유: setWebhook 재등록 → Vercel env 등록 순서로
+ * 전환할 때 봇이 멈추지 않게 하려는 것. 미설정 상태는 경고 로그로 드러낸다.
+ */
+function verifyTelegramWebhook(req) {
+  const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
+  if (expected) {
+    const got = String(req.headers?.['x-telegram-bot-api-secret-token'] || '');
+    const a = Buffer.from(got), b = Buffer.from(expected);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      return { ok: false, status: 401, reason: 'secret token mismatch' };
+    }
+  } else {
+    console.warn('⚠️ TELEGRAM_WEBHOOK_SECRET 미설정 — 웹훅 비밀 토큰 검증을 건너뜀 (chat id만 확인)');
+  }
+  const allowed = process.env.TELEGRAM_CHAT_ID;
+  const chatId = req.body?.message?.chat?.id;
+  if (!allowed || chatId == null || String(chatId) !== String(allowed)) {
+    // 진짜 Telegram 요청이 다른 채팅에서 온 경우 200이어야 재전송이 멈춘다
+    return { ok: false, status: 200, reason: `chat id not allowed (${chatId})` };
+  }
+  return { ok: true };
+}
+
 module.exports = async (req, res) => {
   let mode = req.query.mode || 'save';
 
@@ -1346,6 +1378,11 @@ module.exports = async (req, res) => {
   const isTelegramWebhook = req.method === 'POST' && req.body?.message?.text;
 
   if (mode === 'webhook' || isTelegramWebhook) {
+    const auth = verifyTelegramWebhook(req);
+    if (!auth.ok) {
+      console.warn(`🚫 웹훅 거부: ${auth.reason}`);
+      return res.status(auth.status).json({ ok: false });
+    }
     const update = req.body || {};
     const text = (update.message?.text || '').trim();
     const chatId = update.message?.chat?.id;
@@ -1420,6 +1457,12 @@ module.exports = async (req, res) => {
     // Phase 1: 관측 only — 3가지 진단을 weekly_diagnostics 테이블에 INSERT
     // =============================================
     if (mode === 'weekly-diagnostic') {
+      // 2026-11-02: 검증된 웹훅(/진단)에서만 허용. 이 진단은 active_policy를 자동으로
+      //   바꿀 수 있는데 GET 한 번으로 누구나 실행할 수 있었다. 정기 실행은 GitHub Actions
+      //   (scripts/run-weekly-diagnostic.js)가 직접 하므로 HTTP 경로가 필요 없다.
+      if (!req._fromWebhook) {
+        return res.status(403).json({ success: false, error: 'weekly-diagnostic is webhook-only' });
+      }
       console.log('📊 주간 진단 모드 시작...');
       try {
         const { runDiagnostic } = require('../../scripts/weekly-diagnostic.js');

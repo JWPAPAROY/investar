@@ -707,28 +707,8 @@
         }
       };
 
-      // Phase 2-4: 즉시 진단 실행 (수동 트리거)
-      const [diagnosticRunning, setDiagnosticRunning] = useState(false);
-      const [diagnosticRunResult, setDiagnosticRunResult] = useState(null);
-      const runDiagnosticNow = async () => {
-        if (diagnosticRunning) return;
-        setDiagnosticRunning(true);
-        setDiagnosticRunResult(null);
-        try {
-          const res = await fetch(`${API_BASE_URL}/cron/save-daily-recommendations?mode=weekly-diagnostic`);
-          const data = await res.json();
-          if (data.success) {
-            setDiagnosticRunResult({ ok: true, message: `진단 완료 (${data.week_start}): 권장 D+${data.optimal_buy_d}매수→D+${data.optimal_sell_d}매도` });
-            await fetchDiagnostics(); // refresh table
-          } else {
-            setDiagnosticRunResult({ ok: false, message: data.error || '진단 실행 실패' });
-          }
-        } catch (e) {
-          setDiagnosticRunResult({ ok: false, message: e.message });
-        } finally {
-          setDiagnosticRunning(false);
-        }
-      };
+      // 2026-11-02: 브라우저에서 ?mode=weekly-diagnostic 을 직접 부르던 runDiagnosticNow 제거.
+      //   렌더하는 버튼이 없는 죽은 코드였고, 엔드포인트는 이제 웹훅 전용(403)이다. 수동 실행은 텔레그램 /진단.
 
       // 운영 진단 탭은 자동 조회 안 함 — 사용자가 버튼 눌러야 조회
 
