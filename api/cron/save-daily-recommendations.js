@@ -1845,6 +1845,7 @@ module.exports = async (req, res) => {
           .select('recommendation_id, days_since_recommendation, cumulative_return')
           .gte('days_since_recommendation', 1)
           .lte('days_since_recommendation', 15)
+          .order('id')   // 2026-11-02: 정렬 없는 페이징 → 기대수익 통계 입력 행 중복·누락
           .range(from, from + PAGE_SIZE - 1);
         if (error) { console.error('❌ prices 조회 실패:', error.message); break; }
         if (!data || data.length === 0) break;

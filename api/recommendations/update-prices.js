@@ -139,6 +139,7 @@ module.exports = async (req, res) => {
         .from('screening_recommendations')
         .select('id, stock_code, stock_name, recommended_price, recommendation_date')
         .eq('is_active', true)
+        .order('id')   // 2026-11-02: 정렬 없는 페이징은 1000행 넘으면 추적 대상이 조용히 빠진다
         .range(arPage * 1000, (arPage + 1) * 1000 - 1);
 
       if (fetchError) {

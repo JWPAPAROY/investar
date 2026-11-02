@@ -65,6 +65,7 @@ async function collectSuccessPatterns(req, res) {
       .select('*')
       .gte('recommendation_date', startDateStr)
       .order('recommendation_date', { ascending: false })
+      .order('id')   // 2026-11-02: 동점 타이브레이커 (supabasePaging.js 참고)
       .range(recPage * 1000, (recPage + 1) * 1000 - 1);
 
     if (recError) {
@@ -204,6 +205,7 @@ async function collectSuccessPatterns(req, res) {
         .from('success_patterns')
         .select('id, recommendation_id')
         .is('rsi', null)
+        .order('id')   // 2026-11-02: 정렬 없는 페이징
         .range(npPage * 1000, (npPage + 1) * 1000 - 1);
       if (!npData || npData.length === 0) break;
       nullPatterns = nullPatterns.concat(npData);
@@ -279,6 +281,7 @@ async function getPatternAnalysis(req, res) {
       .from('success_patterns')
       .select('*')
       .order('success_date', { ascending: false })
+      .order('id')   // 2026-11-02: 동점 타이브레이커
       .range(patPage * 1000, (patPage + 1) * 1000 - 1);
 
     if (error) {

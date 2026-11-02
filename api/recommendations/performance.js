@@ -82,6 +82,7 @@ module.exports = async (req, res) => {
         .eq('is_active', true)
         .order('recommendation_date', { ascending: false })
         .order('total_score', { ascending: false })
+        .order('id')   // 2026-11-02: 동점 타이브레이커 — 없으면 페이지 경계에서 행 중복·누락 (supabasePaging.js 참고)
         .range(recPage * REC_PAGE_SIZE, (recPage + 1) * REC_PAGE_SIZE - 1);
 
       if (pageErr) {
@@ -130,6 +131,9 @@ module.exports = async (req, res) => {
           .select('*')
           .in('recommendation_id', batchIds)
           .order('tracking_date', { ascending: true })
+          // 2026-11-02: 같은 날짜 행이 수백 개라 tracking_date만으로는 페이지 순서가 흔들린다.
+          //   실측: 성과 탭 TOP3 42건 중 6건에서 10/19 행이 빠지거나 두 번 나왔다(DB는 완전).
+          .order('id')
           .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
 
         if (pageError) {
