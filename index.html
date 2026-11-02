@@ -674,8 +674,22 @@
         }
         return d;
       };
+      // 2026-11-02: D+0 기준일 보정. 이전엔 항상 '오늘'을 D+0으로 잡아, 장 시작 전(KST 00~09시)에
+      //   보면 추천의 D+0(= 직전 거래일 종가)보다 하루 늦게 세어 모든 날짜가 1거래일 밀렸다.
+      //   08:00 알림을 받고 확인하는 바로 그 시간대다. 주말·휴장일은 어느 쪽에서 세도 결과가 같다.
+      const isTradingIso = (iso, dow) => dow !== 0 && dow !== 6 && !krxHolidays.includes(iso);
+      const isoOf = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const recommendationBaseDate = () => {
+        const kstNow = new Date(Date.now() + 9 * 3600000);              // UTC 필드로 KST 시각을 읽는다
+        const kst = new Date(kstNow.getUTCFullYear(), kstNow.getUTCMonth(), kstNow.getUTCDate());
+        if (kstNow.getUTCHours() < 9 && isTradingIso(isoOf(kst), kst.getDay())) {
+          let guard = 0;
+          do { kst.setDate(kst.getDate() - 1); } while (!isTradingIso(isoOf(kst), kst.getDay()) && guard++ < 30);
+        }
+        return kst;
+      };
       const formatBuySellDate = (offsetDays) => {
-        const d = addBusinessDays(new Date(), offsetDays);
+        const d = addBusinessDays(recommendationBaseDate(), offsetDays);
         const m = String(d.getMonth() + 1).padStart(2, '0');
         const day = String(d.getDate()).padStart(2, '0');
         const wk = ['일','월','화','수','목','금','토'][d.getDay()];
@@ -1137,6 +1151,37 @@
 
                 {!diagnosticLoading && diagnosticHistory && (
                   <>
+                    {/* 2026-11-02: 진단 멈춤·공백 경고. 진단은 두 번 몇 주씩 조용히 멈췄고(5/24~6/21, 8/30~6주)
+                        화면은 그때마다 정상처럼 보였다. 최신 진단 주가 14일 넘게 지났거나 주 사이에 빈 주가 있으면 드러낸다.
+                        (정상: 일요일 22:00 KST에 그 주 월요일 week_start 로 저장 → 최신 week_start 는 최대 13일 전) */}
+                    {diagnosticHistory.length > 0 && (() => {
+                      const DAY = 86400000;
+                      const weeks = diagnosticHistory.map(d => d.week_start).filter(Boolean).sort();
+                      const latest = weeks[weeks.length - 1];
+                      const ageDays = Math.floor((Date.now() - new Date(latest + 'T00:00:00+09:00').getTime()) / DAY);
+                      const missing = [];
+                      for (let i = 1; i < weeks.length; i++) {
+                        const gap = Math.round((new Date(weeks[i]) - new Date(weeks[i - 1])) / DAY);
+                        for (let k = 7; k < gap; k += 7) missing.push(new Date(new Date(weeks[i - 1]).getTime() + k * DAY).toISOString().slice(0, 10));
+                      }
+                      if (ageDays <= 14 && missing.length === 0) return null;
+                      return (
+                        <div className={'rounded-lg p-4 border-2 ' + (ageDays > 14 ? 'bg-red-50 border-red-400' : 'bg-yellow-50 border-yellow-400')}>
+                          {ageDays > 14 && (
+                            <h3 className="text-lg font-bold text-red-800 mb-1">🚨 주간 진단이 멈췄습니다 — 최신 진단 {latest} ({ageDays}일 전)</h3>
+                          )}
+                          {ageDays > 14 && (
+                            <p className="text-sm text-gray-700">GitHub Actions <code>render-operating-state</code> 워크플로 실행 기록을 확인하세요. 진단이 멈추면 정책 자동 적용도 멈춥니다.</p>
+                          )}
+                          {missing.length > 0 && (
+                            <p className="text-sm text-gray-700 mt-1">
+                              ⚠️ 진단 공백 {missing.length}주: {missing.join(', ')} — 이 주들은 백필하지 않았다(백필이 active_policy 자동 적용을 건드릴 수 있어서).
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     {/* 현재 정책 */}
                     {activePolicy && (
                       <div className="bg-white border-2 border-blue-300 rounded-lg p-4">
@@ -1207,7 +1252,7 @@
                           <thead>
                             <tr className="bg-gray-100 text-gray-700">
                               <th className="px-1 py-2 text-left" style={{width:'14%'}}>주</th>
-                              <th className="px-1 py-2 text-center" style={{width:'11%'}}>적용 timing</th>
+                              <th className="px-1 py-2 text-center" style={{width:'11%'}} title="그 주 진단이 권장한 매수→매도 시점 (실제 적용 여부는 아래 정책 변경 이력)">권장 timing</th>
                               <th className="px-1 py-2 text-right" style={{width:'11%'}}>기대 수익</th>
                               <th className="px-1 py-2 text-right" style={{width:'11%'}}>검증 수익</th>
                               <th className="px-1 py-2 text-center" style={{width:'24%'}}>점수 구간별 수익률</th>
@@ -1425,8 +1470,8 @@
                 {lastUpdate && recommendations.length > 0 && (
                   <div className="flex justify-center gap-2 mb-4">
                     {[
+                      // 2026-11-02: '🛡️ 방어' 제거 — 백엔드는 v3.87(2026-05-06)에서 폐지, defense_score 마지막 05-04. 빈 화면만 남아 있었다.
                       { key: 'momentum', label: '🔴 모멘텀', desc: '상승 모멘텀', color: 'bg-red-500' },
-                      { key: 'defense', label: '🛡️ 방어', desc: '하락 방어', color: 'bg-blue-500' },
                       { key: 'all', label: '📊 전체', desc: '모두 표시', color: 'bg-gray-700' }
                     ].map(s => (
                       <button
@@ -4069,7 +4114,6 @@
               <span className="text-xs text-gray-500 font-bold px-2">전략</span>
               {[
                 { key: 'momentum', label: '🔴 모멘텀', color: 'bg-red-500' },
-                { key: 'defense', label: '🛡️ 방어', color: 'bg-blue-500' }
               ].map(s => (
                 <button
                   key={s.key}
@@ -6075,7 +6119,6 @@
               <div className="flex justify-center gap-2 mb-4">
                 {[
                   { key: 'momentum', label: '🔴 모멘텀', desc: '상승 모멘텀' },
-                  { key: 'defense', label: '🛡️ 방어', desc: '하락 방어' },
                 ].map(s => (
                   <button key={s.key} onClick={() => setStrategyFilter(s.key)}
                     className={`px-4 py-2 rounded-lg font-semibold text-sm transition-all ${strategyFilter === s.key

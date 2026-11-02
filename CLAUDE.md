@@ -844,7 +844,10 @@ SUPABASE_ANON_KEY=<Supabase Anon Key>
 
 # 텔레그램
 TELEGRAM_BOT_TOKEN=<텔레그램 봇 토큰>
-TELEGRAM_CHAT_ID=<알림 받을 채팅 ID>
+TELEGRAM_CHAT_ID=<알림 받을 채팅 ID>   # 웹훅은 이 채팅에서 온 명령만 처리 (미설정 시 전부 거부)
+TELEGRAM_WEBHOOK_SECRET=<setWebhook secret_token과 같은 값>   # 2026-11-02~. 설정 시 X-Telegram-Bot-Api-Secret-Token 헤더 검증
+# ⚠️ 웹훅 URL 재등록 시 반드시 secret_token 을 같이 넘길 것 — 안 넘기면 모든 명령이 401로 거부된다.
+#    값 보관: C:\Users\knoww\.secrets\investar-telegram-webhook-secret.txt
 
 # 선택 (Gist 패턴 저장)
 GITHUB_GIST_ID=<GitHub Gist ID>
