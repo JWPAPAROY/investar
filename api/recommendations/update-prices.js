@@ -8,6 +8,7 @@
 const { createClient } = require('@supabase/supabase-js');
 const kisApi = require('../../backend/kisApi');
 const { isTradingDay, getTodayDateKST, tradingDaysSince } = require('../../backend/marketCalendar');
+const { verifyCronRequest } = require('../../backend/cronAuth');
 
 // Supabase 서비스 롤 클라이언트 (RLS 우회 가능)
 const supabaseUrl = process.env.SUPABASE_URL || '';
@@ -30,6 +31,13 @@ module.exports = async (req, res) => {
   // Vercel Cron은 GET으로 호출하므로 GET/POST 모두 허용
   if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // 2026-11-02: Vercel cron 전용. 무인증이면 ?stockCode=&price= 로 임의 가격 기록이 가능했다.
+  const cronAuth = verifyCronRequest(req);
+  if (!cronAuth.ok) {
+    console.warn(`🚫 update-prices 거부: ${cronAuth.reason}`);
+    return res.status(401).json({ error: 'unauthorized' });
   }
 
   // Supabase 비활성화 시

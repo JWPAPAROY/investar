@@ -849,6 +849,12 @@ TELEGRAM_WEBHOOK_SECRET=<setWebhook secret_token과 같은 값>   # 2026-11-02~.
 # ⚠️ 웹훅 URL 재등록 시 반드시 secret_token 을 같이 넘길 것 — 안 넘기면 모든 명령이 401로 거부된다.
 #    값 보관: C:\Users\knoww\.secrets\investar-telegram-webhook-secret.txt
 
+# cron 인증 (2026-11-02~) — 미설정 시 save/alert/track/night-futures/post-market·update-prices 전부 401
+CRON_SECRET=<임의 64hex>   # Vercel cron은 이 변수가 있으면 Authorization: Bearer 를 자동으로 붙인다
+# ⚠️ Cloudflare Worker(investar-cron, knowwhere86 계정)에도 같은 값을 wrangler secret 으로 넣어야 한다.
+#    값 보관: C:Usersknoww.secretsinvestar-cron-secret.txt   검증 코드: backend/cronAuth.js
+#    로컬 스크립트가 핸들러를 직접 부를 땐 req._internal = true (scripts/calc-expectations.js 참고)
+
 # 선택 (Gist 패턴 저장)
 GITHUB_GIST_ID=<GitHub Gist ID>
 GITHUB_TOKEN=<GitHub Personal Token>

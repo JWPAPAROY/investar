@@ -36,6 +36,7 @@ const { detectMarketRegime } = require('../../backend/marketRegime');
 
 
 const crypto = require('crypto');
+const { verifyCronRequest } = require('../../backend/cronAuth');
 const supabase = require('../../backend/supabaseClient');
 const kisApi = require('../../backend/kisApi');
 const overnightPredictor = require('../../backend/overnightPredictor');
@@ -1416,6 +1417,15 @@ module.exports = async (req, res) => {
       // 미인식 명령어 → 도움말 전송
       await sendTelegramMessage(buildHelpMessage());
       return res.status(200).json({ ok: true });
+    }
+  }
+
+  // 2026-11-02: 웹훅이 아닌 호출(cron GET)은 CRON_SECRET 필수 — backend/cronAuth.js 참고
+  if (!req._fromWebhook) {
+    const cronAuth = verifyCronRequest(req);
+    if (!cronAuth.ok) {
+      console.warn(`🚫 cron 호출 거부 (mode=${mode}): ${cronAuth.reason}`);
+      return res.status(401).json({ success: false, error: 'unauthorized' });
     }
   }
 

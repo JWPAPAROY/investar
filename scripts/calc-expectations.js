@@ -24,7 +24,8 @@ const handler = require('../api/cron/save-daily-recommendations.js');
 // 핸들러가 유일한 출처다. 로직을 복사하지 않고 mode만 지정해 호출한다
 // (사본 드리프트로 이미 여러 번 사고가 났다 — backend/top3Ranking.js 헤더 참고).
 const t0 = Date.now();
-const req = { method: 'GET', query: { mode: 'calc-expectations' } };
+// _internal: 프로세스 내 호출 표시 → CRON_SECRET 검사 면제 (backend/cronAuth.js)
+const req = { method: 'GET', query: { mode: 'calc-expectations' }, _internal: true };
 const res = {
   setHeader: () => {},
   status: (code) => ({
