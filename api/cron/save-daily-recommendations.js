@@ -1009,12 +1009,12 @@ function formatSaveAlertMessage(nextTop3, morningResults, date, options = {}, ex
 
   // 매매 룰 (active_policy 기반)
   if (primaryTop3 && primaryTop3.length > 0) {
+    // 2026-11-02: ±3% 브래킷 문구 삭제 — BRACKET_RULE_VERDICT.md (493건, 효과 CI가 0 포함,
+    //   상승장 손해·하락장 이득으로 부호 반전 = 레짐 베팅). "백테 승률 71%"도 재현 안 됨(41~43%).
+    //   메시지는 성과 탭·주간 진단과 같은 종가→종가 기준만 말한다.
     const sellD = activePolicy?.sell_offset_day ?? 3;
     const buyD = activePolicy?.buy_offset_day ?? 0;
-    const isLegacy = buyD === 0 && sellD === 3;
-    const tail = isLegacy ? ' (백테 승률 71%, 손절 21%)' : '';
-    const stopLossD = buyD + 1;
-    msg += `\n💡 <b>매매 룰</b>: D+${buyD} 매수 / D+${stopLossD} −3% 손절·+3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n`;
+    msg += `\n💡 <b>매매 룰</b>: D+${buyD} 종가 매수 → D+${sellD} 종가 매도\n`;
   }
 
   // Phase 1: 주간 진단 한 줄 (있을 때만)
@@ -1114,12 +1114,10 @@ function formatAlertMessage(top3, whaleStocks, date, prevDayResults, sentiment =
     });
 
     // 매매 룰 (active_policy 기반)
+    // 2026-11-02: ±3% 브래킷 문구 삭제 — 위 결산 메시지와 같은 이유 (BRACKET_RULE_VERDICT.md)
     const sellD = activePolicy?.sell_offset_day ?? 3;
     const buyD = activePolicy?.buy_offset_day ?? 0;
-    const isLegacy = buyD === 0 && sellD === 3;
-    const tail = isLegacy ? ' (백테 승률 71%, 손절 21%)' : '';
-    const stopLossD = buyD + 1;
-    message += `💡 <b>매매 룰</b>: D+${buyD} 매수 / D+${stopLossD} −3% 손절·+3% 익절 / 미도달 시 D+${sellD} 종료 매도${tail}\n\n`;
+    message += `💡 <b>매매 룰</b>: D+${buyD} 종가 매수 → D+${sellD} 종가 매도\n\n`;
   }
 
   // ── 과거 추천 성과 ──
