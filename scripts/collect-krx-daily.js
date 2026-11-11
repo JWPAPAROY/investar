@@ -161,4 +161,14 @@ function weekdays(from, to) {
   console.log(`\n\n✅ 완료 — 거래일 ${nDay}일 / 휴장 ${nHol}일 / 총 ${nRow.toLocaleString()}행`);
   console.log(`   ${DAILY}`);
   if (!SKIP_INDEX) console.log(`   ${INDEX}`);
+
+  // 2026-11-11: 기본 파일(krx-daily.jsonl)을 --no-index 로 두 번 갱신하는 바람에 지수가 08-14 에서
+  //   87일간 멈춰 있었다(KOSPI 를 쓰는 분석이 조용히 NaN/누락). 지수가 매매보다 뒤처지면 끝에서 경고한다.
+  //   --out 으로 별도 파일(2010 소급 등)을 만들 때는 지수와 짝이 아니므로 검사하지 않는다.
+  if (path.basename(DAILY) === 'krx-daily.jsonl') {
+    const latest = f => { let m = ''; for (const d of collectedDates(f)) if (d > m) m = d; return m; };
+    const ld = latest(DAILY), li = latest(INDEX);
+    if (li < ld) console.warn(`\n⚠️ 지수(krx-index.jsonl)가 ${li} 에서 멈춰 있다 — 매매는 ${ld} 까지. `
+      + `--no-index 없이 다시 실행할 것: node scripts/collect-krx-daily.js --from=${li}`);
+  }
 })();
