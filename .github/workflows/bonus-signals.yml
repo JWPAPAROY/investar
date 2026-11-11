@@ -49,3 +49,16 @@ jobs:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      # 자사주 취득·소각 공시 요약 (2026-11-11, 정보용 — 두 유형 모두 판정 기각, 매매 지시 없음).
+      #   무상증자 신호와 독립이라 앞 단계가 실패해도 돈다. 없는 날은 보내지 않는다.
+      #   수동 재실행(workflow_dispatch backfill)에서는 같은 요약이 중복 발송되지 않게 건너뛴다.
+      - name: Buyback / cancellation digest (info only)
+        if: (success() || failure()) && github.event.inputs.backfill != 'true'
+        run: node scripts/disclosure-digest.js
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

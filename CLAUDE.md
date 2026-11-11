@@ -716,7 +716,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 | cron 08:50 UTC | `collect-market-flow` | 전 종목 가격·수급·거래대금 (+ KRX 시총·종가) |
 | ↳ workflow_run | `portfolio` | 저PBR 리밸런싱 판단(20거래일 주기, 멱등) + KIS↔KRX 대조 |
 | ↳ workflow_run | `disclosures` | DART 공시 증분 (분류 회귀 테스트를 게이트로) |
-| ↳↳ workflow_run | `bonus-signals` | 무상증자 자격 판정 → **다음 거래일 지시**를 텔레그램으로 |
+| ↳↳ workflow_run | `bonus-signals` | 무상증자 자격 판정 → **다음 거래일 지시**를 텔레그램으로. 이어서 **자사주 취득·소각 공시 요약**(`scripts/disclosure-digest.js`, 2026-11-11~, **정보용 — 두 유형 모두 판정 기각, 매매 지시 없음**. ★=시총 대비 취득 3.56%+) |
 | cron | `calc-expectations` | 기대수익 통계 |
 | cron 토 01:00 UTC | `financials` | 분기 재무비율 → `stock_financials` (2026-10-06 신설 — 그전엔 8/20 수동 수집 후 방치돼 2분기 실적이 179종목뿐이었다) |
 | cron 일 13:00 UTC | `render-operating-state` | **주간진단 계산·저장·텔레그램** → 운영 문서 재생성 → **S3 시총 쏠림 관측**(`scripts/s3-observation.js`, 2026-10-23~, 판정 2028-10-23, `S3_OBSERVATION.md`. 관측 전용 — 매매 신호 아님) |
