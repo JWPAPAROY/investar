@@ -1,0 +1,2506 @@
+[
+ {
+  "ev": "2022-06",
+  "list": "k200_in",
+  "name": "한일시멘트",
+  "code": "300720",
+  "krxName": "한일시멘트",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_in",
+  "name": "하나투어",
+  "code": "039130",
+  "krxName": "하나투어",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_in",
+  "name": "일진하이솔루스",
+  "code": "271940",
+  "krxName": "일진하이솔루스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_in",
+  "name": "케이카",
+  "code": "381970",
+  "krxName": "케이카",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_in",
+  "name": "F&F",
+  "code": "383220",
+  "krxName": "F&F",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_in",
+  "name": "에스디바이오센서",
+  "code": "137310",
+  "krxName": "에스디바이오센서",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_in",
+  "name": "메리츠화재",
+  "code": "000060",
+  "krxName": "메리츠화재",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_out",
+  "name": "SK디스커버리",
+  "code": "006120",
+  "krxName": "SK디스커버리",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_out",
+  "name": "CJ CGV",
+  "code": "079160",
+  "krxName": "CJ CGV",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_out",
+  "name": "넥센타이어",
+  "code": "002350",
+  "krxName": "넥센타이어",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_out",
+  "name": "SNT모티브",
+  "code": "064960",
+  "krxName": "SNT모티브",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_out",
+  "name": "쿠쿠홀딩스",
+  "code": "192400",
+  "krxName": "쿠쿠홀딩스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_out",
+  "name": "부광약품",
+  "code": "003000",
+  "krxName": "부광약품",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k200_out",
+  "name": "영진약품",
+  "code": "003520",
+  "krxName": "영진약품",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "다날",
+  "code": "064260",
+  "krxName": "다날",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "하나마이크론",
+  "code": "067310",
+  "krxName": "하나마이크론",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "유니테스트",
+  "code": "086390",
+  "krxName": "유니테스트",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "비덴트",
+  "code": "121800",
+  "krxName": "비덴트",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "인텔리안테크",
+  "code": "189300",
+  "krxName": "인텔리안테크",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "엔케이맥스",
+  "code": "182400",
+  "krxName": "엔케이맥스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "넥슨게임즈",
+  "code": "225570",
+  "krxName": "넥슨게임즈",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "위지윅스튜디오",
+  "code": "299900",
+  "krxName": "위지윅스튜디오",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "나노신소재",
+  "code": "121600",
+  "krxName": "나노신소재",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "엔켐",
+  "code": "348370",
+  "krxName": "엔켐",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "크리스에프앤씨",
+  "code": "110790",
+  "krxName": "크리스에프앤씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_in",
+  "name": "골프존",
+  "code": "215000",
+  "krxName": "골프존",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "대아티아이",
+  "code": "045390",
+  "krxName": "대아티아이",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "톱텍",
+  "code": "108230",
+  "krxName": "톱텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "오이솔루션",
+  "code": "138080",
+  "krxName": "오이솔루션",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "제이앤티씨",
+  "code": "204270",
+  "krxName": "제이앤티씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "휴온스글로벌",
+  "code": "084110",
+  "krxName": "휴온스글로벌",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "엔지켐생명과학",
+  "code": "183490",
+  "krxName": "엔지켐생명과학",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "셀리드",
+  "code": "299660",
+  "krxName": "셀리드",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "웹젠",
+  "code": "069080",
+  "krxName": "웹젠",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "에코마케팅",
+  "code": "230360",
+  "krxName": "에코마케팅",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "엠투엔",
+  "code": "033310",
+  "krxName": "엠투엔",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "유니슨",
+  "code": "018000",
+  "krxName": "유니슨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-06",
+  "list": "k150_out",
+  "name": "다나와",
+  "code": "119860",
+  "krxName": "다나와",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k200_in",
+  "name": "롯데제과",
+  "code": "280360",
+  "krxName": "롯데제과",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k200_out",
+  "name": "삼양홀딩스",
+  "code": "000070",
+  "krxName": "삼양홀딩스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "카나리아바이오",
+  "code": "016790",
+  "krxName": "카나리아바이오",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "인탑스",
+  "code": "049070",
+  "krxName": "인탑스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "에스티큐브",
+  "code": "052020",
+  "krxName": "에스티큐브",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "ISC",
+  "code": "095340",
+  "krxName": "ISC",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "신라젠",
+  "code": "215600",
+  "krxName": "신라젠",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "이오플로우",
+  "code": "294090",
+  "krxName": "이오플로우",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "더네이쳐홀딩스",
+  "code": "298540",
+  "krxName": "더네이쳐홀딩스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "성일하이텍",
+  "code": "365340",
+  "krxName": "성일하이텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "디어유",
+  "code": "376300",
+  "krxName": "디어유",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "더블유씨피",
+  "code": "393890",
+  "krxName": "더블유씨피",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_in",
+  "name": "HPSP",
+  "code": "403870",
+  "krxName": "HPSP",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "그래디언트",
+  "code": "035080",
+  "krxName": "그래디언트",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "카페24",
+  "code": "042000",
+  "krxName": "카페24",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "인트론바이오",
+  "code": "048530",
+  "krxName": "인트론바이오",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "코나아이",
+  "code": "052400",
+  "krxName": "코나아이",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "CMG제약",
+  "code": "058820",
+  "krxName": "CMG제약",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "이베스트투자증권",
+  "code": "078020",
+  "krxName": "이베스트투자증권",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "서울바이오시스",
+  "code": "092190",
+  "krxName": "서울바이오시스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "알서포트",
+  "code": "131370",
+  "krxName": "알서포트",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "데브시스터즈",
+  "code": "194480",
+  "krxName": "데브시스터즈",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "AP시스템",
+  "code": "265520",
+  "krxName": "AP시스템",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2022-12",
+  "list": "k150_out",
+  "name": "압타바이오",
+  "code": "293780",
+  "krxName": "압타바이오",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k200_in",
+  "name": "금양",
+  "code": "001570",
+  "krxName": "금양",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k200_in",
+  "name": "코스모화학",
+  "code": "005420",
+  "krxName": "코스모화학",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k200_out",
+  "name": "동원산업",
+  "code": "006040",
+  "krxName": "동원산업",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k200_out",
+  "name": "화승엔터프라이즈",
+  "code": "241590",
+  "krxName": "화승엔터프라이즈",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_in",
+  "name": "어반리튬",
+  "code": "073570",
+  "krxName": "어반리튬",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_in",
+  "name": "미래나노텍",
+  "code": "095500",
+  "krxName": "미래나노텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_in",
+  "name": "포스코엠텍",
+  "code": "009520",
+  "krxName": "포스코엠텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_in",
+  "name": "레인보우로보틱스",
+  "code": "277810",
+  "krxName": "레인보우로보틱스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_in",
+  "name": "윤성에프앤씨",
+  "code": "372170",
+  "krxName": "윤성에프앤씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_in",
+  "name": "한국정보통신",
+  "code": "025770",
+  "krxName": "한국정보통신",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_in",
+  "name": "제이시스메디칼",
+  "code": "287410",
+  "krxName": "제이시스메디칼",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_in",
+  "name": "루트로닉",
+  "code": "085370",
+  "krxName": "루트로닉",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_out",
+  "name": "에이스테크",
+  "code": "088800",
+  "krxName": "에이스테크",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_out",
+  "name": "휴온스",
+  "code": "243070",
+  "krxName": "휴온스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_out",
+  "name": "바이넥스",
+  "code": "053030",
+  "krxName": "바이넥스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_out",
+  "name": "유바이오로직스",
+  "code": "206650",
+  "krxName": "유바이오로직스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_out",
+  "name": "한국비엔씨",
+  "code": "256840",
+  "krxName": "한국비엔씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_out",
+  "name": "이엔에프테크놀로지",
+  "code": "102710",
+  "krxName": "이엔에프테크놀로지",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_out",
+  "name": "유진기업",
+  "code": "023410",
+  "krxName": "유진기업",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-06",
+  "list": "k150_out",
+  "name": "크리스에프앤씨",
+  "code": "110790",
+  "krxName": "크리스에프앤씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_in",
+  "name": "세아베스틸지주",
+  "code": "001430",
+  "krxName": "세아베스틸지주",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_in",
+  "name": "TCC스틸",
+  "code": "002710",
+  "krxName": "TCC스틸",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_in",
+  "name": "삼아알미늄",
+  "code": "006110",
+  "krxName": "삼아알미늄",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_in",
+  "name": "HD현대일렉트릭",
+  "code": "267260",
+  "krxName": "HD현대일렉트릭",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_in",
+  "name": "KG모빌리티",
+  "code": "003620",
+  "krxName": "KG모빌리티",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_in",
+  "name": "영원무역홀딩스",
+  "code": "009970",
+  "krxName": "영원무역홀딩스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_in",
+  "name": "덴티움",
+  "code": "145720",
+  "krxName": "덴티움",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_out",
+  "name": "태광산업",
+  "code": "003240",
+  "krxName": "태광산업",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_out",
+  "name": "HDC현대산업개발",
+  "code": "294870",
+  "krxName": "HDC현대산업개발",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_out",
+  "name": "지누스",
+  "code": "013890",
+  "krxName": "지누스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_out",
+  "name": "한섬",
+  "code": "020000",
+  "krxName": "한섬",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_out",
+  "name": "현대홈쇼핑",
+  "code": "057050",
+  "krxName": "현대홈쇼핑",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_out",
+  "name": "쿠쿠홈시스",
+  "code": "284740",
+  "krxName": "쿠쿠홈시스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k200_out",
+  "name": "보령",
+  "code": "003850",
+  "krxName": "보령",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "에스피지",
+  "code": "058610",
+  "krxName": "에스피지",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "강원에너지",
+  "code": "114190",
+  "krxName": "강원에너지",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "하나기술",
+  "code": "299030",
+  "krxName": "하나기술",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "탑머티리얼",
+  "code": "360070",
+  "krxName": "탑머티리얼",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "제이오",
+  "code": "418550",
+  "krxName": "제이오",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "모트렉스",
+  "code": "118990",
+  "krxName": "모트렉스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "큐렉소",
+  "code": "060280",
+  "krxName": "큐렉소",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "아이센스",
+  "code": "099190",
+  "krxName": "아이센스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "보로노이",
+  "code": "310210",
+  "krxName": "보로노이",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "루닛",
+  "code": "328130",
+  "krxName": "루닛",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "원텍",
+  "code": "336570",
+  "krxName": "원텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "프로텍",
+  "code": "053610",
+  "krxName": "프로텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "엠로",
+  "code": "058970",
+  "krxName": "엠로",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "셀바스AI",
+  "code": "108860",
+  "krxName": "셀바스AI",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "제이앤티씨",
+  "code": "204270",
+  "krxName": "제이앤티씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "네오위즈",
+  "code": "095660",
+  "krxName": "네오위즈",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_in",
+  "name": "데브시스터즈",
+  "code": "194480",
+  "krxName": "데브시스터즈",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "삼표시멘트",
+  "code": "038500",
+  "krxName": "삼표시멘트",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "원익머트리얼즈",
+  "code": "104830",
+  "krxName": "원익머트리얼즈",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "선광",
+  "code": "003100",
+  "krxName": "선광",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "코엔텍",
+  "code": "029960",
+  "krxName": "코엔텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "인선이엔티",
+  "code": "060150",
+  "krxName": "인선이엔티",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "티케이케미칼",
+  "code": "104480",
+  "krxName": "티케이케미칼",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "헬릭스미스",
+  "code": "084990",
+  "krxName": "헬릭스미스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "셀트리온헬스케어",
+  "code": "091990",
+  "krxName": "셀트리온헬스케어",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "아미코젠",
+  "code": "092040",
+  "krxName": "아미코젠",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "휴마시스",
+  "code": "205470",
+  "krxName": "휴마시스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "메드팩토",
+  "code": "235980",
+  "krxName": "메드팩토",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "아주IB투자",
+  "code": "027360",
+  "krxName": "아주IB투자",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "상상인",
+  "code": "038540",
+  "krxName": "상상인",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "다날",
+  "code": "064260",
+  "krxName": "다날",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "쿠콘",
+  "code": "294570",
+  "krxName": "쿠콘",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "원익홀딩스",
+  "code": "030530",
+  "krxName": "원익홀딩스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2023-12",
+  "list": "k150_out",
+  "name": "위지윅스튜디오",
+  "code": "299900",
+  "krxName": "위지윅스튜디오",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_in",
+  "name": "이수스페셜티케미컬",
+  "code": "457190",
+  "krxName": "이수스페셜티케미컬",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_in",
+  "name": "세아제강지주",
+  "code": "003030",
+  "krxName": "세아제강지주",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_in",
+  "name": "엘앤에프",
+  "code": "066970",
+  "krxName": "엘앤에프",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_in",
+  "name": "두산로보틱스",
+  "code": "454910",
+  "krxName": "두산로보틱스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_in",
+  "name": "한미반도체",
+  "code": "042700",
+  "krxName": "한미반도체",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_in",
+  "name": "코스모신소재",
+  "code": "005070",
+  "krxName": "코스모신소재",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_out",
+  "name": "쌍용C&E",
+  "code": "003410",
+  "krxName": "쌍용C&E",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_out",
+  "name": "신풍제약",
+  "code": "019170",
+  "krxName": "신풍제약",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_out",
+  "name": "아이에스동서",
+  "code": "010780",
+  "krxName": "아이에스동서",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_out",
+  "name": "아시아나항공",
+  "code": "020560",
+  "krxName": "아시아나항공",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_out",
+  "name": "DB하이텍",
+  "code": "000990",
+  "krxName": "DB하이텍",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k200_out",
+  "name": "롯데에너지머티리얼즈",
+  "code": "020150",
+  "krxName": "롯데에너지머티리얼즈",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "LS머트리얼즈",
+  "code": "417200",
+  "krxName": "LS머트리얼즈",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "제룡전기",
+  "code": "033100",
+  "krxName": "제룡전기",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "실리콘투",
+  "code": "257720",
+  "krxName": "실리콘투",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "브이티",
+  "code": "018290",
+  "krxName": "브이티",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "펩트론",
+  "code": "087010",
+  "krxName": "펩트론",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "칩스앤미디어",
+  "code": "094360",
+  "krxName": "칩스앤미디어",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "기가비스",
+  "code": "420770",
+  "krxName": "기가비스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "가온칩스",
+  "code": "399720",
+  "krxName": "가온칩스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "테크윙",
+  "code": "089030",
+  "krxName": "테크윙",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "제주반도체",
+  "code": "080220",
+  "krxName": "제주반도체",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "시노펙스",
+  "code": "025320",
+  "krxName": "시노펙스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "오픈엣지테크놀로지",
+  "code": "394280",
+  "krxName": "오픈엣지테크놀로지",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_in",
+  "name": "유티아이",
+  "code": "179900",
+  "krxName": "유티아이",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "하이드로리튬",
+  "code": "101670",
+  "krxName": "하이드로리튬",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "코웰패션",
+  "code": "033290",
+  "krxName": "코웰패션",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "모두투어",
+  "code": "080160",
+  "krxName": "모두투어",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "더네이쳐홀딩스",
+  "code": "298540",
+  "krxName": "더네이쳐홀딩스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "제넥신",
+  "code": "095700",
+  "krxName": "제넥신",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "코미팜",
+  "code": "041960",
+  "krxName": "코미팜",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "이오플로우",
+  "code": "294090",
+  "krxName": "이오플로우",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "LB세미콘",
+  "code": "061970",
+  "krxName": "LB세미콘",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "상아프론테크",
+  "code": "089980",
+  "krxName": "상아프론테크",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "새로닉스",
+  "code": "042600",
+  "krxName": "새로닉스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "유니테스트",
+  "code": "086390",
+  "krxName": "유니테스트",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "에치에프알",
+  "code": "230240",
+  "krxName": "에치에프알",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-06",
+  "list": "k150_out",
+  "name": "리튬포어스",
+  "code": "073570",
+  "krxName": "리튬포어스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k200_in",
+  "name": "효성중공업",
+  "code": "298040",
+  "krxName": "효성중공업",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k200_in",
+  "name": "에이피알",
+  "code": "278470",
+  "krxName": "에이피알",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k200_in",
+  "name": "미원상사",
+  "code": "002840",
+  "krxName": "미원상사",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k200_in",
+  "name": "OCI",
+  "code": "456040",
+  "krxName": "OCI",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k200_out",
+  "name": "효성",
+  "code": "004800",
+  "krxName": "효성",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k200_out",
+  "name": "롯데관광개발",
+  "code": "032350",
+  "krxName": "롯데관광개발",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k200_out",
+  "name": "명신산업",
+  "code": "009900",
+  "krxName": "명신산업",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k200_out",
+  "name": "영풍",
+  "code": "000670",
+  "krxName": "영풍",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k200_out",
+  "name": "KG스틸",
+  "code": "016380",
+  "krxName": "KG스틸",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_in",
+  "name": "신성델타테크",
+  "code": "065350",
+  "krxName": "신성델타테크",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_in",
+  "name": "아이패밀리에스씨",
+  "code": "114840",
+  "krxName": "아이패밀리에스씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_in",
+  "name": "코스메카코리아",
+  "code": "241710",
+  "krxName": "코스메카코리아",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_in",
+  "name": "와이씨",
+  "code": "232140",
+  "krxName": "와이씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_in",
+  "name": "덕산테코피아",
+  "code": "317330",
+  "krxName": "덕산테코피아",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_in",
+  "name": "카페24",
+  "code": "042000",
+  "krxName": "카페24",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_in",
+  "name": "선익시스템",
+  "code": "171090",
+  "krxName": "선익시스템",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_in",
+  "name": "네오셈",
+  "code": "253590",
+  "krxName": "네오셈",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_out",
+  "name": "강원에너지",
+  "code": "114190",
+  "krxName": "강원에너지",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_out",
+  "name": "하나기술",
+  "code": "299030",
+  "krxName": "하나기술",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_out",
+  "name": "탑머티리얼",
+  "code": "360070",
+  "krxName": "탑머티리얼",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_out",
+  "name": "바텍",
+  "code": "043150",
+  "krxName": "바텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_out",
+  "name": "신라젠",
+  "code": "215600",
+  "krxName": "신라젠",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_out",
+  "name": "박셀바이오",
+  "code": "323990",
+  "krxName": "박셀바이오",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_out",
+  "name": "한국정보통신",
+  "code": "025770",
+  "krxName": "한국정보통신",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2024-12",
+  "list": "k150_out",
+  "name": "KH바텍",
+  "code": "060720",
+  "krxName": "KH바텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_in",
+  "name": "동원산업",
+  "code": "006040",
+  "krxName": "동원산업",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_in",
+  "name": "DN오토모티브",
+  "code": "007340",
+  "krxName": "DN오토모티브",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_in",
+  "name": "HD현대마린솔루션",
+  "code": "443060",
+  "krxName": "HD현대마린솔루션",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_in",
+  "name": "HDC",
+  "code": "012630",
+  "krxName": "HDC",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_in",
+  "name": "영풍",
+  "code": "000670",
+  "krxName": "영풍",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_in",
+  "name": "미원에스씨",
+  "code": "268280",
+  "krxName": "미원에스씨",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_in",
+  "name": "한국카본",
+  "code": "017960",
+  "krxName": "한국카본",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_in",
+  "name": "지역난방공사",
+  "code": "071320",
+  "krxName": "지역난방공사",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_out",
+  "name": "일진하이솔루스",
+  "code": "271940",
+  "krxName": "일진하이솔루스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_out",
+  "name": "한세실업",
+  "code": "105630",
+  "krxName": "한세실업",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_out",
+  "name": "두산퓨얼셀",
+  "code": "336260",
+  "krxName": "두산퓨얼셀",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_out",
+  "name": "LX인터내셔널",
+  "code": "001120",
+  "krxName": "LX인터내셔널",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_out",
+  "name": "SK네트웍스",
+  "code": "001740",
+  "krxName": "SK네트웍스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_out",
+  "name": "PI첨단소재",
+  "code": "178920",
+  "krxName": "PI첨단소재",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_out",
+  "name": "삼아알미늄",
+  "code": "006110",
+  "krxName": "삼아알미늄",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k200_out",
+  "name": "코스모신소재",
+  "code": "005070",
+  "krxName": "코스모신소재",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_in",
+  "name": "동성화인텍",
+  "code": "033500",
+  "krxName": "동성화인텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_in",
+  "name": "하이젠알앤엠",
+  "code": "160190",
+  "krxName": "하이젠알앤엠",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_in",
+  "name": "성광벤드",
+  "code": "014620",
+  "krxName": "성광벤드",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_in",
+  "name": "한국기업평가",
+  "code": "034950",
+  "krxName": "한국기업평가",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_in",
+  "name": "태성",
+  "code": "323280",
+  "krxName": "태성",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_in",
+  "name": "제우스",
+  "code": "079370",
+  "krxName": "제우스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_in",
+  "name": "쏠리드",
+  "code": "050890",
+  "krxName": "쏠리드",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_in",
+  "name": "필옵틱스",
+  "code": "161580",
+  "krxName": "필옵틱스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_in",
+  "name": "위메이드맥스",
+  "code": "101730",
+  "krxName": "위메이드맥스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_out",
+  "name": "모트렉스",
+  "code": "118990",
+  "krxName": "모트렉스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_out",
+  "name": "다원시스",
+  "code": "068240",
+  "krxName": "다원시스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_out",
+  "name": "제이오",
+  "code": "418550",
+  "krxName": "제이오",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_out",
+  "name": "더블유씨피",
+  "code": "393890",
+  "krxName": "더블유씨피",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_out",
+  "name": "윤성에프앤씨",
+  "code": "372170",
+  "krxName": "윤성에프앤씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_out",
+  "name": "KG이니시스",
+  "code": "035600",
+  "krxName": "KG이니시스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_out",
+  "name": "네패스",
+  "code": "033640",
+  "krxName": "네패스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_out",
+  "name": "티이엠씨",
+  "code": "425040",
+  "krxName": "티이엠씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-06",
+  "list": "k150_out",
+  "name": "지씨셀",
+  "code": "144510",
+  "krxName": "지씨셀",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_in",
+  "name": "산일전기",
+  "code": "062040",
+  "krxName": "산일전기",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_in",
+  "name": "한화엔진",
+  "code": "082740",
+  "krxName": "한화엔진",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_in",
+  "name": "LG씨엔에스",
+  "code": "064400",
+  "krxName": "LG씨엔에스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_in",
+  "name": "이수페타시스",
+  "code": "007660",
+  "krxName": "이수페타시스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_in",
+  "name": "현대오토에버",
+  "code": "307950",
+  "krxName": "현대오토에버",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_in",
+  "name": "파라다이스",
+  "code": "034230",
+  "krxName": "파라다이스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_in",
+  "name": "아세아",
+  "code": "002030",
+  "krxName": "아세아",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_out",
+  "name": "HDC",
+  "code": "012630",
+  "krxName": "HDC",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_out",
+  "name": "한화비전",
+  "code": "489790",
+  "krxName": "한화비전",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_out",
+  "name": "덴티움",
+  "code": "145720",
+  "krxName": "덴티움",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_out",
+  "name": "하나투어",
+  "code": "039130",
+  "krxName": "하나투어",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_out",
+  "name": "KG모빌리티",
+  "code": "003620",
+  "krxName": "KG모빌리티",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_out",
+  "name": "TCC스틸",
+  "code": "002710",
+  "krxName": "TCC스틸",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k200_out",
+  "name": "OCI",
+  "code": "456040",
+  "krxName": "OCI",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "펌텍코리아",
+  "code": "251970",
+  "krxName": "펌텍코리아",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "비에이치아이",
+  "code": "083650",
+  "krxName": "비에이치아이",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "LS마린솔루션",
+  "code": "060370",
+  "krxName": "LS마린솔루션",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "유일로보틱스",
+  "code": "388720",
+  "krxName": "유일로보틱스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "유진로봇",
+  "code": "056080",
+  "krxName": "유진로봇",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "감성코퍼레이션",
+  "code": "036620",
+  "krxName": "감성코퍼레이션",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "올릭스",
+  "code": "226950",
+  "krxName": "올릭스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "디앤디파마텍",
+  "code": "347850",
+  "krxName": "디앤디파마텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "인카금융서비스",
+  "code": "211050",
+  "krxName": "인카금융서비스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "로보티즈",
+  "code": "108490",
+  "krxName": "로보티즈",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "코나아이",
+  "code": "052400",
+  "krxName": "코나아이",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "미코",
+  "code": "059090",
+  "krxName": "미코",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "솔트룩스",
+  "code": "304100",
+  "krxName": "솔트룩스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "아이쓰리시스템",
+  "code": "214430",
+  "krxName": "아이쓰리시스템",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "우리기술",
+  "code": "032820",
+  "krxName": "우리기술",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_in",
+  "name": "클로봇",
+  "code": "466100",
+  "krxName": "클로봇",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "미래나노텍",
+  "code": "095500",
+  "krxName": "미래나노텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "아이패밀리에스씨",
+  "code": "114840",
+  "krxName": "아이패밀리에스씨",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "매일유업",
+  "code": "267980",
+  "krxName": "매일유업",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "아이센스",
+  "code": "099190",
+  "krxName": "아이센스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "HLB테라퓨틱스",
+  "code": "115450",
+  "krxName": "HLB테라퓨틱스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "바이오니아",
+  "code": "064550",
+  "krxName": "바이오니아",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "한국기업평가",
+  "code": "034950",
+  "krxName": "한국기업평가",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "파트론",
+  "code": "091700",
+  "krxName": "파트론",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "덕산테코피아",
+  "code": "317330",
+  "krxName": "덕산테코피아",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "기가비스",
+  "code": "420770",
+  "krxName": "기가비스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "칩스앤미디어",
+  "code": "094360",
+  "krxName": "칩스앤미디어",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "프로텍",
+  "code": "053610",
+  "krxName": "프로텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "아이티엠반도체",
+  "code": "084850",
+  "krxName": "아이티엠반도체",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "오픈엣지테크놀로지",
+  "code": "394280",
+  "krxName": "오픈엣지테크놀로지",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "인탑스",
+  "code": "049070",
+  "krxName": "인탑스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2025-12",
+  "list": "k150_out",
+  "name": "이엠텍",
+  "code": "091120",
+  "krxName": "이엠텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k200_in",
+  "name": "HD건설기계",
+  "code": "267270",
+  "krxName": "HD건설기계",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k200_in",
+  "name": "DB하이텍",
+  "code": "000990",
+  "krxName": "DB하이텍",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k200_in",
+  "name": "달바글로벌",
+  "code": "483650",
+  "krxName": "달바글로벌",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k200_in",
+  "name": "OCI",
+  "code": "456040",
+  "krxName": "OCI",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k200_out",
+  "name": "GS건설",
+  "code": "006360",
+  "krxName": "GS건설",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k200_out",
+  "name": "세방전지",
+  "code": "004490",
+  "krxName": "세방전지",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k200_out",
+  "name": "GKL",
+  "code": "114090",
+  "krxName": "GKL",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k200_out",
+  "name": "녹십자홀딩스",
+  "code": "005250",
+  "krxName": "녹십자홀딩스",
+  "mkt": "KOSPI"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "삼표시멘트",
+  "code": "038500",
+  "krxName": "삼표시멘트",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "에이치브이엠",
+  "code": "295310",
+  "krxName": "에이치브이엠",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "현대무벡스",
+  "code": "319400",
+  "krxName": "현대무벡스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "쎄트렉아이",
+  "code": "099320",
+  "krxName": "쎄트렉아이",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "휴림로봇",
+  "code": "090710",
+  "krxName": "휴림로봇",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "비츠로셀",
+  "code": "082920",
+  "krxName": "비츠로셀",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "삼현",
+  "code": "437730",
+  "krxName": "삼현",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "한라캐스트",
+  "code": "125490",
+  "krxName": "한라캐스트",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "오름테라퓨틱",
+  "code": "475830",
+  "krxName": "오름테라퓨틱",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "미래에셋벤처투자",
+  "code": "100790",
+  "krxName": "미래에셋벤처투자",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "원익홀딩스",
+  "code": "030530",
+  "krxName": "원익홀딩스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "성호전자",
+  "code": "043260",
+  "krxName": "성호전자",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "아이티센글로벌",
+  "code": "124500",
+  "krxName": "아이티센글로벌",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "브이엠",
+  "code": "089970",
+  "krxName": "브이엠",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "로보스타",
+  "code": "090360",
+  "krxName": "로보스타",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_in",
+  "name": "기가비스",
+  "code": "420770",
+  "krxName": "기가비스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "성일하이텍",
+  "code": "365340",
+  "krxName": "성일하이텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "현대힘스",
+  "code": "460930",
+  "krxName": "현대힘스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "에코프로에이치엔",
+  "code": "383310",
+  "krxName": "에코프로에이치엔",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "에코앤드림",
+  "code": "101360",
+  "krxName": "에코앤드림",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "골프존",
+  "code": "215000",
+  "krxName": "골프존",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "콜마비앤에이치",
+  "code": "200130",
+  "krxName": "콜마비앤에이치",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "동국제약",
+  "code": "086450",
+  "krxName": "동국제약",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "메디톡스",
+  "code": "086900",
+  "krxName": "메디톡스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "원텍",
+  "code": "336570",
+  "krxName": "원텍",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "바이넥스",
+  "code": "053030",
+  "krxName": "바이넥스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "미코",
+  "code": "059090",
+  "krxName": "미코",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "제우스",
+  "code": "079370",
+  "krxName": "제우스",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "서울반도체",
+  "code": "046890",
+  "krxName": "서울반도체",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "엠로",
+  "code": "058970",
+  "krxName": "엠로",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "셀바스AI",
+  "code": "108860",
+  "krxName": "셀바스AI",
+  "mkt": "KOSDAQ"
+ },
+ {
+  "ev": "2026-06",
+  "list": "k150_out",
+  "name": "솔트룩스",
+  "code": "304100",
+  "krxName": "솔트룩스",
+  "mkt": "KOSDAQ"
+ }
+]
