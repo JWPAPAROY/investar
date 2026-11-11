@@ -1,0 +1,4 @@
+{
+  "_note": "INDEX_REBAL_LIVE.md 관측 명단. 발표 후 기사 2건 이상으로 확인해 추가한다. 형식은 index-rebal-events.json 과 같다 (ann, eff, k200_in, k200_out, k150_in, k150_out, src).",
+  "events": []
+}

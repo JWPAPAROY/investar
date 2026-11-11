@@ -62,3 +62,12 @@ jobs:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+      # 지수 정기변경 관측 알림 (2026-11-11, INDEX_REBAL_LIVE.md — 관측 중, 채택 전).
+      #   발표 기사 감지(Google 뉴스 RSS) + 등록된 회차의 A1 시가 매수 / R 종가 매도 전날 알림.
+      - name: Index rebalance watch (observation)
+        if: (success() || failure()) && github.event.inputs.backfill != 'true'
+        run: node scripts/index-rebal-live.js
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
