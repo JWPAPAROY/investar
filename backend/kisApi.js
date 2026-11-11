@@ -2,6 +2,38 @@ const axios = require('axios');
 const crypto = require('crypto');
 require('dotenv').config();
 
+/**
+ * v3.98: 거래량 순위 계열(FHPST01710000) 대상 제외 코드 — 7번째 자리 = ETF, 8번째 = ETN 제외.
+ *
+ * 왜: 이 API는 30개만 돌려주는데(페이지네이션 없음) 기존 '0000000000'(제외 없음)이면
+ *   상위 30의 대부분이 ETF/ETN이었고, 그걸 받은 뒤 isNonStockItem으로 버리고 있었다.
+ *   2026-11-11 장중 실측, 30개 중 실제 종목 수 (제외 없음 → ETF+ETN 제외):
+ *     거래량 증가율 1 → 24 / 거래량 5 → 29 / 거래회전율 15 → 29 / 거래대금 11 → 27(+키워드 오탐 3)
+ *   그 결과 한미약품(시총 6.6조, 11거래일 +47%)이 풀에 한 번도 못 들어왔다.
+ *   자리 의미는 한 자리씩 켜서 실측으로 확인한 것이며 나머지 자리는 건드리지 않는다.
+ * 등락률 API(FHPST01700000)는 원래 ETF가 거의 없어(30개 중 0) 적용하지 않았다.
+ */
+const VOLUME_RANK_EXCLUDE = '0000001100';
+/**
+ * ETF 운용사 브랜드 — 이름의 **첫 단어**로만 비교한다 (isNonStockItem 참고).
+ * KRX etf_bydd_trd 2026-11-10 전 종목 1,190개에서 추출 + 리브랜딩 전 옛 이름(KBSTAR·KOSEF·ARIRANG 등).
+ */
+const ETF_BRANDS = new Set([
+  'KODEX', 'TIGER', 'RISE', 'ACE', 'PLUS', 'SOL', 'KIWOOM', 'HANARO', '1Q', 'KoAct', 'TIME',
+  'WON', 'IBK', '마이티', '에셋플러스', 'BNK', 'FOCUS', 'MIDAS', 'HK', '파워', 'UNICORN',
+  'DAISHIN', 'DS', 'TREX', 'TRUSTON', 'KCGI', '더제이', '아이엠에셋',
+  // 옛 브랜드 (리브랜딩 전 이름으로 내려오는 경우 대비)
+  'KBSTAR', 'KOSEF', 'ARIRANG', 'KINDEX', 'TIMEFOLIO', 'SMART', 'HEROES', '마이다스', 'VITA', 'BNKi',
+]);
+
+/** 부분 일치로 걸어도 실제 주식 이름과 충돌하지 않는 키워드 (상장 주권 2,764개로 확인) */
+const NON_STOCK_KEYWORDS = [
+  'ETF', 'ETN', 'ELW',
+  '스팩', 'SPAC', '리츠', 'REIT',
+  '인버스', '레버리지', '선물',
+  '정리매매', '상장폐지',
+];
+
 // Supabase 기반 토큰 캐싱 (Vercel 환경 등에서 토큰 재사용을 위함)
 let supabase = null;
 try {
@@ -497,7 +529,7 @@ class KISApi {
           FID_DIV_CLS_CODE: marketCode,
           FID_BLNG_CLS_CODE: '1',  // 1: 거래증가율 (거래량 등락률)
           FID_TRGT_CLS_CODE: '111111111',
-          FID_TRGT_EXLS_CLS_CODE: '0000000000',  // 10자리
+          FID_TRGT_EXLS_CLS_CODE: VOLUME_RANK_EXCLUDE,  // v3.98: ETF 제외
           FID_INPUT_PRICE_1: '',
           FID_INPUT_PRICE_2: '',
           FID_VOL_CNT: '',
@@ -574,7 +606,7 @@ class KISApi {
           FID_DIV_CLS_CODE: marketCode,
           FID_BLNG_CLS_CODE: '3',  // 3: 거래금액순
           FID_TRGT_CLS_CODE: '111111111',
-          FID_TRGT_EXLS_CLS_CODE: '0000000000',  // 10자리
+          FID_TRGT_EXLS_CLS_CODE: VOLUME_RANK_EXCLUDE,  // v3.98: ETF 제외
           FID_INPUT_PRICE_1: '',
           FID_INPUT_PRICE_2: '',
           FID_VOL_CNT: '',
@@ -642,7 +674,7 @@ class KISApi {
           FID_DIV_CLS_CODE: '0',
           FID_BLNG_CLS_CODE: '2',  // 2: 거래회전율
           FID_TRGT_CLS_CODE: '111111111',
-          FID_TRGT_EXLS_CLS_CODE: '0000000000',
+          FID_TRGT_EXLS_CLS_CODE: VOLUME_RANK_EXCLUDE,  // v3.98: ETF 제외
           FID_INPUT_PRICE_1: '',
           FID_INPUT_PRICE_2: '',
           FID_VOL_CNT: '',
@@ -764,7 +796,7 @@ class KISApi {
           FID_DIV_CLS_CODE: marketCode,
           FID_BLNG_CLS_CODE: '0',
           FID_TRGT_CLS_CODE: '111111111',
-          FID_TRGT_EXLS_CLS_CODE: '0000000000',  // 10자리: 제외 없음
+          FID_TRGT_EXLS_CLS_CODE: VOLUME_RANK_EXCLUDE,  // v3.98: ETF 제외
           FID_INPUT_PRICE_1: '',
           FID_INPUT_PRICE_2: '',
           FID_VOL_CNT: '',
@@ -797,51 +829,36 @@ class KISApi {
   }
 
   /**
-   * ETF/ETN/리츠 등 제외 필터 (개별 종목만)
+   * ETF/ETN/스팩/리츠 제외 필터 (개별 종목만 통과)
+   *
+   * v3.98 (2026-11-11) 재작성. 이전 버전은 'KB', 'NH', 'TR', '파워', 'PLUS', 'US' 같은 짧은
+   * 키워드를 **부분 일치**로 걸어 실제 종목을 대량으로 빼고 있었다 — KRX 상장 주권 기준
+   * KB금융·KBI동양철관·NHN·NH투자증권·LS ELECTRIC("TR")·YG PLUS·디와이파워 등 25개.
+   *
+   * 새 규칙의 근거 (KRX ETF 전 종목 1,190개 + 상장 주권 2,764개로 실측):
+   *   ① ETF 이름은 예외 없이 "브랜드 + 공백"으로 시작한다(브랜드 28종).
+   *      공백이 들어간 주식 이름(17개, 예: "LS ELECTRIC", "YG PLUS") 중 브랜드로 시작하는 것은 0개.
+   *      → 부분 일치가 아니라 **첫 단어 일치**로 판정한다.
+   *   ② ETN·ELW는 이름에 'ETN'/'ELW'가 들어간다.
+   *   ③ 스팩·리츠는 기존처럼 제외(의도된 제외).
+   *   ④ 브랜드 목록에 없는 신규 ETF/ETN 대비 보조 키워드(인버스·레버리지·선물) — 주식 이름 충돌 0.
+   * 거래량 순위 계열 API는 이미 요청 단계에서 ETF/ETN을 뺀다(VOLUME_RANK_EXCLUDE).
+   * 이 함수는 그 밖의 경로(등락률 순위 등)의 안전망이다.
+   * 검증 스크립트: scripts/nonstock-filter-check.js
+   *
    * @param {string} name - 종목명
    * @returns {boolean} - true면 제외 대상
    */
   isNonStockItem(name) {
     if (!name) return true; // 종목명 없으면 제외
+    const n = name.trim();
+    if (!n) return true;
 
-    const excludeKeywords = [
-      // 상장폐지/정리매매 ⚠️ 최우선 필터링
-      '정리매매', '상장폐지', '관리종목', '투자경고', '투자주의', '투자위험',
-      // ETF 브랜드
-      'ETF', 'ETN', 'KODEX', 'TIGER', 'KBSTAR', 'ARIRANG', 'KOSEF',
-      'HANARO', 'TREX', 'KINDEX', 'TIMEFOLIO', 'SOL', 'ACE', 'KIWOOM',
-      'SAMSUNG', 'MIRAE', 'KB', 'SHINHAN', 'NH', 'WOORI',
-      // ELW 발행사 (주식워런트증권)
-      'ELW', 'DAISHIN', 'HANA', 'KOREA', 'EUGENE', 'CAPE', 'HMC', 'MERITZ', 'HANWHA',
-      // 지수 관련 ETF/ETN/ELW
-      'K200', 'KOSPI200', 'KOSDAQ150', 'KRX300',
-      'HK200', 'BK', ' 200', ' 150', ' 300', // 지수 연동 상품 (파워 200 등)
-      // 특수 펀드/파생상품
-      'plus', 'PLUS', 'Plus', 'rise', 'RISE', 'Rise', // rise 계열 ETF 추가
-      'unicorn', 'UNICORN', 'Unicorn',
-      'FOCUS', 'Focus', 'ESG', // FOCUS ESG리더스 등 필터링
-      '국채', '선물', '통안증권', '미국채', '하이일드', '인컴',
-      'POST', 'Post', 'IPO', 'Active', 'ACTIVE', '액티브',
-      '밸류업', '고배당', '커버드콜', 'TR',
-      // 펀드 관련 키워드 (v3.13.1 추가)
-      '클래스', 'Class', '챔피언', '크레딧', 'Credit',
-      '중단기', '단기', '장기', '초단기',
-      '파워', 'Power', // 파워 200 등 펀드 상품
-      // 해외투자 펀드
-      '차이나', 'China', '미국', 'USA', 'US', '인도', 'India',
-      '베트남', 'Vietnam', '브라질', 'Brazil', '일본', 'Japan',
-      // 리츠/스팩
-      '리츠', 'REIT', '스팩', 'SPAC',
-      '1호', '2호', '3호', '4호', '5호', '6호', '7호', '8호', '9호',
-      // 레버리지/인버스
-      '인버스', 'Inverse', '레버리지', 'Leverage',
-      // 해외지수
-      'WTI', 'S&P', 'MSCI', 'Russell', 'Nasdaq', 'NYSE', 'DOW',
-      // 기타
-      '합병', '전환사채', 'CB', 'BW'
-    ];
+    // ① ETF 브랜드 (첫 단어 정확 일치)
+    if (ETF_BRANDS.has(n.split(/\s+/)[0])) return true;
 
-    return excludeKeywords.some(keyword => name.includes(keyword));
+    // ②~④ 충돌 없는 부분 일치 키워드
+    return NON_STOCK_KEYWORDS.some(k => n.includes(k));
   }
 
   /**
