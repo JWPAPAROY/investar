@@ -1457,11 +1457,11 @@
                         시장 전망 스코어 : {_scoreValue}
                       </span>
                     </div>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {prediction.signal === 'strong_bearish'
-                        ? '해외 지수 급락 — 모멘텀 매수 신중, 방어 전략 또는 관망 권장'
-                        : '해외 지수 약세 — 포지션 축소 또는 분할 매수 고려'}
-                    </p>
+                    {prediction.accuracy?.track && (
+                      <p className="text-xs text-gray-600 mt-1">
+                        최근 {prediction.accuracy.track.days}일 채점: 시가 방향 적중 {prediction.accuracy.track.gapRate}% · 장중 방향 적중 {prediction.accuracy.track.intradayRate}%
+                      </p>
+                    )}
                   </div>
                   );
                 })()}
@@ -2178,9 +2178,9 @@
                           </div>
                         )}
 
-                        {prediction.guidance && (
+                        {prediction.accuracy?.track && (
                           <p className={`text-sm ${textClass} opacity-80 text-center`}>
-                            💡 {prediction.guidance}
+                            📐 최근 {prediction.accuracy.track.days}일 채점: 시가 방향 적중 {prediction.accuracy.track.gapRate}% · 장중(시가→종가) 방향 적중 {prediction.accuracy.track.intradayRate}%
                           </p>
                         )}
 

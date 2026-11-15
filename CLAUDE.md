@@ -629,6 +629,7 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 - **save 모드 (16:10 KST)**: `updateActualResult()` 호출 → KOSPI/KOSDAQ 실제 변동률 + hit 판정
 - **hit 기준**: 예측 방향(bullish→up, bearish→down, neutral→flat) 일치 여부
 - `overnight_predictions` 테이블에 기록, 누적 적중률 조회
+- **시가/장중 분리 적중률 (2026-11-15)**: `getAccuracy().track` = 최근 60거래일, 점수 부호 vs ① 시가 갭(전일 종가→시가) ② 장중(시가→종가). 첫 측정 167일: 시가 76% / 장중 45% — **해외 신호는 시가 갭만 맞히고 장중은 못 맞힌다.** 그래서 신호별 고정 안내문(`guidance`, "모멘텀 전략 유효, 분할 매수 구간" 등)과 스크리닝 탭 하락 배너의 고정 문구를 **삭제**하고, 이 숫자를 전망 카드·하락 배너·텔레그램 alert에 표시한다. 고정 문구를 다시 넣지 말 것(사용자 원칙: 데이터로 갱신되지 않는 문구는 쓰지 않는다).
 
 ### 히스토리 차트
 

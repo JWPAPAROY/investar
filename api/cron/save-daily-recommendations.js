@@ -183,7 +183,11 @@ function formatPredictionLine(prediction) {
     msg += `  ${prediction.vixAlert}\n`;
   }
 
-  msg += `  💡 ${prediction.guidance}\n`;
+  const _tr = prediction.accuracy?.track;
+  if (_tr) {
+    msg += `  📐 최근 ${_tr.days}일: 시가 방향 적중 ${_tr.gapRate}% · 장중 방향 적중 ${_tr.intradayRate}%
+`;
+  }
 
   if (prediction.accuracy) {
     msg += `  📊 최근 적중률: ${prediction.accuracy.rate}% (${prediction.accuracy.hits}/${prediction.accuracy.total})\n`;

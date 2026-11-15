@@ -57,11 +57,11 @@ const DEFAULT_REGRESSION = { slope: 0.78, intercept: 0.77, sigma: 3.44 };
 // neutral 구간 축소: -0.8~+0.2 → -0.4~+0.15 (기존 neutral 0% 적중 → 80% 개선)
 // score -0.4~-0.5 구간이 실제 하락(03-31 -4.26%, 03-30 -2.97%)이므로 bearish 분류가 정확
 const SIGNAL_TABLE = [
-  { min: 1.4, signal: 'strong_bullish', emoji: '🔴🔴', label: '강한 상승', guidance: '모멘텀 전략 적극 활용, 갭업 예상 구간' },
-  { min: 0.15, signal: 'mild_bullish', emoji: '🔴', label: '약한 상승', guidance: '모멘텀 전략 유효, 분할 매수 구간' },
-  { min: -0.4, signal: 'neutral', emoji: '⚪', label: '중립', guidance: '방향 불명확, 스코어 부호 방향 참고' },
-  { min: -2.0, signal: 'mild_bearish', emoji: '🔵', label: '약한 하락', guidance: '보수적 접근, 방어 전략 고려' },
-  { min: -Infinity, signal: 'strong_bearish', emoji: '🔵🔵', label: '강한 하락', guidance: '방어 전략 중심, 갭다운 대비' },
+  { min: 1.4, signal: 'strong_bullish', emoji: '🔴🔴', label: '강한 상승' },
+  { min: 0.15, signal: 'mild_bullish', emoji: '🔴', label: '약한 상승' },
+  { min: -0.4, signal: 'neutral', emoji: '⚪', label: '중립' },
+  { min: -2.0, signal: 'mild_bearish', emoji: '🔵', label: '약한 하락' },
+  { min: -Infinity, signal: 'strong_bearish', emoji: '🔵🔵', label: '강한 하락' },
 ];
 
 /**
@@ -423,7 +423,6 @@ function calculatePrediction(data, weights, correlations, factorVol = {}) {
     summary: buildSummaryFromFactors(factors, sig),
     vixAlert: detectVixAlertFromFactors(factors),
     factors,
-    guidance: sig.guidance,
     expectedChange: calcExpectedChange(score), // 기본값, fetchAndPredict에서 동적 보정으로 덮어씀
     reliability, // 팩터 신뢰도 (0-100%)
     validFactors: validCount,
@@ -829,7 +828,42 @@ async function getAccuracy() {
       }
     }
 
+    // 최근 60거래일 — 시가 갭(전일 종가→시가)과 장중(시가→종가)을 나눠 채점한다.
+    // 2026-11-15 실측: 해외 신호는 시가 갭을 맞히고(76%) 장중은 못 맞힌다(45%). 고정 안내문 대신 이 숫자를 보여 준다.
+    // 종가는 kospi_close/previous_kospi 로 계산(kospi_close_change 는 과거 오염 이력이 있어 쓰지 않음).
+    let track = null;
+    try {
+      const { data: rec } = await supabase
+        .from('overnight_predictions')
+        .select('prediction_date, score, kospi_open_change, kospi_close, previous_kospi')
+        .lt('prediction_date', '2027-01-01')
+        .not('kospi_open_change', 'is', null)
+        .not('kospi_close', 'is', null)
+        .order('prediction_date', { ascending: false })
+        .order('id', { ascending: false })
+        .limit(60);
+      const rows = (rec || []).filter(r => r.score != null && +r.score !== 0 && r.previous_kospi > 0);
+      if (rows.length >= 20) {
+        let gapHit = 0, dayHit = 0;
+        for (const r of rows) {
+          const gap = +r.kospi_open_change;
+          const cc = (r.kospi_close / r.previous_kospi - 1) * 100;
+          const intraday = ((1 + cc / 100) / (1 + gap / 100) - 1) * 100;
+          if (Math.sign(+r.score) === Math.sign(gap)) gapHit++;
+          if (Math.sign(+r.score) === Math.sign(intraday)) dayHit++;
+        }
+        track = {
+          days: rows.length,
+          from: rows[rows.length - 1].prediction_date,
+          to: rows[0].prediction_date,
+          gapRate: Math.round(gapHit / rows.length * 100),
+          intradayRate: Math.round(dayHit / rows.length * 100),
+        };
+      }
+    } catch (e) { track = null; }
+
     _accuracyCache = {
+      track,
       total,
       hits,
       rate: +(hits / total * 100).toFixed(1),
@@ -959,7 +993,6 @@ async function fetchAndPredict(bypassCache = false) {
             ? lastPred.ai_interpretation
             : generateRuleBriefing(lastPred.factors || [], sig, +lastPred.score),
           factors: lastPred.factors || [],
-          guidance: sig.guidance,
           weightsSource: lastPred.weights_source || (lastPred.weights ? 'calibrated' : 'default'),
           previousKospi: lastPred.previous_kospi,
           regression,
@@ -1145,7 +1178,6 @@ async function fetchAndPredict(bypassCache = false) {
             vixAlert: detectVixAlertFromFactors(existing.factors),
             aiInterpretation,
             factors: existing.factors || [],
-            guidance: sig.guidance,
             weightsSource: existing.weights_source || (existing.weights ? 'calibrated' : 'default'),
             previousKospi,
             regression: cachedRegression,
