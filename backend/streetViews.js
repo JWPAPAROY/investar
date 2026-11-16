@@ -157,6 +157,11 @@ function validateAi(o, title) {
       const m = title.match(re); if (m) value = m[0];
     }
   }
+  // 퍼센트는 수익률 전망일 때만 수치로 받는다("77% of KOSPI short positions" 같은 통계는 전망이 아니다)
+  if (value && /%$/.test(value)) {
+    const at = title.indexOf(value), near = at < 0 ? '' : title.slice(Math.max(0, at - 20), at + value.length + 25);
+    if (!/\b(?:return|upside|downside|gain|rise|rising|fall|drop|climb|decline)s?\b/i.test(near)) value = null;
+  }
   // 방향 검증: 목표 변경·유지·연준 방향은 제목에 그 동사가 있어야 한다. 없으면 수치가 있을 때만 '제시'로 낮춘다.
   //   (예: "lowers gold forecast on hawkish Fed" 를 연준 인하로, "Kospi can hit 10,000" 을 상향으로 읽은 것)
   const VERB = { up: V_UP, down: V_DOWN, hold: o.target === 'fed' ? F_HOLD : V_HOLD, hike: F_HIKE, cut: F_CUT };
