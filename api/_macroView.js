@@ -9,7 +9,7 @@ const { newsPasses, dedupeNews, sensitivity, rCrit, round } = require('./../back
 let rebalLive = { events: [] };
 try { rebalLive = require('../data/index-rebal-live.json'); } catch { /* 없으면 빈 명단 */ }
 
-const PUBLIC_IDS = ['fed', 'regime', 'sectors', 'sensitivity', 'calendar'];   // krx_weekly·ipo_cache 는 수집기 내부 캐시
+const PUBLIC_IDS = ['fed', 'regime', 'sectors', 'sensitivity', 'calendar', 'flows'];   // krx_weekly·ipo_cache 는 수집기 내부 캐시
 const kstToday = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 
 async function macroView(res) {
@@ -21,7 +21,7 @@ async function macroView(res) {
       supabase.from('policy_news').select('title, link, source, published_at, tag').gte('published_at', since).order('published_at', { ascending: false }).order('link').limit(400),
       supabase.from('policy_events').select('*').order('event_date', { ascending: false }).order('id'),
       // 월가 시각: 최근 60일 사건(기관·대상·방향·수치). 테이블이 없거나 실패해도 나머지 칸은 보여준다.
-      supabase.from('street_views').select('id, first_seen, inst, target, dir, value, prev, pct, horizon, method, title, link, source, n_sources, sources')
+      supabase.from('street_views').select('id, first_seen, first_pub, inst, target, dir, value, prev, pct, horizon, method, title, link, source, n_sources, sources, ref_date, ref_level, implied_pct')
         .gte('first_seen', new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10)).order('first_seen', { ascending: false }).limit(200),
     ]);
     for (const r of [snap, news, events]) if (r.error) throw new Error(r.error.message);
@@ -48,7 +48,7 @@ async function macroView(res) {
     }
     res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=3600');
     return res.status(200).json({ success: true, fed: by.fed || null, regime: by.regime || null, sectors: by.sectors || null,
-      sensitivity: by.sensitivity || null, calendar: by.calendar || null, news: newsOut, events: events.data || [], street: streetRows });
+      sensitivity: by.sensitivity || null, calendar: by.calendar || null, news: newsOut, events: events.data || [], street: streetRows, flows: by.flows || null });
   } catch (e) {
     return res.status(500).json({ success: false, error: e.message });
   }

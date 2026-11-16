@@ -789,24 +789,78 @@
       if (/year-end|end of year/i.test(h)) return '연말';
       return String(h);
     };
-    function StreetViews({ rows }) {
+    // 억원 → "1.2조" / "3,400억"
+    const fmtEok = v => (v == null ? '–' : Math.abs(v) >= 10000 ? `${v > 0 ? '+' : '−'}${(Math.abs(v) / 10000).toFixed(1)}조` : `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toLocaleString()}억`);
+    const FLOW_OF = { kospi: 'kospi', korea: 'kospi', samsung: 'samsung', hynix: 'hynix' };
+    // 외국인 일별 순매수 막대 + 그 대상에 나온 월가 의견 표시(▲ 상향·강세, ▼ 하향·약세)
+    function FlowBars({ series, marks, height = 56 }) {
+      if (!series?.length) return null;
+      const W = 600, H = height, max = Math.max(...series.map(([, v]) => Math.abs(v)), 1), bw = W / series.length;
+      const idx = new Map(series.map(([d], i) => [d, i]));
+      return (
+        <svg viewBox={`0 0 ${W} ${H + 12}`} className="w-full" style={{ height: H + 12 }} preserveAspectRatio="none">
+          <line x1="0" x2={W} y1={H / 2} y2={H / 2} stroke="#e5e7eb" />
+          {series.map(([d, v], i) => <rect key={d} x={i * bw + 0.5} width={Math.max(1, bw - 1)} y={v >= 0 ? H / 2 - (v / max) * (H / 2) : H / 2} height={Math.abs(v / max) * (H / 2)} fill={v >= 0 ? '#ef4444' : '#3b82f6'} opacity="0.75"><title>{`${d} ${fmtEok(v)}`}</title></rect>)}
+          {(marks || []).map((m, k) => {
+            const i = idx.has(m.d) ? idx.get(m.d) : series.findIndex(([d]) => d >= m.d);
+            if (i < 0) return null;
+            const up = m.sign > 0;
+            return <text key={k} x={i * bw + bw / 2} y={H + 11} textAnchor="middle" fontSize="11" fill={up ? '#dc2626' : '#2563eb'}><title>{`${m.d} ${m.label}`}</title>{up ? '▲' : '▼'}</text>;
+          })}
+        </svg>
+      );
+    }
+    function StreetViews({ rows, flows }) {
       const [grp, setGrp] = useState('all');
       const [open, setOpen] = useState(null);
       const shown = rows.filter(r => grp === 'all' || (STREET_GROUP[grp] || []).includes(r.target)).sort((a, b) => b.first_seen.localeCompare(a.first_seen));
-      // 대상별 30일 집계
-      const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+      // 대상별 최근 2주 vs 그 전 2주 — 수준보다 바뀐 것
+      const dAgo = n => new Date(Date.now() + 9 * 3600e3 - n * 864e5).toISOString().slice(0, 10);
+      const w2 = dAgo(14), w4 = dAgo(28);
       const agg = {};
-      for (const r of rows.filter(r => r.first_seen >= since)) { (agg[r.target] = agg[r.target] || {})[r.dir] = (agg[r.target][r.dir] || 0) + 1; }
+      for (const r of rows.filter(r => r.first_seen >= w4)) {
+        const a = (agg[r.target] = agg[r.target] || { now: {}, before: {} });
+        const b = r.first_seen >= w2 ? a.now : a.before; b[r.dir] = (b[r.dir] || 0) + 1;
+      }
+      const txt = o => Object.entries(o).map(([k, n]) => `${STREET_DIR[k]?.[0] || k} ${n}`).join(' · ') || '없음';
       const nArticles = rows.reduce((s, r) => s + (r.n_sources || 1), 0), nAi = rows.filter(r => r.method === 'ai').length;
+      // 의견 뒤 외국인 순매수 (진입 다음 거래일부터 최대 20거래일)
+      const flowAfter = r => {
+        const s = flows?.[FLOW_OF[r.target]]; if (!s?.length) return null;
+        const from = r.ref_date || r.first_seen;
+        const after = s.filter(([d]) => d > from).slice(0, 20);
+        return after.length ? { sum: after.reduce((a, [, v]) => a + v, 0), n: after.length } : null;
+      };
+      const SIGNS = { up: 1, bull: 1, down: -1, bear: -1 };
       return (
         <MacroSection title="🗽 월가 시각 — 해외 기사 제목에서 뽑은 기관별 전망" asOf={`최근 60일 · 사건 ${rows.length}건 (기사 ${nArticles}건)`}>
           <div className="flex flex-wrap gap-1.5 mb-2">
-            {Object.entries(agg).map(([t, d]) => (
+            {Object.entries(agg).map(([t, a]) => (
               <span key={t} className="text-[11px] bg-white border border-gray-200 rounded-full px-2 py-0.5 text-gray-700">
-                <b>{STREET_TARGET[t] || t}</b> {Object.entries(d).map(([k, n]) => `${STREET_DIR[k]?.[0] || k} ${n}`).join(' · ')}
+                <b>{STREET_TARGET[t] || t}</b> 최근 2주 {txt(a.now)} <span className="text-gray-400">/ 그 전 2주 {txt(a.before)}</span>
               </span>
             ))}
           </div>
+          {flows?.kospi?.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-3 mb-2">
+              <div className="text-xs font-semibold text-gray-700">말과 돈 — 외국인 순매수 (최근 60거래일, 억원) · ▲▼ = 그 대상에 나온 월가 의견</div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-1">
+                {[['kospi', 'KOSPI 전체', ['kospi', 'korea']], ['samsung', '삼성전자', ['samsung']], ['hynix', 'SK하이닉스', ['hynix']]].map(([k, label, tg]) => {
+                  const s = (flows[k] || []).slice(-60);
+                  if (!s.length) return null;
+                  const sum = n => s.slice(-n).reduce((a, [, v]) => a + v, 0);
+                  const marks = rows.filter(r => tg.includes(r.target) && SIGNS[r.dir]).map(r => ({ d: r.ref_date && r.ref_date >= s[0][0] ? s.find(([d]) => d > r.ref_date)?.[0] || r.first_seen : r.first_seen, sign: SIGNS[r.dir], label: `${r.inst} ${STREET_DIR[r.dir][0]}` }));
+                  return (
+                    <div key={k}>
+                      <div className="flex justify-between text-[11px] text-gray-600"><b>{label}</b><span>5일 <b className={upDownClass(sum(5))}>{fmtEok(sum(5))}</b> · 20일 <b className={upDownClass(sum(20))}>{fmtEok(sum(20))}</b></span></div>
+                      <FlowBars series={s} marks={marks} />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">KIS 투자자별 매매 · {flows.asOf} 까지 · 빨강 순매수 / 파랑 순매도</div>
+            </div>
+          )}
           <div className="flex gap-1 mb-2 text-xs">
             {[['all', '전체'], ['kr', '한국'], ['us', '미국·연준'], ['asia', '아시아']].map(([k, l]) => (
               <button key={k} onClick={() => setGrp(k)} className={`px-2 py-0.5 rounded border ${grp === k ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-600 border-gray-200'}`}>{l}</button>
@@ -825,6 +879,8 @@
                     <span className={`px-1.5 py-0.5 rounded border text-[11px] font-medium ${dc}`}>{dl}</span>
                     {r.value && <span className="font-semibold tabular-nums text-gray-900">{r.prev ? <span className="text-gray-400 font-normal">{r.prev} → </span> : null}{r.value}</span>}
                     {hz && <span className="text-gray-500">({hz})</span>}
+                    {r.implied_pct != null && <span className="text-gray-500 tabular-nums" title={`${r.ref_date} 종가 ${Math.round(r.ref_level).toLocaleString()} 대비`}>발표 직전 대비 <b className={upDownClass(r.implied_pct)}>{r.implied_pct > 0 ? '+' : ''}{r.implied_pct.toFixed(0)}%</b></span>}
+                    {SIGNS[r.dir] && flowAfter(r) && <span className="text-gray-500 tabular-nums">· 이후 외국인 {flowAfter(r).n}일 <b className={upDownClass(flowAfter(r).sum)}>{fmtEok(flowAfter(r).sum)}</b></span>}
                     {r.method === 'ai' && <span className="text-[10px] text-violet-700 bg-violet-50 border border-violet-100 rounded px-1" title="규칙으로 못 정해 AI가 칸을 채우고, 기관·대상 사전과 제목 원문의 동사·숫자로 검증을 통과한 것">AI 보조</span>}
                   </div>
                   <div className="mt-0.5 pl-0 md:pl-[3.25rem] text-gray-600">
@@ -1003,7 +1059,7 @@
                     <div className="font-semibold text-gray-700 mb-1">시장 반영 경로 — 연방기금 선물 ({fu.asOf} 가격, 실효금리 {fu.effr.toFixed(2)}% 기준)</div>
                     <div className="overflow-x-auto">
                       <table className="w-full tabular-nums">
-                        <thead><tr className="text-gray-500 border-b"><th className="text-left py-1 font-normal">회의 (KST)</th><th className="text-right font-normal">이 회의 반영</th><th className="text-right font-normal">회의 후 금리</th><th className="text-right font-normal">지금 대비</th></tr></thead>
+                        <thead><tr className="text-gray-500 border-b"><th className="text-left py-1 font-normal">회의 (KST)</th><th className="text-right font-normal">이 회의 반영</th><th className="text-right font-normal">회의 후 금리</th><th className="text-right font-normal">지금 대비</th>{fu.prev?.w1 && <th className="text-right font-normal">1주 전 반영 ({fu.prev.w1.asOf.slice(5)})</th>}{fu.prev?.m1 && <th className="text-right font-normal">4주 전 ({fu.prev.m1.asOf.slice(5)})</th>}</tr></thead>
                         <tbody>
                           {fu.path.map(p => (
                             <tr key={p.date} className="border-b border-gray-50">
@@ -1011,6 +1067,11 @@
                               <td className={`text-right font-semibold ${upDownClass(p.changeBp)}`}>{p.changeBp > 0 ? '+' : ''}{p.changeBp}bp{Math.abs(p.changeBp) >= 3 ? <span className="hidden md:inline font-normal text-gray-500"> ({p.changeBp > 0 ? '인상' : '인하'} 25bp × {(Math.abs(p.changeBp) / 25).toFixed(1)})</span> : null}</td>
                               <td className="text-right">{p.after.toFixed(2)}%</td>
                               <td className={`text-right ${upDownClass(p.cumBp)}`}>{p.cumBp > 0 ? '+' : ''}{p.cumBp}bp</td>
+                              {['w1', 'm1'].filter(k => fu.prev?.[k]).map(k => {
+                                const old = fu.prev[k].path.find(x => x.date === p.date);
+                                const diff = old ? Math.round((p.after - old.after) * 100) : null;
+                                return <td key={k} className="text-right text-gray-500">{old ? <>{old.after.toFixed(2)}% <span className={upDownClass(diff)}>({diff > 0 ? '+' : ''}{diff}bp)</span></> : '–'}</td>;
+                              })}
                             </tr>
                           ))}
                         </tbody>
@@ -1023,7 +1084,7 @@
             </MacroSection>
           )}
 
-          {data.street?.length > 0 && <StreetViews rows={data.street} />}
+          {data.street?.length > 0 && <StreetViews rows={data.street} flows={data.flows} />}
 
           {regime && (
             <MacroSection title="🔁 국면 — 금리가 오를 때 주가는?" asOf={`주간 · ${regime.asOf} 기준`}>

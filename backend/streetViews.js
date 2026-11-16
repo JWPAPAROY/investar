@@ -250,8 +250,46 @@ function cluster(articles, existing = []) {
     const score = s => rank(s.source) + (r.value && !squash(s.title).includes(squash(r.value)) ? 100 : 0);
     const best = [...r.sources].sort((x, y) => score(x) - score(y))[0];
     if (best) { r.title = best.title; r.link = best.link; r.source = best.source; }
+    r.first_pub = r.sources.map(s => s.published_at).sort()[0] || null;
   }
   return rows.filter(r => touched.has(r.id)).map(r => ({ ...r, n_sources: r.sources.length, sources: r.sources.slice(-15), updated_at: new Date().toISOString() }));
 }
 
-module.exports = { extractRule, aiExtract, validateAi, cluster, cleanTitle, KR_OUTLET, JUNK_OUTLET, TARGET_LABEL, INST_NAMES, TARGET_KEYS };
+// ── 수준·채점 공용 ────────────────────────────────────────────────────────────
+// 대상별 가격 계열(Yahoo)과 채점 기준 계열. STREET_VERDICT.md 와 같은 표 — 바꾸면 사전 등록 위반.
+//   KOSPI 는 대만 가중지수 대비(정책 사건과 같은 기준), 한국 대형주는 KOSPI 대비, 미국 지수는 미국 외 전세계(ACWX) 대비,
+//   아시아는 전세계(ACWI) 대비, 메모리는 S&P 500 대비 SOX. 연준·원화는 수익률 채점 대상이 아니다.
+const PRICE = {
+  kospi: { sym: '^KS11', bench: '^TWII', close: 'KR' }, korea: { sym: '^KS11', bench: '^TWII', close: 'KR' },
+  samsung: { sym: '005930.KS', bench: '^KS11', close: 'KR' }, hynix: { sym: '000660.KS', bench: '^KS11', close: 'KR' },
+  spx: { sym: '^GSPC', bench: 'ACWX', close: 'US' }, ndx: { sym: '^IXIC', bench: 'ACWX', close: 'US' },
+  asia: { sym: 'AAXJ', bench: 'ACWI', close: 'US' }, memory: { sym: '^SOX', bench: '^GSPC', close: 'US' },
+};
+// 장 마감 시각(UTC 시:분). KR 15:30 KST = 06:30 UTC, US 16:00 ET ≈ 21:00 UTC(서머타임 20:00 — 보수적으로 21:00).
+const CLOSE_UTC = { KR: [6, 30], US: [21, 0] };
+
+/** 제목 표기 수치 → 숫자. "9,000" 9000 · "7,500–8,000" 7750 · "₩4.7 Million" 4700000 · "$294" 294 · "19%" null(수준 아님) */
+function targetNum(v) {
+  if (!v || /%/.test(v)) return null;
+  const s = String(v).replace(/[₩$,\s]/g, '').toLowerCase();
+  const mult = /trillion/.test(s) ? 1e12 : /million/.test(s) ? 1e6 : 1;
+  const nums = s.replace(/trillion|million|won/g, '').split(/[–-]/).map(Number).filter(x => isFinite(x) && x > 0);
+  if (!nums.length) return null;
+  return (nums.reduce((a, b) => a + b, 0) / nums.length) * mult;
+}
+
+/**
+ * 기사 시각 이후 첫 마감 종가의 인덱스(진입) / 그 직전 종가 인덱스(기준).
+ * series = [[YYYY-MM-DD(현지 거래일), close], ...] 정렬. pubIso = 첫 기사 시각.
+ */
+function entryIndex(series, pubIso, market) {
+  const [h, m] = CLOSE_UTC[market];
+  const t = Date.parse(pubIso);
+  for (let i = 0; i < series.length; i++) {
+    const closeAt = Date.parse(series[i][0] + 'T00:00:00Z') + (h * 60 + m) * 60e3;
+    if (closeAt > t) return i;   // 기사 뒤 첫 마감
+  }
+  return -1;
+}
+
+module.exports = { PRICE, targetNum, entryIndex, extractRule, aiExtract, validateAi, cluster, cleanTitle, KR_OUTLET, JUNK_OUTLET, TARGET_LABEL, INST_NAMES, TARGET_KEYS };

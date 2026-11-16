@@ -696,7 +696,10 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
   - 제외: 한국 매체 영문판(`KR_OUTLET`), 자동 생성·SEO 매체(`JUNK_OUTLET`), "Goldman Sachs stock…"처럼 은행 자체 주가 기사.
   - 묶기: 같은 기관·대상에서 상향/하향·연준 방향은 같은 방향끼리, 유지·제시·강세·약세는 서로 같은 보고서로 보고 10일 안이면 한 행. 대표 기사는 수치가 제목에 있는 것 → 매체 순위(Bloomberg·Reuters·CNBC…).
   - **본문은 받지 않는다**: Bloomberg·WSJ·FT는 유료벽, MarketWatch는 robots 전면 차단. Google 뉴스 링크를 원문 주소로 푸는 비공개 엔드포인트 호출은 쓰지 않는다(링크는 브라우저에서 원문으로 넘어간다).
-  - 목적은 쌓아서 나중에 채점하는 것(하향 뒤 실제 어땠나). 2026-11-16 이전 기록은 없다(무료 과거 데이터 없음).
+  - 목적은 쌓아서 나중에 채점하는 것. **채점 기준은 `STREET_VERDICT.md`에 사전 등록**(정본 `scripts/street-verdict.js` 상수 + `streetViews.PRICE`). 판정은 2027-05-17 이후·묶음 30개 이상에서 1회, 그 전엔 `--status`만. `--power`/`--placebo`는 실제 결과를 쓰지 않는 기준 시험(무작위 날짜·효과 주입). 2026-11-16 이전 기록은 없다.
+  - 행마다 `ref_date/ref_level`(첫 기사 직전 마감 종가)과 `implied_pct`(목표치 상승여력), `first_pub`(진입 시점 결정용)을 채운다.
+  - 화면: 대상별 최근 2주 vs 그 전 2주, "말과 돈"(외국인 순매수 KOSPI·삼성·하이닉스 60거래일 막대 + 의견 표시, `macro_snapshot` `flows`, SQL 함수 `frgn_market_daily(from, to)` — anon 3초 제한 때문에 30일씩 호출), 의견 뒤 외국인 순매수 합계.
+- 연방기금 선물 `fed.futures.prev.w1/m1` = 같은 계약의 1주·4주 전 종가로 다시 푼 경로(수준보다 변화).
 - 새 정책 사건 추가: `policy_events`에 행 추가. yahoo 대상(`target_kind='yahoo'`, `target_sym`, 선택 `bench_sym`)은 매번, KRX 업종 대상(`target_kind='krx'`, `target_sym`=KRX 지수 이름, `bench_sym`='코스피')은 d20이 빌 때까지 다음 수집 때 결과가 채워진다.
 - 2027년 KRX 휴장일이 `backend/marketCalendar.js`에 아직 없다 — 2027년 초 보호예수 해제일·만기일 계산이 휴장일을 모른다. 휴장일 공지 후 추가할 것.
 

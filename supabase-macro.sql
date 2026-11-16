@@ -102,3 +102,34 @@ ALTER TABLE street_views ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "street_read" ON street_views; DROP POLICY IF EXISTS "street_write" ON street_views;
 CREATE POLICY "street_read"  ON street_views FOR SELECT USING (true);
 CREATE POLICY "street_write" ON street_views FOR ALL USING (true) WITH CHECK (true);
+
+-- ── 월가 시각 보강 (2026-11-16 저녁) ─────────────────────────────────────────
+-- 발표 직전 종가 대비 목표치의 상승여력, 채점용 첫 기사 시각(진입 시점 결정)
+ALTER TABLE street_views ADD COLUMN IF NOT EXISTS first_pub   timestamptz;   -- 묶음 안 가장 이른 기사 시각
+ALTER TABLE street_views ADD COLUMN IF NOT EXISTS ref_date    date;          -- 기준 종가 날짜(첫 기사 직전 마감)
+ALTER TABLE street_views ADD COLUMN IF NOT EXISTS ref_level   numeric;       -- 그 종가
+ALTER TABLE street_views ADD COLUMN IF NOT EXISTS target_num  numeric;       -- 목표치 숫자(범위면 중간값)
+ALTER TABLE street_views ADD COLUMN IF NOT EXISTS implied_pct numeric;       -- 목표치 / 기준 종가 − 1 (%)
+
+-- 시장별 외국인 순매수 일별 합계(백만원). market_flow_daily 전 종목 수집은 2026-05-22 부터.
+CREATE OR REPLACE FUNCTION frgn_market_daily(p_from date)
+RETURNS TABLE (trade_date date, market text, frgn bigint, n int)
+LANGUAGE sql STABLE AS $$
+  SELECT f.trade_date, m.market::text, SUM(f.frgn_net_value)::bigint, COUNT(*)::int
+  FROM market_flow_daily f JOIN stock_master m USING (stock_code)
+  WHERE f.trade_date >= p_from AND f.frgn_net_value IS NOT NULL AND m.market IN ('KOSPI', 'KOSDAQ')
+  GROUP BY 1, 2 ORDER BY 1, 2
+$$;
+GRANT EXECUTE ON FUNCTION frgn_market_daily(date) TO anon, authenticated;
+
+-- 기간 끝을 받는 판(anon 쿼리 제한 3초 안에 들도록 수집기가 한 달씩 나눠 부른다)
+DROP FUNCTION IF EXISTS frgn_market_daily(date);
+CREATE OR REPLACE FUNCTION frgn_market_daily(p_from date, p_to date)
+RETURNS TABLE (trade_date date, market text, frgn bigint, n int)
+LANGUAGE sql STABLE AS $$
+  SELECT f.trade_date, m.market::text, SUM(f.frgn_net_value)::bigint, COUNT(*)::int
+  FROM market_flow_daily f JOIN stock_master m USING (stock_code)
+  WHERE f.trade_date >= p_from AND f.trade_date < p_to AND f.frgn_net_value IS NOT NULL AND m.market IN ('KOSPI', 'KOSDAQ')
+  GROUP BY 1, 2 ORDER BY 1, 2
+$$;
+GRANT EXECUTE ON FUNCTION frgn_market_daily(date, date) TO anon, authenticated;

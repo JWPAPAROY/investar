@@ -172,37 +172,57 @@ async function fredReleaseDates(rid) {
 // CBOT 30일 연방기금 선물(ZQ, Yahoo) 가격 = 100 − 그 달 평균 실효금리 예상. 시장이 돈을 걸고 매긴 금리 경로다.
 // 회의별 반영 변화는 CME FedWatch 와 같은 방식: 회의가 있는 달 평균 = (회의 전 일수×이전 금리 + 회의 후 일수×새 금리)/월 일수.
 //   회의가 월말에 가까워(회의 후 7일 미만) 그 달 계약으로 풀기 불안하면 다음 달 계약을 회의 후 금리로 쓴다.
+//   1주·4주 전 경로도 같은 계약의 과거 종가로 다시 풀어, 수준보다 '바뀐 것'을 보여준다.
 async function fedFutures(effr, meetings) {
   const MC = 'FGHJKMNQUVXZ';
   const today = kstToday();
   let y = +today.slice(0, 4), m = +today.slice(5, 7);
-  const months = [];
+  const contracts = [];   // { ym, closes: [[d, rate]] }
   for (let k = 0; k < 10; k++) {
     const sym = `ZQ${MC[m - 1]}${String(y % 100).padStart(2, '0')}.CBT`;
     try {
-      const j = JSON.parse(await get(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=5d&interval=1d`, { headers: UA }, 2)).chart.result[0];
-      const p = j.meta.regularMarketPrice;
-      if (p > 50) months.push({ ym: `${y}-${String(m).padStart(2, '0')}`, rate: Math.round((100 - p) * 1000) / 1000, asOf: new Date(j.meta.regularMarketTime * 1000).toISOString().slice(0, 10) });
+      const j = JSON.parse(await get(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=3mo&interval=1d`, { headers: UA }, 2)).chart.result[0];
+      const off = j.meta.gmtoffset || 0, c = j.indicators.quote[0].close;
+      const closes = j.timestamp.map((ts, i) => [new Date((ts + off) * 1000).toISOString().slice(0, 10), c[i]]).filter(([, v]) => v > 50).map(([d, v]) => [d, Math.round((100 - v) * 1000) / 1000]);
+      const p = j.meta.regularMarketPrice, pd = new Date(j.meta.regularMarketTime * 1000).toISOString().slice(0, 10);
+      if (p > 50 && (!closes.length || closes.at(-1)[0] < pd)) closes.push([pd, Math.round((100 - p) * 1000) / 1000]);
+      if (closes.length) contracts.push({ ym: `${y}-${String(m).padStart(2, '0')}`, closes });
     } catch { /* 거래 없는 원월물은 빠진다 */ }
     await sleep(250);
     if (++m > 12) { m = 1; y++; }
   }
-  if (!months.length || effr == null) return null;
-  const M = new Map(months.map(x => [x.ym, x.rate]));
+  if (!contracts.length || effr == null) return null;
   const nextYm = ym => { let [a, b] = ym.split('-').map(Number); if (++b > 12) { b = 1; a++; } return `${a}-${String(b).padStart(2, '0')}`; };
-  const path = []; let pre = effr;
-  for (const mt of meetings) {
-    const ym = mt.date.slice(0, 7), avg = M.get(ym);
-    if (avg == null) break;
-    const [yy, mm] = ym.split('-').map(Number), N = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
-    const d1 = +mt.date.slice(8, 10);   // 결정 다음 날부터 새 금리 → 결정일까지 d1 일은 이전 금리
-    let post;
-    if (N - d1 >= 7) post = (avg * N - pre * d1) / (N - d1);
-    else { const nx = M.get(nextYm(ym)); if (nx == null) break; post = nx; }
-    path.push({ date: mt.date, kst: mt.kst, sep: mt.sep, after: r2(post), changeBp: Math.round((post - pre) * 100), cumBp: Math.round((post - effr) * 100) });
-    pre = post;
-  }
-  return { effr, asOf: months[0].asOf, months, path };
+  const prevYm = ym => { let [a, b] = ym.split('-').map(Number); if (--b < 1) { b = 12; a--; } return `${a}-${String(b).padStart(2, '0')}`; };
+  // asOf 날짜(이하 마지막 종가) 기준 경로. start = 출발 금리(오늘은 실효금리, 과거는 첫 회의 전 달 계약)
+  const solve = (asOf, start) => {
+    const M = new Map(contracts.map(c => [c.ym, (c.closes.filter(([d]) => d <= asOf).at(-1) || [])[1]]).filter(([, v]) => v != null));
+    let pre = start ?? M.get(prevYm(meetings[0]?.date.slice(0, 7) || '')) ?? effr;
+    const s0 = pre, path = [];
+    for (const mt of meetings) {
+      const ym = mt.date.slice(0, 7), avg = M.get(ym);
+      if (avg == null) break;
+      const [yy, mm] = ym.split('-').map(Number), N = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+      const d1 = +mt.date.slice(8, 10);   // 결정 다음 날부터 새 금리 → 결정일까지 d1 일은 이전 금리
+      let post;
+      if (N - d1 >= 7) post = (avg * N - pre * d1) / (N - d1);
+      else { const nx = M.get(nextYm(ym)); if (nx == null) break; post = nx; }
+      path.push({ date: mt.date, kst: mt.kst, sep: mt.sep, after: r2(post), changeBp: Math.round((post - pre) * 100), cumBp: Math.round((post - s0) * 100) });
+      pre = post;
+    }
+    return path;
+  };
+  const asOf = contracts.map(c => c.closes.at(-1)[0]).sort().at(-1);
+  const back = n => {
+    const d = addDays(asOf, -n);
+    const p = solve(d, null);
+    return p.length ? { asOf: contracts[0].closes.filter(([x]) => x <= d).at(-1)?.[0] || d, path: p.map(x => ({ date: x.date, after: x.after })) } : null;
+  };
+  return {
+    effr, asOf, path: solve(asOf, effr),
+    months: contracts.map(c => ({ ym: c.ym, rate: c.closes.at(-1)[1] })),
+    prev: { w1: back(7), m1: back(28) },
+  };
 }
 
 async function buildFed() {
@@ -592,7 +612,42 @@ async function buildStreet(sb, cache, ctx) {
     existing = data || [];
   }
   const rows = street.cluster(articles, existing);
+  // 기준 종가(첫 기사 직전 마감)와 목표치 상승여력. 예전 행도 비어 있으면 채운다.
+  const need = [...rows, ...existing.filter(e => e.ref_level == null && !rows.some(r => r.id === e.id))];
+  for (const r of need) {
+    const P = street.PRICE[r.target]; if (!P) continue;
+    r.first_pub = r.first_pub || (r.sources || []).map(s => s.published_at).sort()[0] || `${r.first_seen}T00:00:00Z`;
+    let s; try { s = await yahoo(P.sym, 2025); } catch { continue; }
+    const i = street.entryIndex(s, r.first_pub, P.close);
+    const j = i < 0 ? s.length - 1 : i - 1;
+    if (j < 0) continue;
+    r.ref_date = s[j][0]; r.ref_level = s[j][1];
+    r.target_num = street.targetNum(r.value);
+    r.implied_pct = r.target_num && r.ref_level ? Math.round((r.target_num / r.ref_level - 1) * 1000) / 10 : null;
+    if (!rows.includes(r)) rows.push(r);
+  }
   return { rows, titles: titles.size, articles: articles.length, ai };
+}
+
+// ── ⑥-3 외국인 순매수 (말과 돈) ──────────────────────────────────────────────
+// market_flow_daily(KIS 투자자별) 합계. 전 종목 수집은 2026-05-22 부터. 단위 억원.
+async function buildFlows(sb) {
+  const from = addDays(kstToday(), -200);
+  const data = [];
+  for (let a = from; a <= kstToday(); a = addDays(a, 30)) {   // anon 쿼리 제한(3초) 때문에 30일씩
+    const { data: d, error } = await sb.rpc('frgn_market_daily', { p_from: a, p_to: addDays(a, 30) });
+    if (error) throw new Error(`${a}: ${error.message}`);
+    data.push(...(d || []));
+  }
+  const ser = mk => (data || []).filter(r => r.market === mk && r.n >= (mk === 'KOSPI' ? 700 : 1400)).map(r => [r.trade_date, Math.round(r.frgn / 100)]);
+  const one = async code => {
+    const { data: d, error: e } = await sb.from('market_flow_daily').select('trade_date, frgn_net_value').eq('stock_code', code).gte('trade_date', from).order('trade_date');
+    if (e) throw new Error(e.message);
+    return (d || []).filter(r => r.frgn_net_value != null).map(r => [r.trade_date, Math.round(r.frgn_net_value / 100)]);
+  };
+  const out = { kospi: ser('KOSPI'), kosdaq: ser('KOSDAQ'), samsung: await one('005930'), hynix: await one('000660') };
+  out.asOf = out.kospi.at(-1)?.[0] || null;
+  return out;
 }
 
 // ── ⑦ 정책 사건 결과 ───────────────────────────────────────────────────────
@@ -642,10 +697,13 @@ if (require.main === module) (async () => {
   const calendar = want('calendar') ? await step('일정', () => buildCalendar(ctx, sb, cache.ipo_cache)) : null;
   const news = want('news') ? await step('정책 뉴스', buildNews) : null;
   const streetOut = want('street') ? await step('월가 시각', () => buildStreet(sb, cache.street_cache, ctx)) : null;
+  const flows = want('street') ? await step('외국인 순매수', () => buildFlows(sb)) : null;
 
   if (DRY) {
     const outArg = process.argv.find(a => a.startsWith('--out='));
-    if (outArg) require('fs').writeFileSync(outArg.slice(6), JSON.stringify({ success: true, fed, regime, sectors, sensitivity: sens, calendar, news: (news || []).sort((a, b) => b.published_at.localeCompare(a.published_at)), events: [], street: streetOut ? streetOut.rows : [] }));
+    if (outArg) require('fs').writeFileSync(outArg.slice(6), JSON.stringify({ success: true, fed, regime, sectors, sensitivity: sens, calendar, news: (news || []).sort((a, b) => b.published_at.localeCompare(a.published_at)), events: [], street: streetOut ? streetOut.rows : [], flows }));
+    if (flows) console.log('수급:', flows.asOf, 'KOSPI', flows.kospi.length, '일, 마지막', JSON.stringify(flows.kospi.slice(-3)), '삼성', JSON.stringify(flows.samsung.slice(-2)));
+    if (fed?.futures) console.log('선물 1주 전:', JSON.stringify(fed.futures.prev));
     if (fed) console.log('연준:', JSON.stringify({ rate: fed.rate.upper, dot: fed.dotThisYear, sep: fed.sepDate, link: fed.dotLink, ladder: fed.market.ladder, core: fed.drivers.corePce.last, coreProj: fed.drivers.corePce.projThisYear, cpi: fed.drivers.cpi.last, cpiMiss: fed.drivers.cpi.yoyMissing, cpiAnn3: fed.drivers.cpi.ann3, fomc: fed.fomc.next, left: fed.fomc.remainingThisYear }));
     if (regime) console.log('국면:', JSON.stringify(regime.now), 'rCrit', regime.rCrit, '급등구간', regime.spikes.length);
     if (sectors) console.log('업종:', sectors.kr && `KR ${sectors.kr.date} ${sectors.kr.rows.length}개 빠짐[${sectors.kr.missing}]`, sectors.kr && JSON.stringify(sectors.kr.rows.filter(r => r.kind === 'basket')));
@@ -659,7 +717,7 @@ if (require.main === module) (async () => {
   }
 
   const now = new Date().toISOString();
-  const snaps = [['fed', fed], ['regime', regime], ['sectors', sectors], ['sensitivity', sens], ['calendar', calendar], ['krx_weekly', ctx.krxWeekly], ['ipo_cache', ctx.ipoCache], ['street_cache', ctx.streetCache]]
+  const snaps = [['fed', fed], ['regime', regime], ['sectors', sectors], ['sensitivity', sens], ['calendar', calendar], ['krx_weekly', ctx.krxWeekly], ['ipo_cache', ctx.ipoCache], ['street_cache', ctx.streetCache], ['flows', flows]]
     .filter(([, v]) => v).map(([id, data]) => ({ id, data, updated_at: now }));
   if (snaps.length) { const { error } = await sb.from('macro_snapshot').upsert(snaps); if (error) errors.push('snapshot 저장: ' + error.message); }
   if (news && news.length) {
