@@ -1,12 +1,13 @@
-# 시장 흐름 탭 수집 (2026-11-15) — 연준·국면·업종 흐름·정책 뉴스·정책 사건 결과
+# 시장 흐름 탭 수집 (2026-11-15, 11-16 개정) — 연준·국면·업종 흐름·민감도·일정·정책 뉴스·정책 사건 결과
 #
 # scripts/collect-macro.js → macro_snapshot / policy_news / policy_events (supabase-macro.sql)
 # 화면 표시용이라 정시성이 필요 없다(GitHub Actions 지연 무해). 매매 신호를 만들지 않는다.
+# 첫 실행은 KRX 주간 지수(52주)·신규 상장 판별(약 95거래일) 캐시를 채우느라 7~8분, 이후는 1~2분.
 name: macro
 
 on:
   schedule:
-    - cron: '7 22 * * *'   # 07:07 KST — FRED·미국장 마감 반영 후
+    - cron: '7 0 * * *'    # 09:07 KST — FRED(전일 미국 금리)·KRX(전일 지수·종목, 08시 무렵 공표) 둘 다 올라온 뒤
   workflow_dispatch:
 
 permissions:
@@ -15,7 +16,7 @@ permissions:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -29,3 +30,4 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}   # 공모 상장 판별(발행조건확정 증권신고서)

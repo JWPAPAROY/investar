@@ -663,23 +663,33 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 
 ---
 
-## 🧭 시장 흐름 탭 (2026-11-15)
+## 🧭 시장 흐름 탭 (2026-11-15, 2026-11-16 개정)
 
-첫 탭 이름을 `🌏 오늘의 시장 전망` → **`🌏 시장 흐름`**으로 바꿨다. 위쪽은 기존 해외 지수 기반 시가 전망 그대로, 아래에 `MacroPanel`(index.html)이 붙는다.
+첫 탭 이름을 `🌏 오늘의 시장 전망` → **`🌏 시장 흐름`**으로 바꿨다. 위쪽은 기존 해외 지수 기반 **시가 전망**(탭을 열면 자동 로드 — 2026-11-16부터, 실패 시에만 '다시 불러오기' 버튼), 아래에 `MacroPanel`(index.html)이 붙는다. 맨 위 요약 칩은 아래 칸의 숫자에서 만든다.
 
 | 칸 | 내용 | 출처 |
 |---|---|---|
-| 🏦 연준 | 기준금리·변경 이력, 점도표 중앙값 경로·장기값, 미 2년물(기준금리 중간값과의 차이)·10년물, 근원 PCE·CPI·실업률과 점도표 전망치 | FRED (키 불필요) |
-| 🔁 국면 | 미 10년물 주간 변화 vs KOSPI·S&P 주간 수익의 13주 상관(최근 3년 추이), 금리 급등 구간(13주 +0.75%p)의 동안/이후 13주, 연도별 표 | FRED + Yahoo |
-| 🏭 업종 흐름 | KRX 테마 업종지수 1·3개월(코스피 대비), 미국 업종 ETF 21·63거래일(SPY 대비) | KRX OpenAPI + Yahoo |
+| 🏦 연준 | 기준금리·다음 FOMC(KST)·올해 남은 회의, 점도표 경로(+**연준 원문 SEP 링크** `fomcprojtabl{회의 둘째 날}.htm`), 단기물 사다리(3·6개월·1·2년 vs 기준금리 중간값), 10년물, 근원 PCE·CPI(전년비 + **3개월 연율**)·실업률과 점도표 전망 | FRED, federalreserve.gov FOMC 일정 |
+| 🔁 국면 | 미 10년물 주간 변화 vs KOSPI·S&P 주간 수익의 13주 상관(최근 3년 추이, **5% 유의 경계 ±0.55** 표시), 금리 급등 구간(13주 +0.75%p)의 동안/이후 13주, 연도별 표 | FRED + Yahoo |
+| 🏭 업종 흐름 | KRX 업종지수 + **직접 구성 바구니**(2차전지·조선·방산·원전·전력기기, 대표 종목 동일가중·Yahoo 수정주가) 1·3개월과 코스피 대비 1·3개월, 미국 업종 ETF(SPY 대비) | KRX OpenAPI + Yahoo |
+| 🧲 민감도 | 업종·바구니 주간 수익을 미 10년물(+0.1%p)·SOX(+1%)·원/달러(+1%)에 회귀한 기울기(52주), 굵게 = 5% 유의. **내 종목 넣어 보기**(`?view=sens&codes=`, market_flow_daily 주간 종가 ≈25주) | KRX + FRED + Yahoo |
+| 📅 일정 | FOMC, 미 CPI·PCE·고용 발표(FRED 일정표, 미 중부시각→KST), 분기 선물·옵션 만기, 6·12월 정기변경 적용일, **공모주 1·3개월 보호예수 해제일**·상장 첫 달·상장 예정 | FRED·연준·KRX·DART |
 | 🏛️ 정책 | 정책 사건 표(반응·+5·+20일, 이어감/되돌림), 최근 2주 기사(한국 정책·국가자본주의·연준) | `policy_events` + Google 뉴스 RSS |
 
-- 수집 `scripts/collect-macro.js`(`--dry`, `--dry --out=파일`로 화면 점검용 JSON), 워크플로 `.github/workflows/macro.yml` 매일 07:07 KST.
-- 테이블 `supabase-macro.sql`: `macro_snapshot`(id=fed/regime/sectors, jsonb), `policy_news`, `policy_events`. 사건 12건 시드 포함 — KR 업종 사건(target_kind=krx)은 로컬 krx-index.jsonl 로 계산한 고정값, yahoo 사건은 수집기가 매번 다시 계산.
-- 읽기 `GET /api/screening/prediction?view=macro` → `api/_macroView.js` (함수 한도 때문에 prediction 핸들러에 얹음).
-- **문구 원칙**: 국면 문구(같은 방향/반대 방향/뚜렷한 방향 없음)는 상관 ±0.2 기준으로 숫자에서 만든다. 정책 사건의 '이어감/되돌림'은 +20일 초과의 부호로 계산한다. 고정 해설·매매 권고를 넣지 말 것.
-- 근거 측정(2026-11-15): 정책 발표 후 20일 추세가 이어진 건 6/12(동전 던지기), 금리-주가 주간 상관은 국면 따라 부호가 바뀜(2010~21 대부분 +, 2022~24 −).
-- 새 정책 사건 추가: `policy_events`에 행 추가. yahoo 심볼이 있으면(`target_kind='yahoo'`, `target_sym`, 선택 `bench_sym`) 다음 수집 때 결과가 채워진다.
+- 수집 `scripts/collect-macro.js`(`--dry`, `--dry --out=파일`, `--dry --only=fed,regime,sectors,sens,calendar,news`), 워크플로 `.github/workflows/macro.yml` **매일 09:07 KST**(KRX 전일치가 08시 무렵 공표되므로). 첫 실행은 캐시를 채우느라 7~8분.
+- 테이블 `supabase-macro.sql`: `macro_snapshot`(id = fed/regime/sectors/sensitivity/calendar + 내부 캐시 `krx_weekly`·`ipo_cache`, jsonb), `policy_news`, `policy_events`. 읽기 API는 내부 캐시를 내보내지 않는다.
+- 읽기 `GET /api/screening/prediction?view=macro|sens` → `api/_macroView.js` (함수 한도 때문에 prediction 핸들러에 얹음). 공용 계산은 `backend/macroShared.js`(뉴스 거르기·묶기, 주간 회귀·유의 경계).
+- **문구 원칙**: 국면 문구는 상관과 **표본 수에서 계산한 5% 유의 경계**로 만든다(13주 ≈ 0.55. 예전 ±0.2 고정 문턱은 잡음을 방향으로 단정했다). 주 단위 방향과 13주 누적 방향이 다르면 그렇게 적는다. 정책 사건의 '이어감/되돌림'은 +20일 초과의 부호로 계산. 고정 해설·매매 권고를 넣지 말 것.
+- **정렬 주의**: KOSPI 금요일 종가는 미국 금요일 장 전에 정해진다 → KOSPI 쌍(국면·민감도)은 미국 **목요일** 금리·SOX와 짝짓는다. FRED 금리는 하루 늦게 올라온다.
+- **데이터 함정 (2026-11-16 점검에서 발견)**:
+  - 점도표 물가 전망은 **근원 = `JCXFEMD`**, 헤드라인 = `PCECTPIMD`. 예전엔 근원 PCE 옆에 헤드라인 전망을 붙이고 있었다.
+  - **2025-10 CPI는 미 정부 셧다운으로 발표되지 않았다** → 2026-10 전년비 계산 불가. 화면은 사유와 3개월 연율을 같이 보여준다(2026-11 지표부터 정상).
+  - **`KRX 2차전지 TOP 10`은 KRX OpenAPI에 없다**(조선·방산·원전도 없음). 응답에 없는 지수는 `sectors.kr.missing`으로 화면에 표시된다.
+  - 공모 상장 판별: Supabase `disclosures`는 상장사(Y/K) 공시만 수집해서 **상장 전 회사의 증권신고서가 없다**. DART `list.json`을 `pblntf_detail_ty=C001`로 **corp_cls 없이** 조회한다(DART의 corp_cls는 '현재' 구분이라 이미 상장한 회사는 E가 아니라 K/Y). 공모 상장 = KRX 첫 등장 종목 중 상장 0~45일 전 `[발행조건확정]증권신고서(지분증권)`이 있는 것(LOCKUP_VERDICT와 같은 정의). 워크플로에 `DART_API_KEY` 필요.
+  - 코스피 전체 대상 정책 사건은 절대수익이면 시장 흐름을 정책 효과로 센다 → **대만 가중지수(`^TWII`) 대비**.
+- 근거 측정(2026-11-15): 정책 발표 후 20일 추세가 이어진 건 6/12(동전 던지기), 금리-주가 주간 상관은 국면 따라 부호가 바뀜(2010~21 대부분 +, 2022~24 −). 보호예수 해제 회피는 LOCKUP_VERDICT(2026-11-11) 통과 규칙.
+- 새 정책 사건 추가: `policy_events`에 행 추가. yahoo 대상(`target_kind='yahoo'`, `target_sym`, 선택 `bench_sym`)은 매번, KRX 업종 대상(`target_kind='krx'`, `target_sym`=KRX 지수 이름, `bench_sym`='코스피')은 d20이 빌 때까지 다음 수집 때 결과가 채워진다.
+- 2027년 KRX 휴장일이 `backend/marketCalendar.js`에 아직 없다 — 2027년 초 보호예수 해제일·만기일 계산이 휴장일을 모른다. 휴장일 공지 후 추가할 것.
 
 ## 📡 API 엔드포인트
 

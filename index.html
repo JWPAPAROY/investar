@@ -583,32 +583,71 @@
     }
 
     // 메인 앱
-    // ── 🌏 시장 흐름: 연준 · 국면 · 산업 · 정책 (2026-11-15) ─────────────────────────
+    // ── 🌏 시장 흐름: 연준 · 국면 · 업종 · 민감도 · 일정 · 정책 (2026-11-15, 2026-11-16 개정) ─────────────
     //   데이터: GET /api/screening/prediction?view=macro (수집 scripts/collect-macro.js, 매일 1회)
+    //           GET /api/screening/prediction?view=sens&codes=… (보유 종목 민감도)
     //   원칙: 문구는 전부 실측치에서 계산한다. 고정 안내문·매매 권고를 넣지 않는다(CLAUDE.md 시장 흐름 절).
     const fmtSigned = (v, d = 1, unit = '') => (v == null || !isFinite(v) ? '–' : `${v > 0 ? '+' : ''}${(+v).toFixed(d)}${unit}`);
+    const fmtNum = (v, d = 2, unit = '') => (v == null || !isFinite(v) ? '–' : `${(+v).toFixed(d)}${unit}`);
     const upDownClass = v => (v == null ? 'text-gray-400' : v > 0 ? 'text-red-600' : v < 0 ? 'text-blue-600' : 'text-gray-600');
+    const shortDate = d => (d ? `${String(d).slice(2, 4)}.${String(d).slice(5, 7)}.${String(d).slice(8, 10)}`.replace(/\.$/, '') : '');
+    const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
+    const mdw = d => { const t = new Date(d + 'T00:00:00Z'); return `${t.getUTCMonth() + 1}/${t.getUTCDate()}(${WEEKDAY[t.getUTCDay()]})`; };
+    const kstTodayStr = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 
-    function MacroSpark({ points, height = 36, zero = false, color = '#2563eb' }) {
+    // 숫자가 보이는 꺾은선: 시작·최근·최고·최저 라벨 + 마우스/터치 위치의 날짜·값
+    function MacroLine({ points, unit = '%', digits = 2, height = 64, zero = false, color = '#2563eb', bands = [], signed = false, label }) {
       const pts = (points || []).filter(p => p && p[1] != null && isFinite(p[1]));
+      const [hover, setHover] = useState(null);
       if (pts.length < 2) return null;
       const vs = pts.map(p => p[1]);
-      let lo = Math.min(...vs), hi = Math.max(...vs);
+      let lo = Math.min(...vs, ...bands), hi = Math.max(...vs, ...bands);
       if (zero) { lo = Math.min(lo, 0); hi = Math.max(hi, 0); }
       if (hi === lo) { hi += 1; lo -= 1; }
-      const W = 100, H = height, y = v => H - 2 - ((v - lo) / (hi - lo)) * (H - 4);
-      const d = pts.map((p, i) => `${i ? 'L' : 'M'}${(i / (pts.length - 1)) * W},${y(p[1])}`).join(' ');
+      const pad = (hi - lo) * 0.08; lo -= pad; hi += pad;
+      const N = pts.length, X = i => (i / (N - 1)) * 100, Y = v => 100 - ((v - lo) / (hi - lo)) * 100;
+      const d = pts.map((p, i) => `${i ? 'L' : 'M'}${X(i)},${Y(p[1])}`).join(' ');
+      const iMax = vs.indexOf(Math.max(...vs)), iMin = vs.indexOf(Math.min(...vs));
+      const fmt = v => (signed ? fmtSigned(v, digits, unit) : fmtNum(v, digits, unit));
+      const onMove = e => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.round(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * (N - 1)); setHover(i); };
+      const h = hover != null ? pts[hover] : null;
+      const tag = (i, txt, cls) => (
+        <span className={`absolute text-[10px] leading-none px-0.5 rounded bg-white/80 tabular-nums whitespace-nowrap pointer-events-none ${cls}`}
+          style={{ left: `${X(i)}%`, top: `${Y(pts[i][1])}%`, transform: `translate(${X(i) > 80 ? '-100%' : X(i) < 20 ? '0' : '-50%'}, ${i === iMin ? '4px' : 'calc(-100% - 4px)'})` }}>{txt}</span>
+      );
       return (
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="w-full" style={{ height }}>
-          {zero && <line x1="0" x2={W} y1={y(0)} y2={y(0)} stroke="#d1d5db" strokeWidth="0.6" strokeDasharray="2 2" vectorEffect="non-scaling-stroke" />}
-          <path d={d} fill="none" stroke={color} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
-        </svg>
+        <div className="mt-1">
+          <div className="flex justify-between text-[11px] text-gray-500 tabular-nums">
+            <span>{label ? <b className="text-gray-600 mr-1">{label}</b> : null}{shortDate(pts[0][0])} {fmt(pts[0][1])}</span>
+            <span>최근 <b className="text-gray-800">{fmt(pts[N - 1][1])}</b> ({shortDate(pts[N - 1][0])})</span>
+          </div>
+          {/* 바깥 = 마우스 영역, 안쪽(위 14px·아래 12px 여백) = 그림 영역 — 최고·최저 라벨이 위아래 줄을 덮지 않게 */}
+          <div className="relative select-none touch-none" style={{ height: height + 26 }} onPointerMove={onMove} onPointerDown={onMove} onPointerLeave={() => setHover(null)}>
+          <div className="absolute inset-x-0" style={{ top: 14, bottom: 12 }}>
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible">
+              {zero && <line x1="0" x2="100" y1={Y(0)} y2={Y(0)} stroke="#9ca3af" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />}
+              {bands.map(b => <line key={b} x1="0" x2="100" y1={Y(b)} y2={Y(b)} stroke="#f59e0b" strokeWidth="1" strokeDasharray="2 3" vectorEffect="non-scaling-stroke" />)}
+              <path d={d} fill="none" stroke={color} strokeWidth="1.6" vectorEffect="non-scaling-stroke" />
+              {h && <line x1={X(hover)} x2={X(hover)} y1="0" y2="100" stroke="#6b7280" strokeWidth="1" vectorEffect="non-scaling-stroke" />}
+            </svg>
+            {bands.map(b => <span key={b} className="absolute left-0 text-[9px] text-amber-600 tabular-nums pointer-events-none" style={{ top: `${Y(b)}%`, transform: 'translateY(-100%)' }}>{fmtSigned(b, 2)}</span>)}
+            <span className="absolute w-2 h-2 rounded-full pointer-events-none" style={{ background: color, left: `${X(N - 1)}%`, top: `${Y(pts[N - 1][1])}%`, transform: 'translate(-50%,-50%)' }} />
+            {/* 시작·끝 점이 극값이면 위 줄에 이미 값이 있으므로 라벨 생략 */}
+            {iMax !== N - 1 && iMax !== 0 && tag(iMax, `최고 ${fmt(vs[iMax])}`, 'text-gray-700')}
+            {iMin !== N - 1 && iMin !== 0 && iMin !== iMax && tag(iMin, `최저 ${fmt(vs[iMin])}`, 'text-gray-700')}
+            {h && (
+              <span className="absolute z-10 text-[11px] bg-gray-900 text-white rounded px-1.5 py-0.5 tabular-nums whitespace-nowrap pointer-events-none"
+                style={{ left: `${X(hover)}%`, top: -14, transform: `translate(${X(hover) > 70 ? '-105%' : '5%'}, 0)` }}>{h[0]} · {fmt(h[1])}</span>
+            )}
+          </div>
+          </div>
+        </div>
       );
     }
 
     function MacroTile({ label, value, sub, children }) {
       return (
-        <div className="bg-white rounded-xl border border-gray-200 p-3">
+        <div className="bg-white rounded-xl border border-gray-200 p-3 min-w-0">
           <div className="text-xs text-gray-500">{label}</div>
           <div className="text-xl md:text-2xl font-bold text-gray-900 tabular-nums mt-0.5">{value}</div>
           {sub && <div className="text-xs text-gray-600 mt-0.5">{sub}</div>}
@@ -617,12 +656,12 @@
       );
     }
 
-    function MacroSection({ title, asOf, children }) {
+    function MacroSection({ id, title, asOf, children }) {
       return (
-        <section className="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-5">
+        <section id={id} className="bg-gray-50 rounded-2xl border border-gray-200 p-3 md:p-5">
           <div className="flex items-baseline justify-between gap-2 mb-3">
             <h3 className="text-base md:text-lg font-bold text-gray-900">{title}</h3>
-            {asOf && <span className="text-[11px] text-gray-400 whitespace-nowrap">{asOf}</span>}
+            {asOf && <span className="text-[11px] text-gray-400 text-right">{asOf}</span>}
           </div>
           {children}
         </section>
@@ -639,15 +678,17 @@
                 <th className="text-left font-medium py-1.5 pr-2">업종</th>
                 <th className="text-right font-medium px-1">1개월</th>
                 <th className="text-right font-medium px-1">3개월</th>
-                <th className="text-right font-medium pl-1">{benchName} 대비 3개월</th>
+                <th className="text-right font-medium px-1 whitespace-nowrap">대비 1개월</th>
+                <th className="text-right font-medium pl-1 whitespace-nowrap">대비 3개월</th>
               </tr>
             </thead>
             <tbody>
               {sorted.map(r => (
-                <tr key={r.name} className="border-b border-gray-100">
-                  <td className="py-1.5 pr-2 text-gray-800 whitespace-nowrap">{r.name}{r.sym ? <span className="text-gray-400 ml-1">{r.sym}</span> : null}</td>
+                <tr key={r.name} className="border-b border-gray-100" title={r.members ? `동일가중 바구니: ${r.members.join(', ')}` : undefined}>
+                  <td className="py-1.5 pr-2 text-gray-800 whitespace-nowrap">{r.name}{r.sym ? <span className="text-gray-400 ml-1">{r.sym}</span> : null}{r.kind === 'basket' ? <span className="ml-1 text-[10px] text-violet-600">바구니</span> : null}</td>
                   <td className={`text-right px-1 ${upDownClass(r.r1m)}`}>{fmtSigned(r.r1m, 1, '%')}</td>
                   <td className={`text-right px-1 ${upDownClass(r.r3m)}`}>{fmtSigned(r.r3m, 1, '%')}</td>
+                  <td className={`text-right px-1 ${upDownClass(r.x1m)}`}>{fmtSigned(r.x1m, 1, '%p')}</td>
                   <td className={`text-right pl-1 font-semibold ${upDownClass(r.x3m)}`}>{fmtSigned(r.x3m, 1, '%p')}</td>
                 </tr>
               ))}
@@ -655,7 +696,7 @@
                 <td className="py-1.5 pr-2">{benchName}</td>
                 <td className={`text-right px-1 ${upDownClass(bench1)}`}>{fmtSigned(bench1, 1, '%')}</td>
                 <td className={`text-right px-1 ${upDownClass(bench3)}`}>{fmtSigned(bench3, 1, '%')}</td>
-                <td></td>
+                <td></td><td></td>
               </tr>
             </tbody>
           </table>
@@ -663,11 +704,81 @@
       );
     }
 
+    // 민감도 칸: 주간 회귀 베타. 굵게 = 5% 유의(|t| ≥ 임계값), 흐리게 = 0과 구분 안 됨
+    const SensCell = ({ s }) => (
+      <td className={`text-right px-1 ${s && s.sig ? `font-semibold ${upDownClass(s.beta)}` : 'text-gray-400'}`} title={s ? `r ${fmtSigned(s.r, 2)} · t ${fmtSigned(s.t, 1)} · ${s.n}주` : ''}>
+        {s ? fmtSigned(s.beta, 2, '%') : '–'}
+      </td>
+    );
+    function SensTable({ rows, nameKey = 'name', extra }) {
+      return (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs md:text-sm tabular-nums">
+            <thead>
+              <tr className="text-gray-500 border-b border-gray-200">
+                <th className="text-left font-medium py-1.5 pr-2">대상</th>
+                <th className="text-right font-medium px-1 whitespace-nowrap">미 10년물 +0.1%p</th>
+                <th className="text-right font-medium px-1 whitespace-nowrap">SOX +1%</th>
+                <th className="text-right font-medium px-1 whitespace-nowrap">원/달러 +1%</th>
+                {extra && <th className="text-right font-medium pl-1">주</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => (
+                <tr key={r.code || r[nameKey]} className={`border-b border-gray-100 ${r.kind === 'bench' ? 'bg-gray-50' : ''}`}>
+                  <td className="py-1.5 pr-2 text-gray-800 whitespace-nowrap">{r[nameKey] || r.code}{r.code && r[nameKey] ? <span className="text-gray-400 ml-1">{r.code}</span> : null}{r.kind === 'basket' ? <span className="ml-1 text-[10px] text-violet-600">바구니</span> : null}</td>
+                  <SensCell s={r.us10} /><SensCell s={r.sox} /><SensCell s={r.fx} />
+                  {extra && <td className="text-right pl-1 text-gray-500">{r.weeks}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    function HoldingsSens({ apiBaseUrl }) {
+      const KEY = 'investar.holdingsCodes';
+      const [codes, setCodes] = useState(() => { try { return localStorage.getItem(KEY) || ''; } catch { return ''; } });
+      const [res, setRes] = useState(null);
+      const [busy, setBusy] = useState(false);
+      const run = () => {
+        const c = codes.trim(); if (!c) return;
+        try { localStorage.setItem(KEY, c); } catch { /* 저장 불가여도 계산은 한다 */ }
+        setBusy(true);
+        fetch(`${apiBaseUrl}/screening/prediction?view=sens&codes=${encodeURIComponent(c)}`).then(r => r.json()).then(setRes).catch(e => setRes({ success: false, error: e.message })).finally(() => setBusy(false));
+      };
+      return (
+        <div className="mt-2 bg-white rounded-xl border border-gray-200 p-3">
+          <div className="text-xs font-semibold text-gray-700 mb-1">내 종목 넣어 보기</div>
+          <div className="flex gap-2">
+            <input value={codes} onChange={e => setCodes(e.target.value)} onKeyDown={e => e.key === 'Enter' && run()} placeholder="종목코드, 예: 005930, 012450"
+              className="flex-1 min-w-0 text-sm border border-gray-300 rounded-lg px-2 py-1.5" inputMode="text" />
+            <button type="button" onClick={run} disabled={busy} className="text-sm px-3 py-1.5 rounded-lg bg-slate-800 text-white disabled:opacity-50 whitespace-nowrap">{busy ? '계산 중' : '계산'}</button>
+          </div>
+          {res && !res.success && <div className="text-xs text-red-600 mt-2">{res.error}</div>}
+          {res && res.success && (
+            <div className="mt-2">
+              <SensTable rows={res.rows} extra />
+              <div className="text-[11px] text-gray-400 mt-1">종목은 {res.from} 이후 주간 종가({res.rows[0]?.weeks ?? 0}주)로 계산 — 업종 표(52주)보다 표본이 짧다. 5% 유의 경계 |r| ≥ {fmtNum(res.rows[0]?.rCrit, 2)}.</div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    const CAL_KIND = {
+      fomc: ['FOMC', 'bg-indigo-100 text-indigo-800'], cpi: ['미 물가', 'bg-rose-100 text-rose-800'], pce: ['미 물가', 'bg-rose-100 text-rose-800'],
+      jobs: ['미 고용', 'bg-emerald-100 text-emerald-800'], expiry: ['만기', 'bg-amber-100 text-amber-800'], rebal: ['지수변경', 'bg-amber-100 text-amber-800'],
+      lockup: ['보호예수', 'bg-violet-100 text-violet-800'],
+    };
+
     function MacroPanel({ apiBaseUrl }) {
       const [data, setData] = useState(null);
       const [err, setErr] = useState(null);
       const [newsTag, setNewsTag] = useState('all');
       const [showYears, setShowYears] = useState(false);
+      const [calFilter, setCalFilter] = useState('macro');
       useEffect(() => {
         let alive = true;
         fetch(`${apiBaseUrl}/screening/prediction?view=macro`).then(r => r.json()).then(j => {
@@ -681,62 +792,134 @@
       if (err && /does not exist|Could not find the table|schema cache/i.test(err)) return <div className="mt-6 text-sm text-gray-500 text-center">큰 흐름 데이터 준비 중입니다 (DB 테이블 설정 대기).</div>;
       if (err) return <div className="mt-6 text-sm text-red-600 text-center">시장 흐름 데이터를 불러오지 못했습니다: {err}</div>;
       if (!data) return <div className="mt-6 text-sm text-gray-500 text-center">시장 흐름 데이터를 불러오는 중…</div>;
-      const { fed, regime, sectors, news, events } = data;
+      const { fed, regime, sectors, sensitivity: sens, calendar, news, events } = data;
       const day = s => (s ? String(s).slice(0, 10) : '');
+      const today = kstTodayStr();
 
-      // 국면 문구 — 최근 13주 주간 상관의 부호·크기에서만 만든다
-      const regimeText = c => (c == null ? '계산 불가' : c <= -0.2 ? '반대 방향 (금리↑ 주에 주가↓)' : c >= 0.2 ? '같은 방향 (금리↓ 주에 주가↓, 금리↑ 주에 주가↑)' : '뚜렷한 방향 없음');
+      // 국면 문구 — 최근 13주 주간 상관과 그 표본에서의 5% 유의 경계(rCrit)에서만 만든다
+      const rc = regime?.rCrit ?? 0.55;
+      const regimeText = c => (c == null ? '계산 불가' : Math.abs(c) < rc ? `뚜렷하지 않음 (|r| < ${rc.toFixed(2)})` : c < 0 ? '반대 방향 (금리↑ 주에 주가↓)' : '같은 방향 (금리↑ 주에 주가↑)');
+      const dirWord = v => (v == null ? '' : v > 0 ? '↑' : v < 0 ? '↓' : '→');
+      const cumNote = (c, dRate, ret) => {
+        if (c == null || Math.abs(c) < rc || dRate == null || ret == null || !dRate || !ret) return null;
+        const cumSame = Math.sign(dRate) === Math.sign(ret), weekSame = c > 0;
+        return cumSame === weekSame ? `13주 누적도 ${weekSame ? '같은' : '반대'} 방향 (금리${dirWord(dRate)} 주가${dirWord(ret)})` : `주 단위로는 ${weekSame ? '같은' : '반대'} 방향인데 13주 누적은 금리${dirWord(dRate)} 주가${dirWord(ret)}`;
+      };
       // 정책 사건 결과 — +20일 초과가 반응과 같은 부호면 이어감
       const evtResult = e => (e.d20 == null || e.reaction == null ? '진행 중' : Math.sign(e.d20) === Math.sign(e.reaction) ? '이어감' : '되돌림');
       const evDone = (events || []).filter(e => e.d20 != null && e.reaction != null);
       const evCont = evDone.filter(e => evtResult(e) === '이어감').length;
-      const newsShown = (news || []).filter(n => newsTag === 'all' || n.tag === newsTag).slice(0, 15);
+      const newsShown = (news || []).filter(n => newsTag === 'all' || n.tag === newsTag).slice(0, newsTag === 'all' ? 20 : 12);
+
+      // 요약 칩 — 전부 아래 칸의 숫자에서 만든다
+      const krRows = sectors?.kr?.rows || [];
+      const top3 = [...krRows].sort((a, b) => (b.x3m ?? -999) - (a.x3m ?? -999));
+      const calItems = (calendar?.items || []).filter(x => x.date >= today);
+      const nextMacro = calItems.find(x => x.kind !== 'lockup');
+      const lockupSoon = calItems.filter(x => x.kind === 'lockup' && x.date <= new Date(Date.parse(today) + 14 * 864e5).toISOString().slice(0, 10)).length;
+      const chips = [
+        fed && `기준금리 ${fed.rate.lower?.toFixed(2)}–${fed.rate.upper?.toFixed(2)}%${fed.fomc?.next ? ` · 다음 FOMC ${mdw(fed.fomc.next.kst.slice(0, 10))}` : ''}`,
+        fed?.market?.ladder?.m6 && `6개월물 ${fed.market.ladder.m6.value?.toFixed(2)}% (기준금리 중간값 ${fmtSigned(fed.market.ladder.m6.vsMid, 2, '%p')})`,
+        regime && `금리-KOSPI 13주 상관 ${fmtSigned(regime.now.corrK, 2)} · ${Math.abs(regime.now.corrK ?? 0) < rc ? '뚜렷하지 않음' : regime.now.corrK > 0 ? '같은 방향' : '반대 방향'}`,
+        top3.length >= 6 && `3개월 코스피 대비 상위 ${top3.slice(0, 3).map(r => r.name).join('·')} / 하위 ${top3.slice(-3).reverse().map(r => r.name).join('·')}`,
+        nextMacro && `다음 일정 ${mdw(nextMacro.date)} ${nextMacro.title}${lockupSoon ? ` · 2주 내 보호예수 해제 ${lockupSoon}건` : ''}`,
+      ].filter(Boolean);
+
+      const ladder = fed?.market?.ladder;
+      const infl = (x, label, proj) => {
+        if (!x) return null;
+        const miss = x.yoyMissing;
+        return (
+          <MacroTile label={`${label} (전년비)`} value={x.last ? `${x.last[1].toFixed(1)}%` : '–'}
+            sub={<>
+              {day(x.last?.[0]).slice(0, 7)}{proj != null ? ` · 점도표 올해 전망 ${proj}%` : ''} · 목표 2%
+              {x.ann3 && <div className="mt-0.5">최근 3개월 연율 <b className={x.ann3[1] > 2 ? 'text-red-600' : 'text-gray-800'}>{x.ann3[1].toFixed(1)}%</b> ({day(x.ann3[0]).slice(0, 7)})</div>}
+              {miss && <div className="mt-0.5 text-amber-700">{day(miss.month).slice(0, 7)} 전년비: 1년 전({day(miss.base).slice(0, 7)}) 값 미발표로 계산 불가</div>}
+            </>}>
+            <MacroLine points={x.series} unit="%" digits={1} color="#dc2626" height={52} />
+          </MacroTile>
+        );
+      };
 
       return (
         <div className="mt-6 space-y-4">
           <div className="bg-gradient-to-r from-slate-700 to-slate-900 rounded-xl p-4 md:p-5 text-white">
             <h2 className="text-xl md:text-2xl font-bold">🧭 큰 흐름</h2>
-            <p className="text-slate-300 text-xs md:text-sm mt-1">연준 · 금리와 주가의 관계 · 업종 흐름 · 정책 사건. 매일 1회 갱신되는 실측치이며 매매 신호가 아닙니다.</p>
+            <p className="text-slate-300 text-xs md:text-sm mt-1">연준 · 금리와 주가 · 업종 · 민감도 · 일정 · 정책. 매일 1회 갱신되는 실측치이며 매매 신호가 아닙니다.</p>
+            {chips.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-3">
+                {chips.map(c => <span key={c} className="text-[11px] md:text-xs bg-white/10 border border-white/20 rounded-full px-2 py-0.5">{c}</span>)}
+              </div>
+            )}
           </div>
 
           {fed && (
             <MacroSection title="🏦 연준 — 점도표와 그걸 움직이는 지표" asOf={`FRED · ${day(fed.updatedAt)} 갱신`}>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <MacroTile label="기준금리" value={`${fed.rate.lower?.toFixed(2)}–${fed.rate.upper?.toFixed(2)}%`}
-                  sub={fed.rate.changes?.length ? `마지막 변경 ${fed.rate.changes.at(-1).date} (${fmtSigned(fed.rate.changes.at(-1).change, 2, '%p')})` : null} />
-                <MacroTile label={`점도표 ${new Date().getFullYear()}년 말 중앙값`} value={fed.dotThisYear != null ? `${fed.dotThisYear.toFixed(2)}%` : '–'}
-                  sub={`${fed.sepDate} 점도표 · 현재 대비 ${fmtSigned(fed.impliedMoveThisYear, 2, '%p')}`} />
-                <MacroTile label="미 2년물 (시장 예상)" value={fed.market.y2 != null ? `${fed.market.y2.toFixed(2)}%` : '–'}
-                  sub={`기준금리 중간값보다 ${fmtSigned(fed.market.y2MinusMid, 2, '%p')}`}>
-                  <MacroSpark points={fed.market.y2Series} />
-                </MacroTile>
-                <MacroTile label="미 10년물" value={fed.market.y10 != null ? `${fed.market.y10.toFixed(2)}%` : '–'} sub={fed.market.y10Date}>
-                  <MacroSpark points={fed.market.y10Series} />
-                </MacroTile>
+                  sub={<>
+                    {fed.rate.changes?.length ? `마지막 변경 ${fed.rate.changes.at(-1).date} (${fmtSigned(fed.rate.changes.at(-1).change, 2, '%p')})` : null}
+                    {fed.fomc?.next && <div className="mt-0.5">다음 결정 <b>{fed.fomc.next.kst}</b> KST{fed.fomc.next.sep ? ' · 점도표' : ''}</div>}
+                    {fed.fomc?.next && <div>올해 남은 회의 {fed.fomc.remainingThisYear}회</div>}
+                  </>} />
+                <MacroTile label={`점도표 ${String(fed.dots?.[0]?.year ?? '')}년 말 중앙값`} value={fed.dotThisYear != null ? `${fed.dotThisYear.toFixed(2)}%` : '–'}
+                  sub={<>
+                    {fed.sepDate} 점도표 · 현재 중간값 대비 {fmtSigned(fed.impliedMoveThisYear, 2, '%p')}
+                    {fed.dotLink && <div className="mt-1"><a href={fed.dotLink} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline font-medium">연준 원문 점도표 보기 ↗</a></div>}
+                  </>} />
+                <MacroTile label="미 단기 국채 금리 (아래 작은 수 = 기준금리 중간값 대비 %p)" value={ladder?.m6?.value != null ? `6개월 ${ladder.m6.value.toFixed(2)}%` : '–'}
+                  sub={ladder && (
+                    <div className="grid grid-cols-4 gap-1 mt-1 tabular-nums text-center">
+                      {[['3개월', ladder.m3], ['6개월', ladder.m6], ['1년', ladder.y1], ['2년', ladder.y2]].map(([l, b]) => (
+                        <div key={l} className="bg-gray-50 rounded px-0.5 py-0.5"><div className="text-[10px] text-gray-500">{l}</div><div className="font-semibold text-gray-800">{fmtNum(b?.value, 2)}</div><div className={`text-[10px] ${upDownClass(b?.vsMid)}`}>{fmtSigned(b?.vsMid, 2)}</div></div>
+                      ))}
+                    </div>
+                  )} />
+                <MacroTile label="미 10년물" value={fed.market.y10 != null ? `${fed.market.y10.toFixed(2)}%` : '–'} sub={`${fed.market.y10Date} (FRED는 하루 늦게 올라온다)`} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                <div className="bg-white rounded-xl border border-gray-200 p-3">
+                  <div className="text-xs font-semibold text-gray-700">미 2년물 · 3개월물 (최근 2년, 주 단위)</div>
+                  <MacroLine label="2년" points={fed.market.y2Series} height={60} />
+                  <MacroLine label="3개월" points={fed.market.m3Series} height={48} color="#7c3aed" />
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 p-3">
+                  <div className="text-xs font-semibold text-gray-700">미 10년물 (최근 2년, 주 단위)</div>
+                  <MacroLine points={fed.market.y10Series} height={108} color="#0f766e" />
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
-                <MacroTile label="근원 PCE 물가 (전년비)" value={fed.drivers.corePce.last ? `${fed.drivers.corePce.last[1].toFixed(1)}%` : '–'}
-                  sub={`${day(fed.drivers.corePce.last?.[0]).slice(0, 7)} · 점도표 올해 전망 ${fed.drivers.corePce.projThisYear ?? '–'}% · 목표 2%`}>
-                  <MacroSpark points={fed.drivers.corePce.series} color="#dc2626" />
-                </MacroTile>
-                <MacroTile label="CPI 물가 (전년비)" value={fed.drivers.cpi.last ? `${fed.drivers.cpi.last[1].toFixed(1)}%` : '–'}
-                  sub={day(fed.drivers.cpi.last?.[0]).slice(0, 7)}>
-                  <MacroSpark points={fed.drivers.cpi.series} color="#dc2626" />
-                </MacroTile>
+                {infl(fed.drivers.corePce, '근원 PCE 물가', fed.drivers.corePce.projThisYear)}
+                {infl(fed.drivers.cpi, 'CPI 물가', null)}
                 <MacroTile label="실업률" value={fed.drivers.unemp.last ? `${fed.drivers.unemp.last[1].toFixed(1)}%` : '–'}
                   sub={`${day(fed.drivers.unemp.last?.[0]).slice(0, 7)} · 점도표 올해 전망 ${fed.drivers.unemp.projThisYear ?? '–'}%`}>
-                  <MacroSpark points={fed.drivers.unemp.series} color="#059669" />
+                  <MacroLine points={fed.drivers.unemp.series} digits={1} color="#059669" height={52} />
                 </MacroTile>
               </div>
               <div className="mt-2 text-xs text-gray-600 bg-white rounded-xl border border-gray-200 p-3">
-                <div className="font-semibold text-gray-700 mb-1">점도표 경로 (중앙값)</div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
-                  {fed.dots.map(d => <span key={d.year}>{d.year}년 말 <b>{d.median.toFixed(2)}%</b></span>)}
-                  {fed.longRun?.length > 0 && <span>장기 <b>{fed.longRun.at(-1).value.toFixed(2)}%</b></span>}
+                <div className="flex items-baseline justify-between gap-2">
+                  <div className="font-semibold text-gray-700 mb-1">점도표 경로 (중앙값, {fed.sepDate})</div>
+                  {fed.dotLink && <a href={fed.dotLink} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline whitespace-nowrap">원문 ↗</a>}
                 </div>
-                {fed.longRun?.length > 1 && (
-                  <div className="mt-1 text-gray-500">장기 중앙값 변화: {fed.longRun.map(x => `${x.sep.slice(0, 7)} ${x.value.toFixed(1)}`).join(' → ')}</div>
-                )}
+                <div className="space-y-1 tabular-nums">
+                  {[...fed.dots.map(d => [`${d.year}년 말`, d.median]), ...(fed.longRun?.length ? [['장기', fed.longRun.at(-1).value]] : [])].map(([l, v]) => {
+                    const all = [...fed.dots.map(d => d.median), fed.rate.mid ?? (fed.rate.upper + fed.rate.lower) / 2, fed.longRun?.at(-1)?.value].filter(x => x != null);
+                    const lo = Math.min(...all) - 0.25, hi = Math.max(...all) + 0.25, w = v2 => `${((v2 - lo) / (hi - lo)) * 100}%`;
+                    const midNow = fed.rate.mid ?? (fed.rate.upper + fed.rate.lower) / 2;
+                    return (
+                      <div key={l} className="flex items-center gap-2">
+                        <span className="w-14 shrink-0 text-gray-500">{l}</span>
+                        <div className="relative flex-1 h-3 bg-gray-100 rounded">
+                          <span className="absolute top-0 bottom-0 border-l border-dashed border-gray-500" style={{ left: w(midNow) }} title={`현재 중간값 ${midNow.toFixed(3)}%`} />
+                          <span className="absolute top-1/2 w-2.5 h-2.5 rounded-full bg-indigo-600" style={{ left: w(v), transform: 'translate(-50%,-50%)' }} />
+                        </div>
+                        <b className="w-12 text-right">{v.toFixed(2)}%</b>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-1 text-gray-500">점선 = 현재 기준금리 중간값 {((fed.rate.upper + fed.rate.lower) / 2).toFixed(3)}%</div>
+                {fed.longRun?.length > 1 && <div className="mt-1 text-gray-500">장기 중앙값 변화: {fed.longRun.map(x => `${x.sep.slice(0, 7)} ${x.value.toFixed(1)}`).join(' → ')}</div>}
               </div>
             </MacroSection>
           )}
@@ -744,15 +927,19 @@
           {regime && (
             <MacroSection title="🔁 국면 — 금리가 오를 때 주가는?" asOf={`주간 · ${regime.asOf} 기준`}>
               <div className="grid grid-cols-2 gap-2">
-                <MacroTile label={`KOSPI · 최근 ${regime.window}주 주간 상관`} value={fmtSigned(regime.now.corrK, 2)} sub={regimeText(regime.now.corrK)} />
-                <MacroTile label={`S&P500 · 최근 ${regime.window}주 주간 상관`} value={fmtSigned(regime.now.corrS, 2)} sub={regimeText(regime.now.corrS)} />
+                <MacroTile label={`KOSPI · 최근 ${regime.window}주 주간 상관`} value={fmtSigned(regime.now.corrK, 2)}
+                  sub={<>{regimeText(regime.now.corrK)}{cumNote(regime.now.corrK, regime.now.dRate13, regime.now.kospi13) && <div className="mt-0.5 text-amber-700">{cumNote(regime.now.corrK, regime.now.dRate13, regime.now.kospi13)}</div>}</>} />
+                <MacroTile label={`S&P500 · 최근 ${regime.window}주 주간 상관`} value={fmtSigned(regime.now.corrS, 2)}
+                  sub={<>{regimeText(regime.now.corrS)}{cumNote(regime.now.corrS, regime.now.dRate13, regime.now.spx13) && <div className="mt-0.5 text-amber-700">{cumNote(regime.now.corrS, regime.now.dRate13, regime.now.spx13)}</div>}</>} />
               </div>
               <div className="mt-2 bg-white rounded-xl border border-gray-200 p-3">
-                <div className="text-xs text-gray-600 mb-1">미 10년물 주간 변화와 KOSPI 주간 수익의 {regime.window}주 상관 (최근 3년, 점선 = 0)</div>
-                <MacroSpark points={regime.series.map(r => [r[0], r[1]])} zero height={48} />
+                <div className="text-xs text-gray-600">미 10년물 주간 변화와 주간 수익의 {regime.window}주 상관 (최근 3년). 회색 점선 = 0, 주황 점선 = 5% 유의 경계 ±{rc.toFixed(2)}</div>
+                <MacroLine label="KOSPI" points={regime.series.map(r => [r[0], r[1]])} zero bands={[rc, -rc]} signed height={72} />
+                <MacroLine label="S&P500" points={regime.series.map(r => [r[0], r[2]])} zero bands={[rc, -rc]} signed height={56} color="#64748b" />
                 <div className="text-xs text-gray-500 mt-1 tabular-nums">
                   같은 13주 동안: 미 10년물 {fmtSigned(regime.now.dRate13, 2, '%p')} · KOSPI <span className={upDownClass(regime.now.kospi13)}>{fmtSigned(regime.now.kospi13, 1, '%')}</span> · S&P500 <span className={upDownClass(regime.now.spx13)}>{fmtSigned(regime.now.spx13, 1, '%')}</span>
                 </div>
+                <div className="text-[11px] text-gray-400 mt-0.5">KOSPI는 금요일 종가가 미국 금요일 장 전에 정해지므로 미국 목요일 금리 변화와 짝지었다.</div>
               </div>
               {regime.spikes?.length > 0 && (
                 <div className="mt-2 bg-white rounded-xl border border-gray-200 p-3 overflow-x-auto">
@@ -767,13 +954,13 @@
                           <td className={`text-right ${upDownClass(s.kospiDuring)}`}>{fmtSigned(s.kospiDuring, 1, '%')}</td>
                           <td className={`text-right ${upDownClass(s.kospiAfter)}`}>{s.afterWeeks < 13 ? `${fmtSigned(s.kospiAfter, 1, '%')}*` : fmtSigned(s.kospiAfter, 1, '%')}</td>
                           <td className={`text-right ${upDownClass(s.spxDuring)}`}>{fmtSigned(s.spxDuring, 1, '%')}</td>
-                          <td className={`text-right ${upDownClass(s.spxAfter)}`}>{fmtSigned(s.spxAfter, 1, '%')}</td>
+                          <td className={`text-right ${upDownClass(s.spxAfter)}`}>{s.afterWeeks < 13 ? `${fmtSigned(s.spxAfter, 1, '%')}*` : fmtSigned(s.spxAfter, 1, '%')}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   <div className="text-[11px] text-gray-400 mt-1">
-                    KOSPI 하락: 그 동안 {regime.spikes.filter(s => s.kospiDuring < 0).length}/{regime.spikes.length}회 · 이후 13주 상승 {regime.spikes.filter(s => s.afterWeeks >= 13 && s.kospiAfter > 0).length}/{regime.spikes.filter(s => s.afterWeeks >= 13).length}회{regime.spikes.some(s => s.afterWeeks < 13) ? ' · * 13주 미경과' : ''}
+                    KOSPI 하락: 그 동안 {regime.spikes.filter(s => s.kospiDuring < 0).length}/{regime.spikes.length}회 · 이후 13주 상승 {regime.spikes.filter(s => s.afterWeeks >= 13 && s.kospiAfter > 0).length}/{regime.spikes.filter(s => s.afterWeeks >= 13).length}회{regime.spikes.some(s => s.afterWeeks < 13) ? ` · * ${regime.spikes.find(s => s.afterWeeks < 13).afterWeeks}주만 경과` : ''}
                   </div>
                 </div>
               )}
@@ -803,16 +990,20 @@
 
           {sectors && (
             <MacroSection title="🏭 업종 흐름" asOf={`KRX ${sectors.kr?.date || '–'} · 미국 ${sectors.us?.date || '–'}`}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                 {sectors.kr && (
                   <div className="bg-white rounded-xl border border-gray-200 p-3">
-                    <div className="text-xs font-semibold text-gray-700 mb-1">한국 (KRX 업종지수, {sectors.kr.d3m}~{sectors.kr.date})</div>
+                    <div className="text-xs font-semibold text-gray-700 mb-1">한국 ({sectors.kr.d3m}~{sectors.kr.date}, 대비 = 코스피 대비)</div>
                     <SectorTable rows={sectors.kr.rows} benchName="코스피" bench1={sectors.kr.kospi1m} bench3={sectors.kr.kospi3m} />
+                    {krRows.some(r => r.kind === 'basket') && (
+                      <div className="text-[11px] text-gray-400 mt-1">바구니 = KRX 지수가 없는 업종의 대표 종목 동일가중(수정주가): {krRows.filter(r => r.kind === 'basket').map(r => `${r.name}(${r.members.join('·')})`).join(' / ')}</div>
+                    )}
+                    {sectors.kr.missing?.length > 0 && <div className="text-[11px] text-amber-700 mt-1">KRX 응답에 없어 빠진 지수: {sectors.kr.missing.join(', ')}</div>}
                   </div>
                 )}
                 {sectors.us && (
                   <div className="bg-white rounded-xl border border-gray-200 p-3">
-                    <div className="text-xs font-semibold text-gray-700 mb-1">미국 (업종 ETF, 21·63거래일)</div>
+                    <div className="text-xs font-semibold text-gray-700 mb-1">미국 (업종 ETF, 21·63거래일, 대비 = SPY 대비)</div>
                     <SectorTable rows={sectors.us.rows} benchName="S&P500(SPY)" bench1={sectors.us.spy1m} bench3={sectors.us.spy3m} />
                   </div>
                 )}
@@ -820,7 +1011,57 @@
             </MacroSection>
           )}
 
-          <MacroSection title="🏛️ 정책 · 국가자본주의" asOf={events?.length ? `사건 ${events.length}건 · 뉴스 ${news.length}건` : null}>
+          {sens && (
+            <MacroSection title="🧲 민감도 — 간밤 미국이 움직이면 이 업종은?" asOf={`주간 ${sens.from}~${sens.asOf} · ${sens.weeks}주`}>
+              <div className="bg-white rounded-xl border border-gray-200 p-3">
+                <SensTable rows={[...sens.rows].sort((a, b) => (a.kind === 'bench' ? -1 : b.kind === 'bench' ? 1 : (b.sox?.beta ?? -99) - (a.sox?.beta ?? -99)))} />
+                <div className="text-[11px] text-gray-400 mt-1">
+                  값 = 요인이 그만큼 움직인 주에 평균 주간 수익(회귀 기울기). 굵은 색 = 5% 유의(|r| ≥ {fmtNum(sens.rCrit, 2)}), 흐린 회색 = 0과 구분 안 됨.
+                  업종은 금요일(휴장이면 앞 거래일) 종가, 미 10년물·SOX는 그 전날(미국 목요일), 원/달러는 같은 날. 같은 기간의 관계이며 다음 주를 예측하지 않는다.
+                </div>
+              </div>
+              <HoldingsSens apiBaseUrl={apiBaseUrl} />
+            </MacroSection>
+          )}
+
+          {calendar && (
+            <MacroSection title="📅 다가오는 일정" asOf={`${calendar.asOf} 수집 · 시각은 KST`}>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {[['macro', `거시·지수 ${calItems.filter(x => x.kind !== 'lockup').length}`], ['lockup', `보호예수 해제 ${calItems.filter(x => x.kind === 'lockup').length}`], ['all', '전체']].map(([k, l]) => (
+                  <button key={k} type="button" onClick={() => setCalFilter(k)} className={`text-[11px] px-2 py-0.5 rounded-full border ${calFilter === k ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-600 border-gray-300'}`}>{l}</button>
+                ))}
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+                {calItems.filter(x => calFilter === 'all' || (calFilter === 'lockup' ? x.kind === 'lockup' : x.kind !== 'lockup')).map((x, i) => {
+                  const [kl, kc] = CAL_KIND[x.kind] || [x.kind, 'bg-gray-100 text-gray-700'];
+                  return (
+                    <div key={i} className="flex items-start gap-2 px-3 py-1.5 text-xs md:text-sm">
+                      <span className="w-20 shrink-0 tabular-nums text-gray-600">{mdw(x.date)}{x.kst ? <div className="text-[10px] text-gray-400">{x.kst.slice(11)}</div> : null}</span>
+                      <span className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded ${kc}`}>{kl}</span>
+                      <span className="min-w-0"><span className="text-gray-800">{x.title}</span>{x.detail && <div className="text-[11px] text-gray-400">{x.detail}</div>}</span>
+                    </div>
+                  );
+                })}
+                {!calItems.length && <div className="px-3 py-2 text-xs text-gray-400">일정이 없습니다.</div>}
+              </div>
+              {calendar.ipo && (() => {
+                const first = (calendar.ipo.listed || []).filter(x => x.firstMonthEnd >= today);
+                return (
+                  <div className="mt-2 bg-white rounded-xl border border-gray-200 p-3 text-xs">
+                    {first.length > 0 && <div><b className="text-gray-700">상장 첫 달</b> <span className="text-gray-600">{first.map(x => `${x.name}(${x.list.slice(5)} 상장, ~${x.firstMonthEnd.slice(5)})`).join(' · ')}</span></div>}
+                    {calendar.ipo.pending?.length > 0 && <div className="mt-1"><b className="text-gray-700">상장 예정</b> <span className="text-gray-600">{calendar.ipo.pending.map(x => `${x.name}(발행조건확정 ${x.filed.slice(5)})`).join(' · ')}</span></div>}
+                    <div className="text-[11px] text-gray-400 mt-1">
+                      공모 상장 = KRX 첫 등장 종목 중 상장 0~45일 전에 DART [발행조건확정]증권신고서(지분증권)가 있는 것(스팩 제외). 해제일 = 상장일 + 1·3개월(휴장이면 다음 거래일).
+                      LOCKUP_VERDICT(2026-11-11, IPO 335건): 해제 전날~5거래일 뒤 코스피 대비 1개월 −3.5%p(t −3.6), 3개월 −2.6%p(t −2.8), 상장 첫 달 −14.5%p(t −5.5).
+                    </div>
+                  </div>
+                );
+              })()}
+              {calendar.errors?.length > 0 && <div className="text-[11px] text-amber-700 mt-1">수집 실패: {calendar.errors.join(' / ')}</div>}
+            </MacroSection>
+          )}
+
+          <MacroSection title="🏛️ 정책 · 국가자본주의" asOf={events?.length ? `사건 ${events.length}건 · 기사 ${news.length}건` : null}>
             {evDone.length > 0 && (
               <div className="bg-white rounded-xl border border-gray-200 p-3 overflow-x-auto">
                 <div className="text-xs font-semibold text-gray-700 mb-1">
@@ -832,7 +1073,7 @@
                     {events.map(e => (
                       <tr key={e.id} className="border-b border-gray-100 align-top">
                         <td className="py-1 pr-1 whitespace-nowrap text-gray-500">{e.event_date}</td>
-                        <td className="pr-1"><div className="text-gray-800">{e.name}</div><div className="text-gray-400">{e.target}{e.bench ? ` · ${e.bench} 대비` : ''}</div></td>
+                        <td className="pr-1"><div className="text-gray-800">{e.name}</div><div className="text-gray-400">{e.target}{e.bench ? ` · ${e.bench} 대비(%p)` : ' · 절대(%)'}</div></td>
                         <td className={`text-right ${upDownClass(e.reaction)}`}>{fmtSigned(e.reaction == null ? null : +e.reaction, 1)}</td>
                         <td className={`text-right ${upDownClass(e.d5)}`}>{fmtSigned(e.d5 == null ? null : +e.d5, 1)}</td>
                         <td className={`text-right ${upDownClass(e.d20)}`}>{fmtSigned(e.d20 == null ? null : +e.d20, 1)}</td>
@@ -841,26 +1082,26 @@
                     ))}
                   </tbody>
                 </table>
-                <div className="text-[11px] text-gray-400 mt-1">반응 = 발표 전날 종가 → 다음 날 종가, 이후 = 다음 날 종가부터. 단위 %(기준 대비면 %p).</div>
+                <div className="text-[11px] text-gray-400 mt-1">반응 = 발표 전날 종가 → 발표 다음 거래일 종가, 이후 = 그 종가부터 N거래일.</div>
               </div>
             )}
             <div className="mt-2 bg-white rounded-xl border border-gray-200 p-3">
               <div className="flex flex-wrap items-center gap-1.5 mb-2">
                 <span className="text-xs font-semibold text-gray-700 mr-1">최근 2주 기사</span>
                 {[['all', '전체'], ['kr_policy', '한국 정책'], ['state_capital', '국가자본주의'], ['fed', '연준']].map(([k, l]) => (
-                  <button key={k} type="button" onClick={() => setNewsTag(k)} className={`text-[11px] px-2 py-0.5 rounded-full border ${newsTag === k ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-600 border-gray-300'}`}>{l}</button>
+                  <button key={k} type="button" onClick={() => setNewsTag(k)} className={`text-[11px] px-2 py-0.5 rounded-full border ${newsTag === k ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-600 border-gray-300'}`}>{l}{k !== 'all' ? ` ${(news || []).filter(n => n.tag === k).length}` : ''}</button>
                 ))}
               </div>
               <ul className="space-y-1.5">
                 {newsShown.map(n => (
                   <li key={n.link} className="text-xs md:text-sm leading-snug">
                     <a href={n.link} target="_blank" rel="noreferrer" className="text-gray-800 hover:text-blue-700 hover:underline">{n.title}</a>
-                    <span className="text-gray-400 ml-1 whitespace-nowrap">{n.source ? `${n.source} · ` : ''}{day(n.published_at)}</span>
+                    <span className="text-gray-400 ml-1 whitespace-nowrap">{n.source ? `${n.source} · ` : ''}{day(n.published_at)}{n.similar ? ` · 비슷한 기사 ${n.similar}건 더` : ''}{n.dayMore ? ` · 같은 날 기사 ${n.dayMore}건 더` : ''}</span>
                   </li>
                 ))}
                 {!newsShown.length && <li className="text-xs text-gray-400">기사가 없습니다.</li>}
               </ul>
-              <div className="text-[11px] text-gray-400 mt-2">Google 뉴스 자동 수집 · 제목은 원문 그대로</div>
+              <div className="text-[11px] text-gray-400 mt-2">Google 뉴스 자동 수집 · 제목은 원문 그대로 · 같은 사안의 비슷한 제목은 하나로 묶음</div>
             </div>
           </MacroSection>
         </div>
@@ -1032,7 +1273,15 @@
 
       // 운영 진단 탭은 자동 조회 안 함 — 사용자가 버튼 눌러야 조회
 
-      // 버튼 클릭으로 분석 시작 (자동 로드 제거)
+      // 2026-11-16: 시장 흐름 탭이 첫 화면이 되면서 시가 전망도 탭을 열 때 한 번 자동으로 불러온다.
+      //   (08:00 alert 가 저장한 캐시를 읽으므로 가볍다. 실패하면 다시 시도하지 않고 버튼을 남긴다.)
+      const predictionAutoTried = useRef(false);
+      useEffect(() => {
+        if (activeTab === 'prediction' && !prediction && !predictionLoading && !predictionAutoTried.current) {
+          predictionAutoTried.current = true;
+          fetchPrediction();
+        }
+      }, [activeTab]);
 
       const fetchPrediction = async (bypassCache = false) => {
         setPredictionLoading(true);
@@ -2830,32 +3079,26 @@
                     </div>
                   );
                 })() : predictionLoading ? (
-                  <div className="flex flex-col items-center justify-center py-16 md:py-24 text-center">
-                    <div className="inline-block animate-spin rounded-full h-12 w-12 md:h-16 md:w-16 border-t-4 border-b-4 border-indigo-600 mb-4"></div>
-                    <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">시장 전망 데이터를 분석하고 있습니다...</h3>
+                  <div className="flex flex-col items-center justify-center py-6 text-center">
+                    <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-4 border-b-4 border-indigo-600 mb-2"></div>
+                    <h3 className="text-base md:text-lg font-bold text-gray-800 mb-1">시가 전망을 불러오는 중…</h3>
                     <p className="text-sm md:text-base text-gray-600">해외 지수 및 KOSPI 상관계수 분석 중 <span className="font-mono font-bold text-indigo-600">{predictionElapsed}초</span></p>
                   </div>
                 ) : (
                   <div className="space-y-6">
                     <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl shadow-lg p-4 md:p-6 text-white">
-                      <h2 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2 flex items-center gap-2">🌏 오늘의 시장 전망</h2>
+                      <h2 className="text-2xl md:text-3xl font-bold mb-1 md:mb-2 flex items-center gap-2">🌏 오늘의 시가 전망</h2>
                       <p className="text-blue-100 text-sm md:text-base">
-                        미국 국채, 환율, VIX 및 선물을 통해 한국 시장 방향성을 AI와 함께 분석합니다
+                        간밤 해외 지수·선물 12개로 계산한 한국 시장 시가 방향 점수
                       </p>
                     </div>
-                    <div className="text-center py-12 md:py-20">
-                      <div className="text-5xl md:text-6xl mb-3">🔮</div>
-                      <h3 className="text-lg md:text-2xl font-bold text-gray-800 mb-2">
-                        시장 전망 데이터 불러오기
-                      </h3>
-                      <p className="text-sm md:text-base text-gray-600 mb-6 max-w-lg mx-auto leading-relaxed">
-                        전일 해외 12개 지수를 z-score 정규화 후 OLS 회귀로 KOSPI 예상 변동 범위를 산출합니다.
-                      </p>
+                    <div className="text-center py-4">
+                      <p className="text-sm text-gray-600 mb-2">시가 전망을 불러오지 못했습니다.</p>
                       <button
-                        onClick={fetchPrediction}
-                        className="px-6 py-3 md:px-8 md:py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition font-bold shadow-lg text-sm md:text-base flex items-center justify-center gap-2 mx-auto disabled:opacity-50"
+                        onClick={() => fetchPrediction()}
+                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg hover:from-blue-700 hover:to-indigo-700 transition font-semibold text-sm"
                       >
-                        <span>🔮 데이터 분석 시작</span>
+                        다시 불러오기
                       </button>
                     </div>
                   </div>
