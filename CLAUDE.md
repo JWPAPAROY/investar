@@ -670,14 +670,16 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 | 칸 | 내용 | 출처 |
 |---|---|---|
 | 🏦 연준 | 기준금리·다음 FOMC(KST)·올해 남은 회의, 점도표 경로(+**연준 원문 SEP 링크** `fomcprojtabl{회의 둘째 날}.htm`), 단기물 사다리(3·6개월·1·2년 vs 기준금리 중간값), 10년물, 근원 PCE·CPI(전년비 + **3개월 연율**)·실업률과 점도표 전망 | FRED, federalreserve.gov FOMC 일정 |
+| 🏦 (연준 칸 안) 시장 반영 경로 | 연방기금 선물(CBOT ZQ, Yahoo `ZQ{월}{yy}.CBT`)로 회의별 반영 bp·회의 후 금리(CME FedWatch 방식), 점도표 올해 말과 비교 | Yahoo + FRED `DFF` |
+| 🗽 월가 시각 | 해외 기사 **제목**에서 기관·대상·방향·수치를 뽑아 사건 단위로 묶은 표(최근 60일), 대상별 집계 | Google 뉴스 미국판 → `street_views` |
 | 🔁 국면 | 미 10년물 주간 변화 vs KOSPI·S&P 주간 수익의 13주 상관(최근 3년 추이, **5% 유의 경계 ±0.55** 표시), 금리 급등 구간(13주 +0.75%p)의 동안/이후 13주, 연도별 표 | FRED + Yahoo |
 | 🏭 업종 흐름 | KRX 업종지수 + **직접 구성 바구니**(2차전지·조선·방산·원전·전력기기, 대표 종목 동일가중·Yahoo 수정주가) 1·3개월과 코스피 대비 1·3개월, 미국 업종 ETF(SPY 대비) | KRX OpenAPI + Yahoo |
 | 🧲 민감도 | 업종·바구니 주간 수익을 미 10년물(+0.1%p)·SOX(+1%)·원/달러(+1%)에 회귀한 기울기(52주), 굵게 = 5% 유의. **내 종목 넣어 보기**(`?view=sens&codes=`, market_flow_daily 주간 종가 ≈25주) | KRX + FRED + Yahoo |
 | 📅 일정 | FOMC, 미 CPI·PCE·고용 발표(FRED 일정표, 미 중부시각→KST), 분기 선물·옵션 만기, 6·12월 정기변경 적용일, **공모주 1·3개월 보호예수 해제일**·상장 첫 달·상장 예정 | FRED·연준·KRX·DART |
 | 🏛️ 정책 | 정책 사건 표(반응·+5·+20일, 이어감/되돌림), 최근 2주 기사(한국 정책·국가자본주의·연준) | `policy_events` + Google 뉴스 RSS |
 
-- 수집 `scripts/collect-macro.js`(`--dry`, `--dry --out=파일`, `--dry --only=fed,regime,sectors,sens,calendar,news`), 워크플로 `.github/workflows/macro.yml` **매일 09:07 KST**(KRX 전일치가 08시 무렵 공표되므로). 첫 실행은 캐시를 채우느라 7~8분.
-- 테이블 `supabase-macro.sql`: `macro_snapshot`(id = fed/regime/sectors/sensitivity/calendar + 내부 캐시 `krx_weekly`·`ipo_cache`, jsonb), `policy_news`, `policy_events`. 읽기 API는 내부 캐시를 내보내지 않는다.
+- 수집 `scripts/collect-macro.js`(`--dry`, `--dry --out=파일`, `--dry --only=fed,regime,sectors,sens,calendar,news,street`), 워크플로 `.github/workflows/macro.yml` **매일 09:07 KST**(KRX 전일치가 08시 무렵 공표되므로). 첫 실행은 캐시를 채우느라 7~8분.
+- 테이블 `supabase-macro.sql`: `macro_snapshot`(id = fed/regime/sectors/sensitivity/calendar + 내부 캐시 `krx_weekly`·`ipo_cache`·`street_cache`, jsonb), `policy_news`, `policy_events`, `street_views`. 읽기 API는 내부 캐시를 내보내지 않는다.
 - 읽기 `GET /api/screening/prediction?view=macro|sens` → `api/_macroView.js` (함수 한도 때문에 prediction 핸들러에 얹음). 공용 계산은 `backend/macroShared.js`(뉴스 거르기·묶기, 주간 회귀·유의 경계).
 - **문구 원칙**: 국면 문구는 상관과 **표본 수에서 계산한 5% 유의 경계**로 만든다(13주 ≈ 0.55. 예전 ±0.2 고정 문턱은 잡음을 방향으로 단정했다). 주 단위 방향과 13주 누적 방향이 다르면 그렇게 적는다. 정책 사건의 '이어감/되돌림'은 +20일 초과의 부호로 계산. 고정 해설·매매 권고를 넣지 말 것.
 - **정렬 주의**: KOSPI 금요일 종가는 미국 금요일 장 전에 정해진다 → KOSPI 쌍(국면·민감도)은 미국 **목요일** 금리·SOX와 짝짓는다. FRED 금리는 하루 늦게 올라온다.
@@ -688,6 +690,13 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
   - 공모 상장 판별: Supabase `disclosures`는 상장사(Y/K) 공시만 수집해서 **상장 전 회사의 증권신고서가 없다**. DART `list.json`을 `pblntf_detail_ty=C001`로 **corp_cls 없이** 조회한다(DART의 corp_cls는 '현재' 구분이라 이미 상장한 회사는 E가 아니라 K/Y). 공모 상장 = KRX 첫 등장 종목 중 상장 0~45일 전 `[발행조건확정]증권신고서(지분증권)`이 있는 것(LOCKUP_VERDICT와 같은 정의). 워크플로에 `DART_API_KEY` 필요.
   - 코스피 전체 대상 정책 사건은 절대수익이면 시장 흐름을 정책 효과로 센다 → **대만 가중지수(`^TWII`) 대비**.
 - 근거 측정(2026-11-15): 정책 발표 후 20일 추세가 이어진 건 6/12(동전 던지기), 금리-주가 주간 상관은 국면 따라 부호가 바뀜(2010~21 대부분 +, 2022~24 −). 보호예수 해제 회피는 LOCKUP_VERDICT(2026-11-11) 통과 규칙.
+- **월가 시각** (`backend/streetViews.js`, 2026-11-16):
+  - 규칙 먼저: 기관 사전 + 대상 사전(kospi/korea/asia/spx/ndx/samsung/hynix/memory/fed/krw) + 동사(상향/하향/유지/수치 제시/강세·약세, 연준은 인상/인하/동결) + 숫자. 기관이 나온 자리부터 절 경계(`;` `—` `, and`)까지를 한 구간으로 본다.
+  - 규칙이 기관·대상은 찾았는데 방향을 못 정한 제목만 Gemini(하루 1회, 최대 40건)로 넘긴다. AI 결과는 **사전에 있는 기관·대상이고, 상향·하향·유지·인상·인하는 제목에 그 동사가 있고, 수치는 제목 원문에 있는 것만** 통과(연도는 수치로 안 받음). 한 번 물은 제목은 `macro_snapshot` `street_cache`에 30일 캐시.
+  - 제외: 한국 매체 영문판(`KR_OUTLET`), 자동 생성·SEO 매체(`JUNK_OUTLET`), "Goldman Sachs stock…"처럼 은행 자체 주가 기사.
+  - 묶기: 같은 기관·대상에서 상향/하향·연준 방향은 같은 방향끼리, 유지·제시·강세·약세는 서로 같은 보고서로 보고 10일 안이면 한 행. 대표 기사는 수치가 제목에 있는 것 → 매체 순위(Bloomberg·Reuters·CNBC…).
+  - **본문은 받지 않는다**: Bloomberg·WSJ·FT는 유료벽, MarketWatch는 robots 전면 차단. Google 뉴스 링크를 원문 주소로 푸는 비공개 엔드포인트 호출은 쓰지 않는다(링크는 브라우저에서 원문으로 넘어간다).
+  - 목적은 쌓아서 나중에 채점하는 것(하향 뒤 실제 어땠나). 2026-11-16 이전 기록은 없다(무료 과거 데이터 없음).
 - 새 정책 사건 추가: `policy_events`에 행 추가. yahoo 대상(`target_kind='yahoo'`, `target_sym`, 선택 `bench_sym`)은 매번, KRX 업종 대상(`target_kind='krx'`, `target_sym`=KRX 지수 이름, `bench_sym`='코스피')은 d20이 빌 때까지 다음 수집 때 결과가 채워진다.
 - 2027년 KRX 휴장일이 `backend/marketCalendar.js`에 아직 없다 — 2027년 초 보호예수 해제일·만기일 계산이 휴장일을 모른다. 휴장일 공지 후 추가할 것.
 

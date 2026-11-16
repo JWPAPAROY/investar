@@ -31,3 +31,4 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           KRX_AUTH_KEY: ${{ secrets.KRX_AUTH_KEY }}
           DART_API_KEY: ${{ secrets.DART_API_KEY }}   # 공모 상장 판별(발행조건확정 증권신고서)
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}   # 월가 시각: 규칙으로 못 정한 제목만 구조화(하루 1회 호출)

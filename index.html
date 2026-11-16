@@ -773,6 +773,79 @@
       lockup: ['보호예수', 'bg-violet-100 text-violet-800'],
     };
 
+    // 월가 시각 — 해외 기사 제목에서 뽑은 기관·대상·방향·수치 (backend/streetViews.js, street_views 테이블)
+    const STREET_TARGET = { kospi: 'KOSPI', korea: '한국 증시', asia: '아시아·신흥국', spx: 'S&P 500', ndx: '나스닥', samsung: '삼성전자', hynix: 'SK하이닉스', memory: '메모리·반도체', fed: '연준 금리', krw: '원화' };
+    const STREET_GROUP = { kr: ['kospi', 'korea', 'samsung', 'hynix', 'memory', 'krw'], us: ['spx', 'ndx', 'fed'], asia: ['asia'] };
+    const STREET_DIR = {
+      up: ['목표 상향', 'bg-red-50 text-red-700 border-red-200'], down: ['목표 하향', 'bg-blue-50 text-blue-700 border-blue-200'],
+      hold: ['유지', 'bg-gray-50 text-gray-700 border-gray-200'], view: ['수치 제시', 'bg-gray-50 text-gray-700 border-gray-200'],
+      bull: ['강세 시각', 'bg-red-50 text-red-600 border-red-100'], bear: ['약세 시각', 'bg-blue-50 text-blue-600 border-blue-100'],
+      hike: ['인상 전망', 'bg-amber-50 text-amber-800 border-amber-200'], cut: ['인하 전망', 'bg-emerald-50 text-emerald-700 border-emerald-200'],
+    };
+    const streetHorizon = h => {
+      if (!h) return null;
+      const m = String(h).match(/(\d+)-month/i); if (m) return `${m[1]}개월`;
+      if (/end of next year/i.test(h)) return '내년 말';
+      if (/year-end|end of year/i.test(h)) return '연말';
+      return String(h);
+    };
+    function StreetViews({ rows }) {
+      const [grp, setGrp] = useState('all');
+      const [open, setOpen] = useState(null);
+      const shown = rows.filter(r => grp === 'all' || (STREET_GROUP[grp] || []).includes(r.target)).sort((a, b) => b.first_seen.localeCompare(a.first_seen));
+      // 대상별 30일 집계
+      const since = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+      const agg = {};
+      for (const r of rows.filter(r => r.first_seen >= since)) { (agg[r.target] = agg[r.target] || {})[r.dir] = (agg[r.target][r.dir] || 0) + 1; }
+      const nArticles = rows.reduce((s, r) => s + (r.n_sources || 1), 0), nAi = rows.filter(r => r.method === 'ai').length;
+      return (
+        <MacroSection title="🗽 월가 시각 — 해외 기사 제목에서 뽑은 기관별 전망" asOf={`최근 60일 · 사건 ${rows.length}건 (기사 ${nArticles}건)`}>
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {Object.entries(agg).map(([t, d]) => (
+              <span key={t} className="text-[11px] bg-white border border-gray-200 rounded-full px-2 py-0.5 text-gray-700">
+                <b>{STREET_TARGET[t] || t}</b> {Object.entries(d).map(([k, n]) => `${STREET_DIR[k]?.[0] || k} ${n}`).join(' · ')}
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-1 mb-2 text-xs">
+            {[['all', '전체'], ['kr', '한국'], ['us', '미국·연준'], ['asia', '아시아']].map(([k, l]) => (
+              <button key={k} onClick={() => setGrp(k)} className={`px-2 py-0.5 rounded border ${grp === k ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-gray-600 border-gray-200'}`}>{l}</button>
+            ))}
+          </div>
+          <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+            {shown.map(r => {
+              const [dl, dc] = STREET_DIR[r.dir] || [r.dir, 'bg-gray-50 text-gray-700 border-gray-200'];
+              const hz = streetHorizon(r.horizon);
+              return (
+                <div key={r.id} className="px-3 py-2 text-xs">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="text-gray-500 tabular-nums w-11 shrink-0">{r.first_seen.slice(5).replace('-', '/')}</span>
+                    <b className="text-gray-900">{r.inst}</b>
+                    <span className="text-gray-700">{STREET_TARGET[r.target] || r.target}</span>
+                    <span className={`px-1.5 py-0.5 rounded border text-[11px] font-medium ${dc}`}>{dl}</span>
+                    {r.value && <span className="font-semibold tabular-nums text-gray-900">{r.prev ? <span className="text-gray-400 font-normal">{r.prev} → </span> : null}{r.value}</span>}
+                    {hz && <span className="text-gray-500">({hz})</span>}
+                    {r.method === 'ai' && <span className="text-[10px] text-violet-700 bg-violet-50 border border-violet-100 rounded px-1" title="규칙으로 못 정해 AI가 칸을 채우고, 기관·대상 사전과 제목 원문의 동사·숫자로 검증을 통과한 것">AI 보조</span>}
+                  </div>
+                  <div className="mt-0.5 pl-0 md:pl-[3.25rem] text-gray-600">
+                    <a href={r.link} target="_blank" rel="noreferrer" className="hover:underline">{r.title}</a>
+                    <span className="text-gray-400"> — {r.source}</span>
+                    {r.n_sources > 1 && <button onClick={() => setOpen(open === r.id ? null : r.id)} className="ml-1 text-blue-700 hover:underline">+{r.n_sources - 1}곳</button>}
+                  </div>
+                  {open === r.id && (
+                    <ul className="mt-1 md:pl-[3.25rem] space-y-0.5 text-[11px] text-gray-500">
+                      {(r.sources || []).filter(s => s.link !== r.link).map(s => <li key={s.link}><a href={s.link} target="_blank" rel="noreferrer" className="hover:underline">{s.title}</a> — {s.source}</li>)}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-1 text-[11px] text-gray-500">출처: Google 뉴스 미국판의 해외 매체 제목(한국 매체 영문판 제외) · 같은 기관·대상·방향이 10일 안이면 한 건 · AI 보조 {nAi}건</div>
+        </MacroSection>
+      );
+    }
+
     function MacroPanel({ apiBaseUrl }) {
       const [data, setData] = useState(null);
       const [err, setErr] = useState(null);
@@ -819,6 +892,7 @@
       const lockupSoon = calItems.filter(x => x.kind === 'lockup' && x.date <= new Date(Date.parse(today) + 14 * 864e5).toISOString().slice(0, 10)).length;
       const chips = [
         fed && `기준금리 ${fed.rate.lower?.toFixed(2)}–${fed.rate.upper?.toFixed(2)}%${fed.fomc?.next ? ` · 다음 FOMC ${mdw(fed.fomc.next.kst.slice(0, 10))}` : ''}`,
+        fed?.futures?.path?.[0] && `선물 반영: ${mdw(fed.futures.path[0].kst.slice(0, 10))} FOMC ${fed.futures.path[0].changeBp > 0 ? '+' : ''}${fed.futures.path[0].changeBp}bp`,
         fed?.market?.ladder?.m6 && `6개월물 ${fed.market.ladder.m6.value?.toFixed(2)}% (기준금리 중간값 ${fmtSigned(fed.market.ladder.m6.vsMid, 2, '%p')})`,
         regime && `금리-KOSPI 13주 상관 ${fmtSigned(regime.now.corrK, 2)} · ${Math.abs(regime.now.corrK ?? 0) < rc ? '뚜렷하지 않음' : regime.now.corrK > 0 ? '같은 방향' : '반대 방향'}`,
         top3.length >= 6 && `3개월 코스피 대비 상위 ${top3.slice(0, 3).map(r => r.name).join('·')} / 하위 ${top3.slice(-3).reverse().map(r => r.name).join('·')}`,
@@ -845,7 +919,7 @@
         <div className="mt-6 space-y-4">
           <div className="bg-gradient-to-r from-slate-700 to-slate-900 rounded-xl p-4 md:p-5 text-white">
             <h2 className="text-xl md:text-2xl font-bold">🧭 큰 흐름</h2>
-            <p className="text-slate-300 text-xs md:text-sm mt-1">연준 · 금리와 주가 · 업종 · 민감도 · 일정 · 정책. 매일 1회 갱신되는 실측치이며 매매 신호가 아닙니다.</p>
+            <p className="text-slate-300 text-xs md:text-sm mt-1">연준 · 월가 시각 · 금리와 주가 · 업종 · 민감도 · 일정 · 정책. 매일 1회 갱신되는 실측치이며 매매 신호가 아닙니다.</p>
             {chips.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {chips.map(c => <span key={c} className="text-[11px] md:text-xs bg-white/10 border border-white/20 rounded-full px-2 py-0.5">{c}</span>)}
@@ -921,8 +995,35 @@
                 <div className="mt-1 text-gray-500">점선 = 현재 기준금리 중간값 {((fed.rate.upper + fed.rate.lower) / 2).toFixed(3)}%</div>
                 {fed.longRun?.length > 1 && <div className="mt-1 text-gray-500">장기 중앙값 변화: {fed.longRun.map(x => `${x.sep.slice(0, 7)} ${x.value.toFixed(1)}`).join(' → ')}</div>}
               </div>
+              {fed.futures?.path?.length > 0 && (() => {
+                const fu = fed.futures;
+                const yEnd = [...fu.path].filter(p => p.date.slice(0, 4) === String(fed.dots?.[0]?.year)).at(-1);
+                return (
+                  <div className="mt-2 text-xs text-gray-600 bg-white rounded-xl border border-gray-200 p-3">
+                    <div className="font-semibold text-gray-700 mb-1">시장 반영 경로 — 연방기금 선물 ({fu.asOf} 가격, 실효금리 {fu.effr.toFixed(2)}% 기준)</div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full tabular-nums">
+                        <thead><tr className="text-gray-500 border-b"><th className="text-left py-1 font-normal">회의 (KST)</th><th className="text-right font-normal">이 회의 반영</th><th className="text-right font-normal">회의 후 금리</th><th className="text-right font-normal">지금 대비</th></tr></thead>
+                        <tbody>
+                          {fu.path.map(p => (
+                            <tr key={p.date} className="border-b border-gray-50">
+                              <td className="py-1">{p.kst.slice(0, 10)}{p.sep ? ' · 점도표' : ''}</td>
+                              <td className={`text-right font-semibold ${upDownClass(p.changeBp)}`}>{p.changeBp > 0 ? '+' : ''}{p.changeBp}bp{Math.abs(p.changeBp) >= 3 ? <span className="hidden md:inline font-normal text-gray-500"> ({p.changeBp > 0 ? '인상' : '인하'} 25bp × {(Math.abs(p.changeBp) / 25).toFixed(1)})</span> : null}</td>
+                              <td className="text-right">{p.after.toFixed(2)}%</td>
+                              <td className={`text-right ${upDownClass(p.cumBp)}`}>{p.cumBp > 0 ? '+' : ''}{p.cumBp}bp</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {yEnd && fed.dotThisYear != null && <div className="mt-1 text-gray-500">{yEnd.kst.slice(0, 7)} 회의 후 선물 반영 {yEnd.after.toFixed(2)}% vs 점도표 {fed.dots[0].year}년 말 {fed.dotThisYear.toFixed(2)}% ({fmtSigned(yEnd.after - fed.dotThisYear, 2, '%p')})</div>}
+                  </div>
+                );
+              })()}
             </MacroSection>
           )}
+
+          {data.street?.length > 0 && <StreetViews rows={data.street} />}
 
           {regime && (
             <MacroSection title="🔁 국면 — 금리가 오를 때 주가는?" asOf={`주간 · ${regime.asOf} 기준`}>

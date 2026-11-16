@@ -1,5 +1,5 @@
 // 시장 흐름 탭 데이터 (2026-11-15, 2026-11-16 개정)
-//   GET /api/screening/prediction?view=macro              — 연준·국면·업종·민감도·일정·정책
+//   GET /api/screening/prediction?view=macro              — 연준·국면·업종·민감도·일정·정책·월가 시각
 //   GET /api/screening/prediction?view=sens&codes=005930,012450 — 보유 종목 민감도(market_flow_daily 주간 종가)
 // 언더스코어 접두 = Vercel 이 별도 함수로 잡지 않는다(함수 12개 한도). 수집은 scripts/collect-macro.js.
 // 프론트가 Supabase 를 직접 부르지 않는다(anon 정책이 FOR ALL 이라 키 노출 시 쓰기 가능).
@@ -16,12 +16,16 @@ async function macroView(res) {
   if (!supabase) return res.status(500).json({ success: false, error: 'Supabase 미설정' });
   try {
     const since = new Date(Date.now() - 14 * 864e5).toISOString();
-    const [snap, news, events] = await Promise.all([
+    const [snap, news, events, street] = await Promise.all([
       supabase.from('macro_snapshot').select('id, data, updated_at').in('id', PUBLIC_IDS),
       supabase.from('policy_news').select('title, link, source, published_at, tag').gte('published_at', since).order('published_at', { ascending: false }).order('link').limit(400),
       supabase.from('policy_events').select('*').order('event_date', { ascending: false }).order('id'),
+      // 월가 시각: 최근 60일 사건(기관·대상·방향·수치). 테이블이 없거나 실패해도 나머지 칸은 보여준다.
+      supabase.from('street_views').select('id, first_seen, inst, target, dir, value, prev, pct, horizon, method, title, link, source, n_sources, sources')
+        .gte('first_seen', new Date(Date.now() - 60 * 864e5).toISOString().slice(0, 10)).order('first_seen', { ascending: false }).limit(200),
     ]);
     for (const r of [snap, news, events]) if (r.error) throw new Error(r.error.message);
+    const streetRows = street.error ? [] : (street.data || []).map(r => ({ ...r, sources: (r.sources || []).map(x => ({ title: x.title, link: x.link, source: x.source, published_at: x.published_at })) }));
     const by = Object.fromEntries((snap.data || []).map(r => [r.id, { ...r.data, updatedAt: r.updated_at }]));
     // 민감도의 요인 계열은 보유 종목 계산용(서버 내부) — 화면에는 안 보낸다
     if (by.sensitivity) { const { factors, ...rest } = by.sensitivity; by.sensitivity = rest; }
@@ -44,7 +48,7 @@ async function macroView(res) {
     }
     res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=3600');
     return res.status(200).json({ success: true, fed: by.fed || null, regime: by.regime || null, sectors: by.sectors || null,
-      sensitivity: by.sensitivity || null, calendar: by.calendar || null, news: newsOut, events: events.data || [] });
+      sensitivity: by.sensitivity || null, calendar: by.calendar || null, news: newsOut, events: events.data || [], street: streetRows });
   } catch (e) {
     return res.status(500).json({ success: false, error: e.message });
   }

@@ -80,3 +80,25 @@ ON CONFLICT (id) DO NOTHING;
 -- 코스피 사건은 절대수익이 시장 전체 흐름을 정책 효과로 세던 문제 → 같은 시간대·반도체 비중이 비슷한 대만 가중지수 대비로
 UPDATE policy_events SET bench_sym = '^TWII', bench = '대만 가중지수' WHERE id IN ('kr-20250731-taxreform', 'kr-20250915-taxkeep');
 UPDATE policy_events SET target_sym = target, bench_sym = '코스피' WHERE target_kind = 'krx' AND target_sym IS NULL;
+
+-- ── 월가 시각 (2026-11-16) ──────────────────────────────────────────────────
+-- 해외 기사 제목에서 뽑은 기관·대상·방향·수치. 같은 기관·대상·방향이 10일 안이면 한 행(sources 에 기사들).
+-- 쌓아 두었다가 "하향 뒤 실제로 어땠나"를 채점하는 용도. 수집 scripts/collect-macro.js, 규칙 backend/streetViews.js.
+CREATE TABLE IF NOT EXISTS street_views (
+  id          text PRIMARY KEY,               -- 기관|대상|방향|첫날
+  first_seen  date NOT NULL,                  -- 첫 기사 날짜(KST)
+  inst        text NOT NULL,
+  target      text NOT NULL,                  -- kospi/korea/asia/spx/ndx/samsung/hynix/memory/fed/krw
+  dir         text NOT NULL,                  -- up/down/hold/view/bull/bear/hike/cut
+  value       text, prev text, pct numeric, horizon text,   -- 제목 원문 그대로의 수치
+  method      text NOT NULL,                  -- rule / ai
+  title       text, link text, source text,   -- 대표 기사(해외 매체 우선순위)
+  sources     jsonb NOT NULL DEFAULT '[]',
+  n_sources   int  NOT NULL DEFAULT 1,
+  updated_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS street_views_seen ON street_views (first_seen DESC);
+ALTER TABLE street_views ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "street_read" ON street_views; DROP POLICY IF EXISTS "street_write" ON street_views;
+CREATE POLICY "street_read"  ON street_views FOR SELECT USING (true);
+CREATE POLICY "street_write" ON street_views FOR ALL USING (true) WITH CHECK (true);

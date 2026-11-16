@@ -32,6 +32,7 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') }
 const { createClient } = require('@supabase/supabase-js');
 const cal = require('../backend/marketCalendar');
 const { newsPasses, rCrit, sensitivity } = require('../backend/macroShared');
+const street = require('../backend/streetViews');
 
 const DRY = process.argv.includes('--dry');
 const KRX_KEY = process.env.KRX_AUTH_KEY;
@@ -167,8 +168,45 @@ async function fredReleaseDates(rid) {
   return [...new Map(out.map(x => [x.date, x])).values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
+// ── 연방기금 선물 ─────────────────────────────────────────────────────────────
+// CBOT 30일 연방기금 선물(ZQ, Yahoo) 가격 = 100 − 그 달 평균 실효금리 예상. 시장이 돈을 걸고 매긴 금리 경로다.
+// 회의별 반영 변화는 CME FedWatch 와 같은 방식: 회의가 있는 달 평균 = (회의 전 일수×이전 금리 + 회의 후 일수×새 금리)/월 일수.
+//   회의가 월말에 가까워(회의 후 7일 미만) 그 달 계약으로 풀기 불안하면 다음 달 계약을 회의 후 금리로 쓴다.
+async function fedFutures(effr, meetings) {
+  const MC = 'FGHJKMNQUVXZ';
+  const today = kstToday();
+  let y = +today.slice(0, 4), m = +today.slice(5, 7);
+  const months = [];
+  for (let k = 0; k < 10; k++) {
+    const sym = `ZQ${MC[m - 1]}${String(y % 100).padStart(2, '0')}.CBT`;
+    try {
+      const j = JSON.parse(await get(`https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=5d&interval=1d`, { headers: UA }, 2)).chart.result[0];
+      const p = j.meta.regularMarketPrice;
+      if (p > 50) months.push({ ym: `${y}-${String(m).padStart(2, '0')}`, rate: Math.round((100 - p) * 1000) / 1000, asOf: new Date(j.meta.regularMarketTime * 1000).toISOString().slice(0, 10) });
+    } catch { /* 거래 없는 원월물은 빠진다 */ }
+    await sleep(250);
+    if (++m > 12) { m = 1; y++; }
+  }
+  if (!months.length || effr == null) return null;
+  const M = new Map(months.map(x => [x.ym, x.rate]));
+  const nextYm = ym => { let [a, b] = ym.split('-').map(Number); if (++b > 12) { b = 1; a++; } return `${a}-${String(b).padStart(2, '0')}`; };
+  const path = []; let pre = effr;
+  for (const mt of meetings) {
+    const ym = mt.date.slice(0, 7), avg = M.get(ym);
+    if (avg == null) break;
+    const [yy, mm] = ym.split('-').map(Number), N = new Date(Date.UTC(yy, mm, 0)).getUTCDate();
+    const d1 = +mt.date.slice(8, 10);   // 결정 다음 날부터 새 금리 → 결정일까지 d1 일은 이전 금리
+    let post;
+    if (N - d1 >= 7) post = (avg * N - pre * d1) / (N - d1);
+    else { const nx = M.get(nextYm(ym)); if (nx == null) break; post = nx; }
+    path.push({ date: mt.date, kst: mt.kst, sep: mt.sep, after: r2(post), changeBp: Math.round((post - pre) * 100), cumBp: Math.round((post - effr) * 100) });
+    pre = post;
+  }
+  return { effr, asOf: months[0].asOf, months, path };
+}
+
 async function buildFed() {
-  const ids = ['DFEDTARU', 'DFEDTARL', 'FEDTARMD', 'FEDTARMDLR', 'DGS3MO', 'DGS6MO', 'DGS1', 'DGS2', 'DGS10', 'PCEPILFE', 'CPIAUCSL', 'UNRATE', 'JCXFEMD', 'PCECTPIMD', 'UNRATEMD'];
+  const ids = ['DFEDTARU', 'DFEDTARL', 'FEDTARMD', 'FEDTARMDLR', 'DGS3MO', 'DGS6MO', 'DGS1', 'DGS2', 'DGS10', 'PCEPILFE', 'CPIAUCSL', 'UNRATE', 'JCXFEMD', 'PCECTPIMD', 'UNRATEMD', 'DFF'];
   const S = {};
   for (const id of ids) { S[id] = await fred(id); await sleep(300); }
   const last = id => S[id].at(-1) || [null, null];
@@ -205,8 +243,11 @@ async function buildFed() {
   try { fomc = await fomcSchedule(); } catch (e) { fomcErr = e.message; }
   const today = kstToday();
   const upcoming = fomc.filter(m => m.kst.slice(0, 10) >= today);
+  let futures = null, futuresErr = null;
+  try { futures = await fedFutures(last('DFF')[1], upcoming); } catch (e) { futuresErr = e.message; }
   return {
     asOf: today,
+    futures: futures ? { ...futures, effrDate: last('DFF')[0] } : null, futuresErr,
     rate: { upper, lower, mid, since: (changes.at(-1) || {}).date || null, changes: changes.slice(-8) },
     dots, dotThisYear, dotNextYear, sepDate, dotLink,
     longRun: S.FEDTARMDLR.slice(-6).map(([d, v]) => ({ sep: d, value: v })),
@@ -495,6 +536,65 @@ async function buildNews() {
   return [...rows.values()];
 }
 
+// ── ⑥-2 월가 시각: 해외 기사 제목 → 기관·대상·방향·수치 (backend/streetViews.js) ──────────
+// Google 뉴스 영문판(미국판)으로 해외 매체 제목을 모은다. 한국 매체 영문판은 뺀다. 본문은 받지 않는다.
+// 규칙으로 못 정한 제목만 Gemini 로 구조화하고, 한 번 물은 제목은 캐시(macro_snapshot 'street_cache')에 남겨 다시 묻지 않는다.
+const STREET_Q = [
+  'Kospi target', 'Kospi Goldman OR "Morgan Stanley" OR JPMorgan OR UBS OR Nomura OR Citi',
+  'Korea stocks overweight OR underweight OR upgrade OR downgrade', '"SK Hynix" price target', '"Samsung Electronics" price target',
+  '"S&P 500" target strategist', 'memory chip stocks analyst downgrade OR upgrade', 'Asia stocks Goldman OR "Morgan Stanley" OR JPMorgan',
+  'Fed forecast Goldman OR JPMorgan OR "Morgan Stanley" OR Citi', 'Korean won forecast',
+];
+async function buildStreet(sb, cache, ctx) {
+  const titles = new Map();
+  for (const q of STREET_Q) {
+    let xml = '';
+    try { xml = await get(`https://news.google.com/rss/search?q=${encodeURIComponent(q + ' when:30d')}&hl=en-US&gl=US&ceid=US:en`, { headers: UA }); }
+    catch (e) { console.log(`  RSS 실패 (${q}): ${e.message}`); continue; }
+    for (const it of xml.split('<item>').slice(1, 41)) {
+      const title = unxml((it.match(/<title>([\s\S]*?)<\/title>/) || [])[1] || '');
+      const link = unxml((it.match(/<link>([\s\S]*?)<\/link>/) || [])[1] || '');
+      const pub = Date.parse((it.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1] || '');
+      const source = unxml((it.match(/<source[^>]*>([\s\S]*?)<\/source>/) || [])[1] || '');
+      if (!title || !link || !pub || Date.now() - pub > 30 * 864e5 || street.KR_OUTLET.test(source) || street.JUNK_OUTLET.test(source)) continue;
+      const t = street.cleanTitle(title);
+      if (!titles.has(t)) titles.set(t, { title: t, link, source, published_at: new Date(pub).toISOString() });
+    }
+    await sleep(800);
+  }
+  const aiCache = { ...(cache?.ai || {}) };
+  const articles = [], askAi = [];
+  for (const a of titles.values()) {
+    const r = street.extractRule(a.title);
+    for (const x of r.recs) articles.push({ ...a, ...x });
+    if (r.needsAi) { if (aiCache[a.title]) for (const x of aiCache[a.title].recs) articles.push({ ...a, ...x }); else askAi.push(a); }
+  }
+  let ai = { model: null, error: null, asked: 0 };
+  if (askAi.length) {
+    const batch = askAi.slice(0, 40);
+    const r = await street.aiExtract(batch.map(a => a.title), process.env.GEMINI_API_KEY);
+    ai = { model: r.model, error: r.error, asked: batch.length };
+    for (const a of batch) {
+      const recs = r.results[a.title]; if (!recs) continue;   // 실패하면 캐시하지 않고 다음 날 다시 묻는다
+      aiCache[a.title] = { at: kstToday(), recs };
+      for (const x of recs) articles.push({ ...a, ...x });
+    }
+  }
+  // 캐시는 30일 지난 제목을 버린다
+  const cutoff = addDays(kstToday(), -30);
+  for (const k of Object.keys(aiCache)) if (aiCache[k].at < cutoff) delete aiCache[k];
+  ctx.streetCache = { ai: aiCache };
+  for (const a of articles) a.date = new Date(Date.parse(a.published_at) + 9 * 3600e3).toISOString().slice(0, 10);
+  let existing = [];
+  if (sb) {
+    const { data, error } = await sb.from('street_views').select('*').gte('first_seen', addDays(kstToday(), -30));
+    if (error) throw new Error('street_views 읽기: ' + error.message);
+    existing = data || [];
+  }
+  const rows = street.cluster(articles, existing);
+  return { rows, titles: titles.size, articles: articles.length, ai };
+}
+
 // ── ⑦ 정책 사건 결과 ───────────────────────────────────────────────────────
 // 반응 = D-1 종가 → D 다음 첫 거래일 종가, 이후 = 그 종가부터 +5/10/20 거래일. 기준이 있으면 기준 대비 초과(%p).
 function eventResult(t, bAt, D) {
@@ -526,7 +626,7 @@ if (require.main === module) (async () => {
   const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);   // --dry 에서도 캐시·공시 읽기는 한다
   const errors = [];
   const step = async (name, fn) => { try { const v = await fn(); console.log(`✅ ${name}`); return v; } catch (e) { errors.push(`${name}: ${e.message}`); console.log(`❌ ${name}: ${e.message}`); return null; } };
-  const { data: cacheRows } = await sb.from('macro_snapshot').select('id, data').in('id', ['krx_weekly', 'ipo_cache']);
+  const { data: cacheRows } = await sb.from('macro_snapshot').select('id, data').in('id', ['krx_weekly', 'ipo_cache', 'street_cache']);
   const cache = Object.fromEntries((cacheRows || []).map(r => [r.id, r.data]));
   const ctx = {};
 
@@ -541,27 +641,33 @@ if (require.main === module) (async () => {
   const sens = want('sens') ? await step('민감도', () => buildSensitivity(ctx, cache.krx_weekly)) : null;
   const calendar = want('calendar') ? await step('일정', () => buildCalendar(ctx, sb, cache.ipo_cache)) : null;
   const news = want('news') ? await step('정책 뉴스', buildNews) : null;
+  const streetOut = want('street') ? await step('월가 시각', () => buildStreet(sb, cache.street_cache, ctx)) : null;
 
   if (DRY) {
     const outArg = process.argv.find(a => a.startsWith('--out='));
-    if (outArg) require('fs').writeFileSync(outArg.slice(6), JSON.stringify({ success: true, fed, regime, sectors, sensitivity: sens, calendar, news: (news || []).sort((a, b) => b.published_at.localeCompare(a.published_at)), events: [] }));
+    if (outArg) require('fs').writeFileSync(outArg.slice(6), JSON.stringify({ success: true, fed, regime, sectors, sensitivity: sens, calendar, news: (news || []).sort((a, b) => b.published_at.localeCompare(a.published_at)), events: [], street: streetOut ? streetOut.rows : [] }));
     if (fed) console.log('연준:', JSON.stringify({ rate: fed.rate.upper, dot: fed.dotThisYear, sep: fed.sepDate, link: fed.dotLink, ladder: fed.market.ladder, core: fed.drivers.corePce.last, coreProj: fed.drivers.corePce.projThisYear, cpi: fed.drivers.cpi.last, cpiMiss: fed.drivers.cpi.yoyMissing, cpiAnn3: fed.drivers.cpi.ann3, fomc: fed.fomc.next, left: fed.fomc.remainingThisYear }));
     if (regime) console.log('국면:', JSON.stringify(regime.now), 'rCrit', regime.rCrit, '급등구간', regime.spikes.length);
     if (sectors) console.log('업종:', sectors.kr && `KR ${sectors.kr.date} ${sectors.kr.rows.length}개 빠짐[${sectors.kr.missing}]`, sectors.kr && JSON.stringify(sectors.kr.rows.filter(r => r.kind === 'basket')));
     if (sens) console.log('민감도:', sens.weeks + '주', JSON.stringify(sens.rows.slice(0, 3)));
     if (calendar) console.log('일정:', calendar.items.length, JSON.stringify(calendar.items.slice(0, 12)), '오류', calendar.errors, 'IPO', calendar.ipo && JSON.stringify({ n: calendar.ipo.listed.length, p: calendar.ipo.pending.length, first: calendar.ipo.listed.slice(0, 3) }));
     if (news) console.log('뉴스:', news.length);
+    if (fed) console.log('선물:', JSON.stringify(fed.futures && { effr: fed.futures.effr, path: fed.futures.path, months: fed.futures.months.map(m => m.ym + ' ' + m.rate) }), fed.futuresErr || '');
+    if (streetOut) { console.log('월가:', streetOut.titles, '제목', streetOut.articles, '추출', JSON.stringify(streetOut.ai)); for (const r of streetOut.rows) console.log('  ', r.first_seen, r.inst, r.target, r.dir, r.value || '', r.prev ? '←' + r.prev : '', r.horizon || '', r.method, r.n_sources + '곳', '|', r.source, '|', r.title.slice(0, 160)); }
     for (const e of [{ target_sym: 'MP', bench_sym: '^GSPC', event_date: '2025-07-10' }, { target_sym: '^KS11', bench_sym: '^TWII', event_date: '2025-07-31' }]) console.log('사건 재계산', e.target_sym, JSON.stringify(await computeYahooEvent(e)));
     process.exit(errors.length ? 1 : 0);
   }
 
   const now = new Date().toISOString();
-  const snaps = [['fed', fed], ['regime', regime], ['sectors', sectors], ['sensitivity', sens], ['calendar', calendar], ['krx_weekly', ctx.krxWeekly], ['ipo_cache', ctx.ipoCache]]
+  const snaps = [['fed', fed], ['regime', regime], ['sectors', sectors], ['sensitivity', sens], ['calendar', calendar], ['krx_weekly', ctx.krxWeekly], ['ipo_cache', ctx.ipoCache], ['street_cache', ctx.streetCache]]
     .filter(([, v]) => v).map(([id, data]) => ({ id, data, updated_at: now }));
   if (snaps.length) { const { error } = await sb.from('macro_snapshot').upsert(snaps); if (error) errors.push('snapshot 저장: ' + error.message); }
   if (news && news.length) {
     const { error } = await sb.from('policy_news').upsert(news, { onConflict: 'link', ignoreDuplicates: true }); if (error) errors.push('news 저장: ' + error.message);
     await sb.from('policy_news').delete().lt('published_at', new Date(Date.now() - 60 * 864e5).toISOString());
+  }
+  if (streetOut && streetOut.rows.length) {
+    const { error } = await sb.from('street_views').upsert(streetOut.rows); if (error) errors.push('월가 저장: ' + error.message);
   }
   await step('정책 사건 결과', async () => {
     const { data, error } = await sb.from('policy_events').select('*');
