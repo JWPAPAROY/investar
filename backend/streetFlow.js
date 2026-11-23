@@ -27,7 +27,7 @@ const NOISE_T = new RegExp([
   String.raw`\b(?:sensex|nifty|tsx|asx|psx|jse|kse|muhurat)\b`, 'should you', 'bullish or bearish', String.raw`analysts (?:predicting|like|see|bullish)`,
   String.raw`price,? news`, String.raw`news,? quote`, 'share price', 'you need', String.raw`buy (?:now|right now|and hold)`, String.raw`\bdividend`, 'millionaire', 'retire',
   String.raw`best .* to buy`, String.raw`stocks? to (?:buy|watch)`, 'price target', 'prediction:', 'outpaced the stock market',
-  String.raw`favou?rite stocks`, String.raw`\boverview\b`, String.raw`\([A-Z]{1,4}[FGHJKMNQUVXZ]\d{2}\)`, 'things to know', 'what investors need', 'last quarter', 'where the stock could',
+  String.raw`favou?rite stocks`, String.raw`\boverview\b`, String.raw`\([A-Z]{1,4}[FGHJKMNQUVXZ]\d{2}\)`, 'things to know', 'what investors need', 'last quarter', 'where the stock could', 'company & people',
 ].join('|'), 'i');
 
 // 주제 — [key, 화면 이름, 정규식]. 한 제목이 여러 주제에 걸릴 수 있다(비중 합계 ≠ 100%).
@@ -111,21 +111,29 @@ const KW_STOP = new Set(('the a an of to in on for and or as at is are was were 
   + 'says said will can could would may might should here here\'s you your we our their they he she his her them '
   + 'lower higher ends end ending edge edges mixed slightly sharply points point index indexes shares share investors traders trading trade '
   + 'close closes closing open opens futures session amid ahead before since despite again back big top key report news live update updates '
-  + 'p.m. a.m. et vs. vs 1 2 3 4 5 10 2025 2026 2027 spx ixic dji djia ndx nya rut gspc jan feb mar apr jun jul aug sep sept oct nov dec january february march april june july august september october november december monday tuesday wednesday thursday friday saturday sunday').split(/\s+/));
+  + 'p.m. a.m. et vs. vs 1 2 3 4 5 10 2025 2026 2027 inc inc. corp corp. co. ltd llc plc holdings group spx ixic dji djia ndx nya rut gspc jan feb mar apr jun jul aug sep sept oct nov dec january february march april june july august september october november december monday tuesday wednesday thursday friday saturday sunday').split(/\s+/));
 const KW_DIR = /^(?:sell-?off|selloff|rout|plung(?:e[sd]?|ing)|slid(?:es?|ing)?|tumbl(?:es?|ed|ing)|sink(?:s|ing)?|sank|crash\w*|worst|drop(?:s|ped|ping)?|fall(?:s|ing)?|fell|slump\w*|loss(?:es)?|losing|streak|correction|fears?|jitters|panic|rall(?:y|ies|ied|ying)|rebound(?:s|ed|ing)?|surg(?:es?|ed|ing)|soar(?:s|ed|ing)?|jump(?:s|ed|ing)?|gain(?:s|ed|ing)?|climb(?:s|ed|ing)?|record|best|ris(?:es?|ing)|rose|declin(?:es?|ed|ing)|slip(?:s|ped|ping)?|retreat(?:s|ed|ing)?|extend(?:s|ed|ing)?|deepen(?:s|ed|ing)?)$/;
+// 종목코드 → 회사 이름 (대문자 그대로 쓰인 것만). 2026-11-23: 'ANT'(Anthropic 상장 종목코드)가 'Anthropic debut'와 따로 잡혔다.
+const TICKER_ALIAS = { ANT: 'Anthropic', NVDA: 'Nvidia', AAPL: 'Apple', MSFT: 'Microsoft', AMZN: 'Amazon', GOOGL: 'Alphabet', GOOG: 'Alphabet', TSLA: 'Tesla', AVGO: 'Broadcom', TSM: 'TSMC', MU: 'Micron', INTC: 'Intel', ORCL: 'Oracle', CRWV: 'CoreWeave' };
+const TICKER_RE = new RegExp(`(?<![A-Za-z0-9$])\\$?(${Object.keys(TICKER_ALIAS).join('|')})(?![A-Za-z0-9])`, 'g');
+const normTitle = t => String(t).replace(TICKER_RE, (_, k) => TICKER_ALIAS[k]);
 function grams(t) {
-  const w = String(t).toLowerCase().replace(/[‘’]/g, "'").replace(/[^a-z0-9&.' -]/g, ' ').replace(/(^|\s)['.-]+|['.-]+(?=\s|$)/g, ' ')
-    .split(/\s+/).map(x => x.replace(/'s$/, '')).filter(Boolean);
   const ok = x => x.length > 2 && !KW_STOP.has(x) && !KW_DIR.test(x) && !/^\d[\d.,%]*$/.test(x);
-  const g = new Set(w.filter(ok));
-  for (let i = 0; i < w.length - 1; i++) if (ok(w[i]) && ok(w[i + 1])) g.add(w[i] + ' ' + w[i + 1]);
+  const g = new Set();
+  // 두 단어 묶음은 구두점을 넘지 않는다 — 'Nvidia Earnings, Anthropic IPO' 에서 'earnings anthropic' 이 생겼다
+  for (const phrase of normTitle(t).toLowerCase().replace(/[‘’]/g, "'").split(/[,;:!?()|\[\]"“”—–]|\s-\s/)) {
+    const w = phrase.replace(/[^a-z0-9&.' -]/g, ' ').replace(/(^|\s)['.-]+|['.-]+(?=\s|$)/g, ' ')
+      .split(/\s+/).map(x => x.replace(/'s$/, '')).filter(Boolean);
+    for (const x of w) if (ok(x)) g.add(x);
+    for (let i = 0; i < w.length - 1; i++) if (ok(w[i]) && ok(w[i + 1])) g.add(w[i] + ' ' + w[i + 1]);
+  }
   return g;
 }
 // 제목 원문에서 그 말이 쓰인 표기들 (대소문자 보존)
 const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 function forms(g, titles) {
   const re = new RegExp(`(?<![A-Za-z0-9])${g.split(' ').map(escRe).join(`(?:'s)?\\s+`)}(?![A-Za-z0-9])`, 'i');
-  return titles.map(x => { const m = x.t.replace(/[‘’]/g, "'").match(re); return m ? { f: m[0], titleCase: isTitleCase(x.t), first: m.index === 0 } : null; }).filter(Boolean);
+  return titles.map(x => { const m = normTitle(x.t).replace(/[‘’]/g, "'").match(re); return m ? { f: m[0], titleCase: isTitleCase(x.t), first: m.index === 0 } : null; }).filter(Boolean);
 }
 // 'Stocks Fall As Nvidia Slides' 처럼 거의 모든 낱말이 대문자로 시작하는 제목은 대소문자로 고유명사를 판정할 수 없다
 function isTitleCase(t) { const w = t.split(/\s+/).filter(x => /^[A-Za-z]{4,}/.test(x)); return w.length >= 3 && w.filter(x => /^[A-Z]/.test(x)).length / w.length > 0.6; }
@@ -159,24 +167,54 @@ function spikes(now, prev, { MIN_N = 6, RATIO_MIN = 3, LIMIT = 10, MIN_DISTINCT 
   }).filter(x => x.ratio >= RATIO_MIN).sort((a, b) => b.ratio - a.ratio || b.n - a.n);
   const bigrams = cand.filter(x => x.g.includes(' '));
   cand = cand.filter(x => x.g.includes(' ') || !bigrams.some(b => b.g.split(' ').includes(x.g) && b.n >= 0.6 * x.n));
-  // 같은 사건을 가리키는 묶음끼리(작은 쪽 제목의 60% 이상이 겹침) 하나만 남긴다
-  const titlesOf = g => now.filter(x => grams(x.t).has(g));
-  const out = [];
+  const gramsOf = new Map(now.map(x => [x, grams(x.t)])), gramsPrev = new Map(prev.map(x => [x, grams(x.t)]));
+  const titlesOf = g => now.filter(x => gramsOf.get(x).has(g));
+  // 1) 통과 조건(서로 다른 제목 수·고유명사)을 거친 후보
+  const passed = [];
   for (const c of cand) {
-    const ts = titlesOf(c.g), set = new Set(ts.map(x => x.t));
+    const ts = titlesOf(c.g);
     if (new Set(ts.map(x => x.t.toLowerCase().slice(0, 30))).size < MIN_DISTINCT) continue;
     const fs = forms(c.g, ts);
     if (!c.g.includes(' ') && !isProper(fs)) continue;
-    c.label = displayForm(fs, c.g);
-    if (out.some(o => { const inter = o._set.size && [...set].filter(t => o._set.has(t)).length; return inter >= 0.6 * Math.min(set.size, o._set.size); })) continue;
+    // 고유명사 낱말(회사·기관)을 찾아 둔다 — 같은 고유명사를 가진 키워드는 한 줄로 묶는다
+    //   두 낱말 모두 이름형(첫 글자만 대문자)이면(Jensen Huang) 묶음 전체가 이름이다. 약어(IPO·CEO·CPI)는 이름의 일부로 보지 않는다
+    const words = c.g.split(' ');
+    const kind = words.map(w => { const f = forms(w, ts); if (!isProper(f)) return null; return f.filter(x => /^[A-Z0-9&]{2,6}$/.test(x.f)).length / f.length >= 0.6 ? 'acro' : 'name'; });
+    const entity = words.length > 1 && kind.every(k => k === 'name') ? c.g : words.find((w, i) => kind[i] === 'name') || words.find((w, i) => kind[i] === 'acro') || null;
+    passed.push({ ...c, label: displayForm(fs, c.g), entity, ts });
+  }
+  // 2) 같은 고유명사끼리 묶기 — 'Anthropic debut'·'Anthropic IPO'·'ANT' → 'Anthropic (debut · IPO)'
+  //    건수·배수는 묶은 키워드 중 하나라도 든 제목으로 다시 센다(겹치는 제목은 한 번)
+  const groups = new Map();
+  for (const c of passed) { const k = c.entity || c.g; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(c); }
+  const rows = [...groups.entries()].map(([k, parts]) => {
+    const gs = parts.map(p => p.g);
+    const ts = [...new Set(parts.flatMap(p => p.ts))];
+    const n = ts.length, p = prev.filter(x => gs.some(g => gramsPrev.get(x).has(g))).length;
+    const ratio = Math.round(((n / now.length) / ((p + 1) / prev.length)) * 10) / 10;
+    let label = parts[0].label;
+    if (parts[0].entity) {
+      const name = displayForm(forms(k, ts), k);
+      const rest = [...new Set(parts.map(q => q.label.split(/\s+/).filter(w => !k.split(' ').includes(w.toLowerCase().replace(/'s$/, ''))).join(' ')).filter(Boolean))];
+      label = rest.length ? `${name} (${rest.join(' · ')})` : name;
+    }
+    return { g: gs.length > 1 ? k : gs[0], label, parts: gs, n, prevN: p, ratio, ts, entity: !!parts[0].entity };
+  }).filter(r => r.ratio >= RATIO_MIN);
+  // 3) 고유명사 없는 줄('debut fails')이 고유명사 줄과 같은 제목을 60% 이상 공유하면 뺀다(고유명사 줄을 남긴다).
+  //    고유명사가 서로 다른 줄끼리는 지우지 않는다 — 'Nvidia earnings, Anthropic IPO'처럼 한 제목에 두 사건이 같이 나온다(2026-11-23 Anthropic 줄이 Nvidia 줄에 지워졌다)
+  rows.sort((a, b) => (b.entity - a.entity) || b.ratio - a.ratio || b.n - a.n);
+  const out = [];
+  for (const r of rows) {
+    const set = new Set(r.ts.map(x => x.t));
+    if (out.some(o => (!r.entity || !o.entity) && [...set].filter(t => o._set.has(t)).length >= 0.6 * Math.min(set.size, o._set.size))) continue;
     const seen = new Set();
-    const titles = ts.filter(x => x.l).sort((a, b) => outletRank(a.s) - outletRank(b.s) || b.d.localeCompare(a.d))
+    const titles = r.ts.filter(x => x.l).sort((a, b) => outletRank(a.s) - outletRank(b.s) || b.d.localeCompare(a.d))
       .filter(x => { const k = x.t.toLowerCase().slice(0, 40); if (seen.has(k)) return false; seen.add(k); return true; })
       .slice(0, 3).map(x => ({ d: x.d, title: x.t, source: x.s, link: x.l }));
-    out.push({ ...c, titles, _set: set });
-    if (out.length >= LIMIT) break;
+    const { ts, entity, ...rest } = r;
+    out.push({ ...rest, titles, _set: set });
   }
-  return out.map(({ _set, ...x }) => x);
+  return out.sort((a, b) => b.ratio - a.ratio || b.n - a.n).slice(0, LIMIT).map(({ _set, ...x }) => x);
 }
 
 /**
