@@ -52,6 +52,17 @@ module.exports = async (req, res) => {
   // 📢 무상증자 실전 신호 — 포트폴리오와 무관한 별도 라인이지만 함수 한도 때문에 같은 경로를 쓴다
   if (req.query && req.query.view === 'bonus') return bonusView(res);
 
+  // 📊 두 전략 같은 기간 비교 (2026-11-23, 관측 전용 — 판정은 각 PORTFOLIO_VERDICT*.md 기준·기간으로만)
+  if (req.query && req.query.view === 'compare') {
+    try {
+      const c = await require('../../backend/portfolioCompare').compareStrategies(supabase);
+      res.setHeader('Cache-Control', 's-maxage=1800, stale-while-revalidate=21600');   // 종가는 하루 한 번 바뀐다
+      return res.status(200).json({ success: true, ...c });
+    } catch (e) {
+      return res.status(500).json({ success: false, error: e.message });
+    }
+  }
+
   const strategy = (req.query && req.query.strategy) || 'pbr_lowvol';
   if (!P.STRATEGIES[strategy]) return res.status(400).json({ success: false, error: `알 수 없는 전략: ${strategy}` });
 

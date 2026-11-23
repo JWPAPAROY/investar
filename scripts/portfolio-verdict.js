@@ -50,77 +50,16 @@ async function fetchAll(t, c, f) {
   return o;
 }
 
-// ── --compare: 두 전략 같은 기간 비교 (관측 전용) ─────────────────────────
-//   회차마다 매수일 종가 기준 비중으로 보유(드리프트), 다음 회차 매수일에 갈아탄 일별 NAV를 이어 붙인다.
-//   비중 키는 각 전략 판정과 같다(VERDICT[s].weightKey). 가격은 판정과 같은 market_flow_daily.close.
+// ── --compare: 두 전략 같은 기간 비교 (관측 전용) — 계산은 backend/portfolioCompare.js(📦 탭과 공용) ──
 async function compare() {
-  const strategies = Object.keys(VERDICT);
-  const rebs = {};
-  for (const s of strategies) rebs[s] = await fetchAll('portfolio_rebalances', '*', q => q.eq('strategy', s).order('rebalance_date'));
-  if (strategies.some(s => !rebs[s].length)) { console.log('리밸런싱 기록이 없는 전략이 있다'); return; }
-  const codes = [...new Set(Object.values(rebs).flat().flatMap(r => (r.holdings || []).map(h => h.code)))];
-  const start0 = strategies.map(s => rebs[s][0].rebalance_date).sort()[0];
-  const px = await fetchAll('market_flow_daily', 'stock_code,trade_date,close', q => q.in('stock_code', codes).gte('trade_date', start0).order('trade_date').order('stock_code'));
-  const by = new Map();
-  for (const r of px) { if (!by.has(r.stock_code)) by.set(r.stock_code, new Map()); by.get(r.stock_code).set(r.trade_date, r.close); }
-  const days = [...new Set(px.map(r => r.trade_date))].sort();
-  const next = d => days.find(x => x > d) || null;
-
-  const navOf = s => {
-    const wk = VERDICT[s].weightKey, nav = new Map();
-    let base = 1;
-    for (let i = 0; i < rebs[s].length; i++) {
-      const buy = next(rebs[s][i].rebalance_date); if (!buy) break;
-      const end = i + 1 < rebs[s].length ? next(rebs[s][i + 1].rebalance_date) : days.at(-1);
-      const hs = (rebs[s][i].holdings || []).filter(h => by.get(h.code)?.get(buy) > 0 && (h[wk] || 0) > 0);
-      const W = hs.reduce((a, h) => a + h[wk], 0);
-      let last = base;
-      for (const d of days.filter(x => x >= buy && x <= (end || buy))) {
-        let v = 0, w = 0;
-        for (const h of hs) { const c = by.get(h.code).get(d); if (c > 0) { v += (h[wk] / W) * (c / by.get(h.code).get(buy)); w += h[wk] / W; } }
-        if (w > 0.8) { last = base * v / w; nav.set(d, last); }   // 비중 80% 이상 가격이 있는 날만(거래정지 등 결측일 제외)
-      }
-      base = last;
-    }
-    return nav;
-  };
-  const navs = Object.fromEntries(strategies.map(s => [s, navOf(s)]));
-  const from = strategies.map(s => next(rebs[s][0].rebalance_date)).sort().at(-1);
-  const common = days.filter(d => d >= from && strategies.every(s => navs[s].has(d)));
-  if (common.length < 2) { console.log('겹치는 기간이 아직 없다'); return; }
-  const a = common[0], b = common.at(-1);
-  const ret = (s, x, y) => (navs[s].get(y) / navs[s].get(x) - 1) * 100;
-  const mddOf = s => { let pk = 0, m = 0; for (const d of common) { const v = navs[s].get(d); pk = Math.max(pk, v); m = Math.min(m, (v / pk - 1) * 100); } return m; };
-
-  // 벤치마크: 두 종목 제외 KOSPI(시총가중, 판정과 같은 P.capWeightedReturn)와 KOSPI(overnight_predictions.kospi_close)
-  const kospiSet = new Set((await fetchAll('stock_master', 'stock_code', q => q.eq('market', 'KOSPI').order('stock_code'))).map(r => r.stock_code));
-  const rowsCache = new Map();
-  const dayRows = async d => {
-    if (!rowsCache.has(d)) rowsCache.set(d, (await fetchAll('market_flow_daily', 'stock_code,close,market_cap,krx_market_cap', q => q.eq('trade_date', d).order('stock_code')))
-      .map(r => ({ stock_code: r.stock_code, close: r.close, cap: r.krx_market_cap ?? r.market_cap })));
-    return rowsCache.get(d);
-  };
-  const exMega = async (x, y) => P.capWeightedReturn(await dayRows(x), await dayRows(y), kospiSet, P.MEGA);
-  const kp = await fetchAll('overnight_predictions', 'prediction_date,kospi_close', q => q.gte('prediction_date', a).lte('prediction_date', b).not('kospi_close', 'is', null).order('prediction_date'));
-  const km = new Map(kp.map(r => [r.prediction_date, r.kospi_close]));
-  const kospi = (x, y) => (km.get(x) > 0 && km.get(y) > 0 ? (km.get(y) / km.get(x) - 1) * 100 : null);
-
+  const c = await require('../backend/portfolioCompare').compareStrategies(sb, Object.keys(VERDICT));
+  if (!c.ready) { console.log(c.reason); return; }
   const NAME = { pbr_lowvol: '저PBR·저변동', ep_lowturn: 'E/P·저회전' };
-  const exAll = await exMega(a, b), kAll = kospi(a, b);
-  console.log(`📊 같은 기간 비교 — ${a} 종가 → ${b} 종가 (${common.length}거래일) · 관측 전용, 판정 아님\n`);
-  for (const s of strategies) {
-    const r = ret(s, a, b);
-    const mega = rebs[s].some(x => (x.holdings || []).some(h => P.MEGA.includes(h.code)));
-    console.log(`  ${NAME[s].padEnd(9)} 수익 ${pct(r)}  MDD ${pct(mddOf(s))}  | 두 종목 제외 KOSPI 대비 ${exAll == null ? '—' : pct(r - exAll) + 'p'}  | KOSPI 대비 ${kAll == null ? '—' : pct(r - kAll) + 'p'}  (${VERDICT[s].weightKey === 'weight' ? '시총가중' : '동일가중'}${mega ? ', 삼성·하이닉스 보유 이력 있음' : ''})`);
-  }
-  console.log(`  벤치: KOSPI(삼성·하이닉스 제외) ${pct(exAll)} · KOSPI ${pct(kAll)}`);
-
+  console.log(`📊 같은 기간 비교 — ${c.from} 종가 → ${c.to} 종가 (${c.days}거래일) · 관측 전용, 판정 아님\n`);
+  for (const r of c.rows) console.log(`  ${(NAME[r.strategy] || r.strategy).padEnd(9)} 수익 ${pct(r.ret)}  MDD ${pct(r.mdd)}  | 두 종목 제외 KOSPI 대비 ${r.vsExMega == null ? '—' : pct(r.vsExMega) + 'p'}  | KOSPI 대비 ${r.vsKospi == null ? '—' : pct(r.vsKospi) + 'p'}  (${r.weighting}${r.heldMega ? ', 삼성·하이닉스 보유 이력 있음' : ''})`);
+  console.log(`  벤치: KOSPI(삼성·하이닉스 제외) ${pct(c.bench.exMega)} · KOSPI ${pct(c.bench.kospi)}`);
   console.log('\n  주별 (5거래일)');
-  const marks = common.filter((d, i) => i % 5 === 0 || i === common.length - 1);
-  for (let i = 1; i < marks.length; i++) {
-    const [x, y] = [marks[i - 1], marks[i]];
-    console.log(`    ${x} → ${y}  ${strategies.map(s => `${NAME[s]} ${pct(ret(s, x, y))}`).join('  ')}  두 종목 제외 KOSPI ${pct(await exMega(x, y))}`);
-  }
+  for (const w of c.weeks) console.log(`    ${w.from} → ${w.to}  ${c.rows.map(r => `${NAME[r.strategy] || r.strategy} ${pct(w.ret[r.strategy])}`).join('  ')}  두 종목 제외 KOSPI ${pct(w.exMega)}`);
   console.log('\n  ⚠️ 판정은 각 전략 문서의 기준·기간으로만 한다. 이 비교로 어느 쪽을 바꾸거나 멈추지 않는다.');
 }
 

@@ -999,6 +999,83 @@
       );
     }
 
+    // 📦 두 전략 같은 기간 비교 (2026-11-23) — GET /api/portfolio?view=compare (backend/portfolioCompare.js)
+    //   관측 전용. 시작일·벤치·비중이 다른 두 전략의 누적치를 그대로 줄 세우지 않도록 같은 기간으로 맞춘다.
+    const PF_NAME = { pbr_lowvol: '저PBR·저변동', ep_lowturn: 'E/P·저회전' };
+    const PF_COLOR = { pbr_lowvol: '#2563eb', ep_lowturn: '#d97706' };
+    function PortfolioCompare({ apiBaseUrl }) {
+      const [c, setC] = useState(null);
+      const [err, setErr] = useState(null);
+      useEffect(() => {
+        let alive = true;
+        fetch(`${apiBaseUrl}/portfolio?view=compare`).then(r => r.json()).then(j => { if (alive) (j.success ? setC(j) : setErr(j.error || '로드 실패')); }).catch(e => alive && setErr(e.message));
+        return () => { alive = false; };
+      }, []);
+      if (err) return <div className="mb-4 text-xs text-red-600">같은 기간 비교를 불러오지 못했습니다: {err}</div>;
+      if (!c) return <div className="mb-4 text-xs text-gray-400">같은 기간 비교 불러오는 중…</div>;
+      if (!c.ready) return null;
+      const md = d => `${+d.slice(5, 7)}/${+d.slice(8, 10)}`;
+      const pctTxt = v => (v == null ? '–' : `${v > 0 ? '+' : ''}${v.toFixed(1)}%`);
+      // 누적 수익 꺾은선 (두 전략, 0 기준선)
+      const all = c.rows.flatMap(r => r.nav.map(p => p[1]));
+      let lo = Math.min(0, ...all), hi = Math.max(0, ...all); const pad = (hi - lo) * 0.1 || 1; lo -= pad; hi += pad;
+      const N = c.rows[0].nav.length, X = i => (i / (N - 1)) * 100, Y = v => 100 - ((v - lo) / (hi - lo)) * 100;
+      return (
+        <div className="mb-4 bg-white border-2 border-gray-200 rounded-lg p-3 md:p-4">
+          <div className="flex flex-wrap items-baseline justify-between gap-x-2 mb-2">
+            <div className="font-bold text-gray-900">📊 같은 기간 비교</div>
+            <div className="text-[11px] text-gray-500">{c.from} 종가 → {c.to} 종가 · {c.days}거래일 · 늦게 시작한 전략의 첫 매수일부터</div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs md:text-sm tabular-nums">
+              <thead><tr className="text-gray-500 border-b border-gray-200">
+                <th className="text-left font-medium py-1 pr-2">전략</th><th className="text-right font-medium px-1">수익</th><th className="text-right font-medium px-1">MDD</th>
+                <th className="text-right font-medium px-1">두 종목 제외<br className="md:hidden" /> KOSPI 대비</th><th className="hidden md:table-cell text-right font-medium px-1">KOSPI 대비</th><th className="hidden md:table-cell text-right font-medium pl-1">비중</th>
+              </tr></thead>
+              <tbody>
+                {c.rows.map(r => (
+                  <tr key={r.strategy} className="border-b border-gray-50">
+                    <td className="py-1 pr-2 whitespace-nowrap"><span className="inline-block w-2 h-2 rounded-full mr-1" style={{ background: PF_COLOR[r.strategy] }} />{PF_NAME[r.strategy] || r.strategy}</td>
+                    <td className={`text-right px-1 font-semibold ${upDownClass(r.ret)}`}>{pctTxt(r.ret)}</td>
+                    <td className="text-right px-1 text-gray-700">{pctTxt(r.mdd)}</td>
+                    <td className={`text-right px-1 font-semibold ${upDownClass(r.vsExMega)}`}>{r.vsExMega == null ? '–' : `${pctTxt(r.vsExMega)}p`}</td>
+                    <td className={`hidden md:table-cell text-right px-1 ${upDownClass(r.vsKospi)}`}>{r.vsKospi == null ? '–' : `${pctTxt(r.vsKospi)}p`}</td>
+                    <td className="hidden md:table-cell text-right pl-1 text-gray-500 whitespace-nowrap">{r.weighting}{r.heldMega ? ' · 두 종목 보유 이력' : ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-1 text-[11px] text-gray-500 text-right">벤치: KOSPI(삼성·하이닉스 제외) <b className={upDownClass(c.bench.exMega)}>{pctTxt(c.bench.exMega)}</b> · KOSPI <b className={upDownClass(c.bench.kospi)}>{pctTxt(c.bench.kospi)}</b>
+            <span className="md:hidden"> · 비중 {c.rows.map(r => `${PF_NAME[r.strategy]} ${r.weighting}`).join(', ')}</span></div>
+          <div className="relative mt-2" style={{ height: 90 }}>
+            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="absolute inset-0 w-full h-full overflow-visible">
+              <line x1="0" x2="100" y1={Y(0)} y2={Y(0)} stroke="#9ca3af" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />
+              {c.rows.map(r => <path key={r.strategy} d={r.nav.map((p, i) => `${i ? 'L' : 'M'}${X(i)},${Y(p[1])}`).join(' ')} fill="none" stroke={PF_COLOR[r.strategy]} strokeWidth="1.8" vectorEffect="non-scaling-stroke"><title>{PF_NAME[r.strategy]}</title></path>)}
+            </svg>
+            <span className="absolute left-0 bottom-0 text-[10px] text-gray-400">{md(c.from)}</span>
+            <span className="absolute right-0 bottom-0 text-[10px] text-gray-400">{md(c.to)}</span>
+            <span className="absolute left-0 text-[10px] text-gray-400" style={{ top: `${Y(0)}%`, transform: 'translateY(-100%)' }}>0%</span>
+          </div>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-[11px] md:text-xs tabular-nums">
+              <thead><tr className="text-gray-500 border-b border-gray-100"><th className="text-left font-medium py-0.5 pr-2">주별</th>{c.rows.map(r => <th key={r.strategy} className="text-right font-medium px-1">{PF_NAME[r.strategy]}</th>)}<th className="text-right font-medium pl-1">두 종목 제외 KOSPI</th></tr></thead>
+              <tbody>
+                {c.weeks.map(w => (
+                  <tr key={w.from} className="border-b border-gray-50">
+                    <td className="py-0.5 pr-2 text-gray-500 whitespace-nowrap">{md(w.from)}→{md(w.to)}</td>
+                    {c.rows.map(r => { const v = w.ret[r.strategy], beat = v != null && w.exMega != null && v > w.exMega; return <td key={r.strategy} className={`text-right px-1 ${upDownClass(v)} ${beat ? 'font-semibold bg-amber-50' : ''}`}>{beat ? '✓ ' : ''}{pctTxt(v)}</td>; })}
+                    <td className={`text-right pl-1 ${upDownClass(w.exMega)}`}>{pctTxt(w.exMega)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-1 text-[11px] text-gray-500">✓ = 그 주 두 종목 제외 KOSPI보다 나음 · 관측 전용, 판정은 각 전략 판정일(저PBR·저변동 2027-02-26, E/P·저회전 2027-04-06)에 각자 기준으로</div>
+        </div>
+      );
+    }
+
     function MacroPanel({ apiBaseUrl }) {
       const [data, setData] = useState(null);
       const [err, setErr] = useState(null);
@@ -2521,6 +2598,7 @@
                     </button>
                   ))}
                 </div>
+                <PortfolioCompare apiBaseUrl={API_BASE_URL} />
                 {portfolioStrategy === 'ep_lowturn' ? (
                 <div className="mb-4 p-4 bg-amber-50 border-2 border-amber-300 rounded-lg">
                   <div className="font-bold text-amber-900 mb-1">⚠️ 관측 중인 신규 전략 — 삼성전자·SK하이닉스를 뺀 "나머지 시장" 전략</div>
