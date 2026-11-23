@@ -671,6 +671,7 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
 |---|---|---|
 | 🏦 연준 | 기준금리·다음 FOMC(KST)·올해 남은 회의, 점도표 경로(+**연준 원문 SEP 링크** `fomcprojtabl{회의 둘째 날}.htm`), 단기물 사다리(3·6개월·1·2년 vs 기준금리 중간값), 10년물, 근원 PCE·CPI(전년비 + **3개월 연율**)·실업률과 점도표 전망 | FRED, federalreserve.gov FOMC 일정 |
 | 🏦 (연준 칸 안) 시장 반영 경로 | 연방기금 선물(CBOT ZQ, Yahoo `ZQ{월}{yy}.CBT`)로 회의별 반영 bp·회의 후 금리(CME FedWatch 방식), 점도표 올해 말과 비교 | Yahoo + FRED `DFF` |
+| 📰 월가 흐름 | 미국 시장 기사 **제목**에서 **급증 키워드**(직전 4주 대비 급증한 단어 + 대표 제목), 주제(AI 회의론·반도체·금리·실적·대형 상장·무역·정치·유가·신용)별 최근 7일 비중 vs 직전 4주, 주별 비중(12주), 하락어 비중(7일 이동), 주제별 대표 제목, 같은 기간 SOX·KOSPI | Google 뉴스 미국판 → `macro_snapshot` `street_flow` |
 | 🗽 월가 시각 | 해외 기사 **제목**에서 기관·대상·방향·수치를 뽑아 사건 단위로 묶은 표(최근 60일), 대상별 집계 | Google 뉴스 미국판 → `street_views` |
 | 🔁 국면 | 미 10년물 주간 변화 vs KOSPI·S&P 주간 수익의 13주 상관(최근 3년 추이, **5% 유의 경계 ±0.55** 표시), 금리 급등 구간(13주 +0.75%p)의 동안/이후 13주, 연도별 표 | FRED + Yahoo |
 | 🏭 업종 흐름 | KRX 업종지수 + **직접 구성 바구니**(2차전지·조선·방산·원전·전력기기, 대표 종목 동일가중·Yahoo 수정주가) 1·3개월과 코스피 대비 1·3개월, 미국 업종 ETF(SPY 대비) | KRX OpenAPI + Yahoo |
@@ -699,6 +700,15 @@ estimatedKospi = previousKospi × (1 + expectedChange / 100)
   - 목적은 쌓아서 나중에 채점하는 것. **채점 기준은 `STREET_VERDICT.md`에 사전 등록**(정본 `scripts/street-verdict.js` 상수 + `streetViews.PRICE`). 판정은 2027-05-17 이후·묶음 30개 이상에서 1회, 그 전엔 `--status`만. `--power`/`--placebo`는 실제 결과를 쓰지 않는 기준 시험(무작위 날짜·효과 주입). 2026-11-16 이전 기록은 없다.
   - 행마다 `ref_date/ref_level`(첫 기사 직전 마감 종가)과 `implied_pct`(목표치 상승여력), `first_pub`(진입 시점 결정용)을 채운다.
   - 화면: 대상별 최근 2주 vs 그 전 2주, "말과 돈"(외국인 순매수 KOSPI·삼성·하이닉스 60거래일 막대 + 의견 표시, `macro_snapshot` `flows`, SQL 함수 `frgn_market_daily(from, to)` — anon 3초 제한 때문에 30일씩 호출), 의견 뒤 외국인 순매수 합계.
+- **월가 흐름** (`backend/streetFlow.js`, 수집 `scripts/collect-street-flow.js`, 워크플로 `street-flow.yml` **07:00 KST**, 2026-11-23):
+  - 목적: 월가가 무엇을 걱정하고 그게 커지는지 줄어드는지. 갭 예측·매매 신호가 아니다. **방향 예측력은 검증하지 않았다** — 쌓인 뒤 필요하면 사전 등록 후 검증.
+  - 월가 시각과 섞지 않는다(월가 시각은 STREET_VERDICT 채점 대상이고, 기관 목표치 수정은 시장보다 늦다 — 골드만 코스피 7,500 하향은 13주 −30% 뒤).
+  - **질의는 주제 중립적인 것만**(`QUERIES`). 시범에서 'chip stocks' 질의가 반도체 비중을 부풀렸다. 질의를 바꾸면 비중 계열에 이음매가 생긴다.
+  - Google 뉴스 RSS 는 질의·날짜당 최대 100건 → 바쁜 날 잘린다. **주 지표는 건수가 아니라 비중.**
+  - 날짜는 **미 동부(ET)** 기준(`etDate`, DST 반영). KST 로 세면 미국 장중이 이틀로 쪼개진다.
+  - **급증 키워드**(화면 맨 위, `spikes`): 사전 없이 최근 7일 제목에서 직전 4주 대비 비중이 3배 이상·6건 이상인 단어·두 단어 묶음(방향 단어·시장 일반어 제외, 작은 쪽 제목의 60% 이상 겹치면 하나). 사전 주제만으론 11/12 젠슨 황 사임이 '반도체 27%' 속에 묻혀서 추가. 주제 비중 표는 그 아래 보조.
+  - 저장: `street_flow`(공개, 일별 집계 `days` 182일 — API 는 `days` 를 빼고 보낸다), `street_flow_cache`(내부, 최근 36일 제목 원문 — 링크는 8일치만). 원문이 있는 날은 매번 다시 세므로 사전을 고치면 최근 36일은 새 기준, 그 전은 옛 기준 — 사전 변경 후엔 `--backfill=56` 으로 다시 채울 것.
+  - 매일 최근 4일(UTC 날짜 창)을 다시 받아 합친다(요청 25번). 최초·사전 변경 시 `workflow_dispatch` backfill=56(요청 285번, 약 4분).
 - 연방기금 선물 `fed.futures.prev.w1/m1` = 같은 계약의 1주·4주 전 종가로 다시 푼 경로(수준보다 변화).
 - 새 정책 사건 추가: `policy_events`에 행 추가. yahoo 대상(`target_kind='yahoo'`, `target_sym`, 선택 `bench_sym`)은 매번, KRX 업종 대상(`target_kind='krx'`, `target_sym`=KRX 지수 이름, `bench_sym`='코스피')은 d20이 빌 때까지 다음 수집 때 결과가 채워진다.
 - 2027년 KRX 휴장일이 `backend/marketCalendar.js`에 아직 없다 — 2027년 초 보호예수 해제일·만기일 계산이 휴장일을 모른다. 휴장일 공지 후 추가할 것.

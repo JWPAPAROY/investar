@@ -1,5 +1,5 @@
 // 시장 흐름 탭 데이터 (2026-11-15, 2026-11-16 개정)
-//   GET /api/screening/prediction?view=macro              — 연준·국면·업종·민감도·일정·정책·월가 시각
+//   GET /api/screening/prediction?view=macro              — 연준·국면·업종·민감도·일정·정책·월가 시각·월가 흐름
 //   GET /api/screening/prediction?view=sens&codes=005930,012450 — 보유 종목 민감도(market_flow_daily 주간 종가)
 // 언더스코어 접두 = Vercel 이 별도 함수로 잡지 않는다(함수 12개 한도). 수집은 scripts/collect-macro.js.
 // 프론트가 Supabase 를 직접 부르지 않는다(anon 정책이 FOR ALL 이라 키 노출 시 쓰기 가능).
@@ -9,7 +9,7 @@ const { newsPasses, dedupeNews, sensitivity, rCrit, round } = require('./../back
 let rebalLive = { events: [] };
 try { rebalLive = require('../data/index-rebal-live.json'); } catch { /* 없으면 빈 명단 */ }
 
-const PUBLIC_IDS = ['fed', 'regime', 'sectors', 'sensitivity', 'calendar', 'flows'];   // krx_weekly·ipo_cache 는 수집기 내부 캐시
+const PUBLIC_IDS = ['fed', 'regime', 'sectors', 'sensitivity', 'calendar', 'flows', 'street_flow'];   // krx_weekly·ipo_cache·street_flow_cache 는 수집기 내부 캐시
 const kstToday = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 
 async function macroView(res) {
@@ -29,6 +29,8 @@ async function macroView(res) {
     const by = Object.fromEntries((snap.data || []).map(r => [r.id, { ...r.data, updatedAt: r.updated_at }]));
     // 민감도의 요인 계열은 보유 종목 계산용(서버 내부) — 화면에는 안 보낸다
     if (by.sensitivity) { const { factors, ...rest } = by.sensitivity; by.sensitivity = rest; }
+    // 월가 흐름: 일별 원집계(days, 최대 182일)는 수집기가 다시 세는 데 쓰는 것 — 화면은 daily·weekly 로 충분
+    if (by.street_flow) { const { days, ...rest } = by.street_flow; by.street_flow = rest; }
     // 정기변경 실시간 관측 명단(data/index-rebal-live.json, 사람이 기사로 확인해 넣는다)
     if (by.calendar) {
       const today = kstToday();
@@ -48,7 +50,7 @@ async function macroView(res) {
     }
     res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=3600');
     return res.status(200).json({ success: true, fed: by.fed || null, regime: by.regime || null, sectors: by.sectors || null,
-      sensitivity: by.sensitivity || null, calendar: by.calendar || null, news: newsOut, events: events.data || [], street: streetRows, flows: by.flows || null });
+      sensitivity: by.sensitivity || null, calendar: by.calendar || null, news: newsOut, events: events.data || [], street: streetRows, flows: by.flows || null, streetFlow: by.street_flow || null });
   } catch (e) {
     return res.status(500).json({ success: false, error: e.message });
   }
