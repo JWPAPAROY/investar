@@ -27,7 +27,7 @@ const NOISE_T = new RegExp([
   String.raw`\b(?:sensex|nifty|tsx|asx|psx|jse|kse|muhurat)\b`, 'should you', 'bullish or bearish', String.raw`analysts (?:predicting|like|see|bullish)`,
   String.raw`price,? news`, String.raw`news,? quote`, 'share price', 'you need', String.raw`buy (?:now|right now|and hold)`, String.raw`\bdividend`, 'millionaire', 'retire',
   String.raw`best .* to buy`, String.raw`stocks? to (?:buy|watch)`, 'price target', 'prediction:', 'outpaced the stock market',
-  String.raw`favou?rite stocks`, 'things to know', 'what investors need', 'last quarter', 'where the stock could',
+  String.raw`favou?rite stocks`, String.raw`\boverview\b`, String.raw`\([A-Z]{1,4}[FGHJKMNQUVXZ]\d{2}\)`, 'things to know', 'what investors need', 'last quarter', 'where the stock could',
 ].join('|'), 'i');
 
 // 주제 — [key, 화면 이름, 정규식]. 한 제목이 여러 주제에 걸릴 수 있다(비중 합계 ≠ 100%).

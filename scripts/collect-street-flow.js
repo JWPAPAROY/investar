@@ -45,7 +45,8 @@ async function yahooCloses(sym) {
   const { data: rows, error } = await sb.from('macro_snapshot').select('id, data').in('id', ['street_flow', 'street_flow_cache']);
   if (error) throw new Error(error.message);
   const prev = Object.fromEntries((rows || []).map(r => [r.id, r.data]));
-  const titles = { ...(prev.street_flow_cache?.titles || {}) };   // { ETdate: [{t,s,l}] }
+  // { ETdate: [{t,s,l}] } — 필터가 바뀌었을 수 있으니 저장된 제목에도 다시 적용한다
+  const titles = Object.fromEntries(Object.entries(prev.street_flow_cache?.titles || {}).map(([d, arr]) => [d, arr.filter(x => !F.NOISE_T.test(x.t) && !F.NOISE_SRC.test(x.s || ''))]));
   const aggs = new Map((prev.street_flow?.days || []).map(r => [r.d, r]));
 
   // 받을 날짜(UTC 날짜 창). Google 의 after/before 경계가 어느 시간대인지 확실하지 않아 하루 겹쳐 받는다.
