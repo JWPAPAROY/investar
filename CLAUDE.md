@@ -736,6 +736,9 @@ GET /api/portfolio                   # 저PBR·저변동 포트폴리오 현황 
 GET /api/portfolio?strategy=ep_lowturn # E/P+저회전 (2026-10-06, 삼성·하이닉스 제외 · 벤치 KOSPI ex-2)
 GET /api/portfolio?view=bonus        # 📢 무상증자 실전 신호 (대기/보유/청산/누적성적)
 ```
+> 판정 경과: `node scripts/portfolio-verdict.js [--strategy=…]`. **두 전략 같은 기간 비교**: `--compare`
+> (2026-11-23 — 늦게 시작한 쪽 첫 매수일부터, 두 종목 제외 KOSPI·KOSPI 대비, 주별). 두 전략은 시작일·벤치·비중이 달라
+> 누적치를 그대로 줄 세우면 안 된다. 관측 전용이며 판정은 각 문서(`PORTFOLIO_VERDICT*.md`) 기준·기간으로만.
 > ⚠️ **함수 한도(12개) 때문에 별도 엔드포인트를 두지 못한다.** 본체는 `api/_bonusView.js` —
 > 언더스코어 접두라 Vercel 이 서버리스 함수로 잡지 않는다. 새 엔드포인트도 같은 방식으로.
 > `POST /api/recommendations/save` 는 v3.96 에서 제거됐다(인증 없이 호출자가 준 행을 그대로 저장).
