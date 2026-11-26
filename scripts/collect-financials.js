@@ -8,12 +8,12 @@
  * 무엇을 받나: 공시 시기가 된 분기(분기말 +30일 ~ +150일)마다
  *   1) 주요계정(fnlttMultiAcnt) — 이번 분기·1년 전 같은 분기·직전 사업보고서, 100개 회사씩
  *   2) 연결 회사만 전체 재무제표(fnlttSinglAcntAll) — 지배주주 몫 자본·순이익, 회사당 1호출
- *   3) 주식수 — 지금 상장주식수(market_flow_daily.krx_listed_shares, 보통주) × 그 분기 보고서의 유통/발행 비율
- *      (stockTotqySttus, 자기주식 제외). KIS 도 과거 분기 BPS 를 수집일 주식수로 다시 나눴다 —
- *      분기말 주식수로 나누면 그 뒤 분할·무상증자한 종목의 PBR 이 분할 배수만큼 틀어진다(2026-11-26 대조).
+ *   3) 주식수 — 분기말 상장주식수(market_flow_daily.krx_listed_shares, 보통주) × 그 분기 보고서의
+ *      (보통+우선 유통) ÷ 보통 발행 (stockTotqySttus '합계' 유통 = 자기주식 제외, 비상장 전환우선주 포함).
+ *      KIS(=FnGuide 값)와 같은 정의: "지배주주지분 ÷ 수정기말발행주식수(보통+우선, 자사주 차감)".
+ *      FnGuide 는 지난 분기 BPS 를 나중 주식수 변화로 고쳐 쓰지 않는다(2026-11-26 브라우저 확인:
+ *      컴투스엔 2026/06 2,533 은 6월 말 주식수 기준, 감자 뒤 2026/09 는 5,446).
  *   4) 외화로 공시한 회사(950xxx 등 USD)는 분기말 환율(FRED)로 주당 값만 원화 환산
- *   5) 주식수 변화 보정 — 이 스크립트가 쓴 최근 분기 행은, 쓴 날 이후 상장주식수가 1% 넘게 바뀌면
- *      bps·eps·sps 를 그 비율로 다시 나눈다(분할·무상증자 뒤에도 PBR = 종가 ÷ BPS 가 맞도록).
  *   이미 행이 있는 (종목, 결산년월)은 건너뛴다 → 첫 실행 뒤로는 늦게 공시한 회사만 받는다.
  *   KIS 시절 행(~202606)은 덮지 않는다. --refresh 면 다시 계산해 덮는다.
  *
@@ -36,6 +36,7 @@ const REFRESH = args.includes('--refresh');
 const YM_ARG = (args.find(a => a.startsWith('--ym=')) || '').slice(5);
 const KEY = process.env.DART_API_KEY;
 const LIMIT = +((args.find(a => a.startsWith('--limit=')) || '').slice(8)) || 0;   // 시험용: 대상 회사 수 제한
+const CODES = (args.find(a => a.startsWith('--codes=')) || '').slice(8).split(',').filter(Boolean);   // 시험용: 이 종목만
 
 const isExcluded = (name) => /스팩|SPAC/i.test(name || '');
 
@@ -106,32 +107,6 @@ async function shareCounts(pairs, year, reprt) {
   return r.byCode;
 }
 
-// 5) 이 스크립트가 쓴 행(updated_at 기록)의 주식수 변화 보정
-async function rescaleForShareChanges(yms, now) {
-  const rows = await pageAll(() => supabase.from('stock_financials').select('stock_code,stac_yymm,bps,eps,sps,updated_at')
-    .in('stac_yymm', yms).gte('updated_at', '2026-11-26'), 'stock_financials');
-  const byDate = new Map();
-  for (const r of rows) { const d = r.updated_at.slice(0, 10); if (!byDate.has(d)) byDate.set(d, []); byDate.get(d).push(r); }
-  const fixes = [];
-  for (const [d, list] of byDate) {
-    const then = await sharesAt(d);
-    for (const r of list) {
-      const a = then.get(r.stock_code), b = now.get(r.stock_code);
-      if (!(a > 0 && b > 0) || Math.abs(b / a - 1) <= 0.01) continue;
-      const k = a / b;
-      fixes.push({ stock_code: r.stock_code, stac_yymm: r.stac_yymm, bps: r.bps != null ? Math.round(r.bps * k) : null,
-        eps: r.eps != null ? Math.round(r.eps * k) : null, sps: r.sps != null ? Math.round(r.sps * k) : null, updated_at: new Date().toISOString() });
-    }
-  }
-  console.log(`\n🔁 주식수 변화 보정: 검사 ${rows.length}행, 보정 ${fixes.length}행`);
-  if (fixes.length && PUSH && !DRY) {
-    for (const x of fixes) {
-      const { error } = await supabase.from('stock_financials').update(x).eq('stock_code', x.stock_code).eq('stac_yymm', x.stac_yymm);
-      if (error) throw new Error(`보정 실패 ${x.stock_code}: ${error.message}`);
-    }
-  } else if (fixes.length) console.table(fixes.slice(0, 10));
-}
-
 (async () => {
   if (!KEY) throw new Error('DART_API_KEY 필요');
   const t0 = Date.now();
@@ -145,17 +120,12 @@ async function rescaleForShareChanges(yms, now) {
   const cc = await DF.fetchCorpCodes(KEY);
   let universe = master.filter(s => cc[s.stock_code]);
   if (LIMIT) universe = universe.filter(s => ['005930', '000660', '035720', '000150', '000880', '008700', '950130'].includes(s.stock_code)).concat(universe.slice(0, LIMIT));
+  if (CODES.length) universe = universe.filter(s => CODES.includes(s.stock_code));
   console.log(`📊 종목 ${master.length} / corp_code 있음 ${universe.length}`);
 
   const yms = YM_ARG ? YM_ARG.split(',') : targetQuarters();
   console.log(`🗓️ 대상 분기: ${yms.join(', ') || '없음'}`);
   const allRows = [];
-  const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
-  const shNow = await sharesAt(today);
-  console.log(`📈 상장주식수 ${shNow.size}종목 (기준일 ${shNow.date})`);
-  if (shNow.size < 2000) throw new Error('market_flow_daily 최근 주식수가 너무 적음 — 수집 확인');
-  // 주식수 변화 보정은 새 행을 쓰기 전에 (방금 쓴 행은 오늘 주식수라 보정 대상이 아니다)
-  await rescaleForShareChanges(yms.length ? yms : ['000000'], shNow);
 
   for (const ym of yms) {
     const have = REFRESH ? new Set() : new Set((await pageAll(() => supabase.from('stock_financials')
@@ -194,7 +164,11 @@ async function rescaleForShareChanges(yms, now) {
     }
     const fx = await DF.fxToKrw(ym);
     console.log(`  환율(${ym} 말): ${JSON.stringify(fx.rates)}`);
-    const sharesOf = c => { const b = shNow.get(c), t = shc.get(c); return b && t ? b * t.distb / t.istc : null; };
+    const qEnd = `${ym.slice(0, 4)}-${ym.slice(4, 6)}-${new Date(Date.UTC(y, +ym.slice(4, 6), 0)).getUTCDate()}`;
+    const shQ = await sharesAt(qEnd);
+    console.log(`  분기말 상장주식수 ${shQ.size}종목 (기준일 ${shQ.date})`);
+    if (shQ.size < 2000) throw new Error(`market_flow_daily ${qEnd} 주식수가 너무 적음 — 수집 확인`);
+    const sharesOf = c => { const b = shQ.get(c), t = shc.get(c); return b && t ? b * t.distb / t.istc : null; };
     const { rows, skipped } = DF.buildRows(ym, cur, ago, fy, sharesOf, ctrl, fx);
     const todoSet = new Set(todo.map(s => s.stock_code));
     const held = r => (r.fs === 'CFS' && ctrlFailed.has(r.code)) || shFailed.has(r.code);
@@ -206,7 +180,7 @@ async function rescaleForShareChanges(yms, now) {
 
   if (DRY || !PUSH) {
     console.log('\n[미기록] 표본:');
-    console.table(allRows.filter(r => ['005930', '000660', '035720', '000150'].includes(r.code)));
+    console.table(allRows.filter(r => (CODES.length ? CODES : ['005930', '000660', '035720', '000150']).includes(r.code)));
     console.log(`총 ${allRows.length}행 — 기록하려면 --push`);
     return;
   }
