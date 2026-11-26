@@ -82,6 +82,33 @@ function sharesAt(ym, end = ym + '31') {
   return { date: j.d, common, withPref };
 }
 
+// 분기말 뒤 분할·병합 배수 (collect-financials.js splitFactors 와 같은 규칙)
+//   주식수 1% 넘게 변화 + 그 사이 하루 종가 40% 넘게 불연속(가격제한폭 밖) → 주식수 비율
+function splitFactors(from, to) {
+  const days = new Map();
+  for (const l of fs.readFileSync(D('krx-daily.jsonl'), 'utf-8').split(/\r?\n/)) {
+    const d = l.slice(6, 14);
+    if (d >= from && d <= to && !days.has(d)) {
+      const m = new Map();
+      for (const [code, , , , close, , , cap] of JSON.parse(l).s) if (close > 0 && cap > 0) m.set(code, [close, cap / close]);
+      days.set(d, m);
+    }
+  }
+  const ds = [...days.keys()].sort(), first = days.get(ds[0]), last = days.get(ds[ds.length - 1]), f = new Map();
+  if (!first || ds.length < 2) return f;
+  for (const [c, [, s0]] of first) {
+    const e = last.get(c); if (!e) continue;
+    const r = e[1] / s0; if (Math.abs(r - 1) <= 0.01) continue;
+    let lo = 1, hi = 1;
+    for (let i = 1; i < ds.length; i++) {
+      const p = days.get(ds[i - 1]).get(c), q = days.get(ds[i]).get(c);
+      if (p && q) { const x = q[0] / p[0]; lo = Math.min(lo, x); hi = Math.max(hi, x); }
+    }
+    if ((r > 1 && lo <= 0.6) || (r < 1 && hi >= 1 / 0.6)) f.set(c, r);
+  }
+  return f;
+}
+
 function spearman(a, b) {
   const rk = v => { const o = v.map((x, i) => [x, i]).sort((p, q) => p[0] - q[0]); const r = Array(v.length); o.forEach(([, i], k) => { r[i] = k; }); return r; };
   const ra = rk(a), rb = rk(b), n = a.length, m = (n - 1) / 2;
@@ -114,14 +141,16 @@ function spearman(a, b) {
     const pairs = cfsPairs(cur.keys());
     console.log(`  연결 회사 ${pairs.length}곳 — 지배주주 몫 조회`);
     const ctrl = { cur: await controlling(pairs, y, rp), yearAgo: await controlling(pairs, y - 1, rp), prevFY: await controlling(pairs, y - 1, '11011') };
-    // KIS(=FnGuide)는 분기말 주식수로 나누고 나중에 고쳐 쓰지 않는다 (2026-11-26 브라우저 확인)
+    // KIS(=FnGuide) "수정기말발행주식수": 분기말 주식수 × 그 뒤(KIS 수집일 2026-10-06까지) 분할·병합 배수
     const sh = sharesAt(ym);
+    const split = splitFactors(sh.date, '20261006');
+    console.log(`  분기말(${sh.date}) 뒤 분할·병합 ${split.size}종목`);
     const shc = await shareCounts([...cur.keys()].map(c => [c, cc[c]]).filter(p => p[1]), y, rp);
     const fx = await DF.fxToKrw(ym);
     console.log(`  환율(${ym} 말): ${JSON.stringify(fx.rates)}`);
     const sharesBy = {
       common: c => sh.common.get(c),
-      treasury: c => { const b = sh.common.get(c), t = shc.get(c); return b && t ? b * t.distb / t.istc : b; },
+      treasury: c => { const b = sh.common.get(c), t = shc.get(c); return (b && t ? b * t.distb / t.istc : b) * (split.get(c) || 1); },
     };
     const kisAt = new Map(kis.filter(r => r.ym === ym).map(r => [r.code, r]));
     console.log(`\n━━ ${ym} (주식수 기준일 ${sh.date}) — KIS ${kisAt.size}종목`);
