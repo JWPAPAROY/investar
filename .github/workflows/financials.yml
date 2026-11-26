@@ -1,11 +1,13 @@
-# 분기 재무비율 갱신 (2026-10-06)
+# 분기 재무 갱신 (2026-10-06, 2026-11-26 DART 로 교체)
 #
-# 왜: stock_financials는 2026-08-20 수동 수집 이후 갱신되지 않았다. 2분기(6월 결산) 실적은
-#   8월 중순에 공시되는데 DB엔 179종목뿐이라, 포트폴리오가 한 분기 묵은 BPS·ROE로 골랐다.
+# 왜: stock_financials 가 묵으면 포트폴리오가 지난 분기 BPS·ROE 로 고른다.
 #   E/P+저회전(ep_lowturn)은 ROE를 직접 쓰므로 이 지연이 순위를 바꾼다.
+# 2026-11-26: KIS 재무비율 API 가 2026-11-11 부터 404 → 11-14·11-21 이 전 종목 실패 후 30분 취소.
+#   지금은 DART(주요계정 + 연결 회사 지배주주 몫)로 만든다. 계산 backend/dartFinancials.js,
+#   KIS 값 대조 scripts/dart-financials-check.js.
 #
-# 주기: 매주 토요일. 공시 시기가 종목마다 흩어져 있어 분기 1회로는 늦게 들어온 종목을 놓친다.
-#   종목당 KIS 1콜(~2,600콜, 3~4분), 멱등 upsert.
+# 주기: 매주 토요일. 이미 있는 (종목, 분기)는 건너뛰므로 첫 실행 뒤로는 늦게 공시한 회사만 받는다.
+#   새 분기 첫 실행은 연결 회사 ~2,000곳 × 3보고서 호출이라 30~40분. DART 하루 한도 20,000회.
 name: financials
 
 on:
@@ -19,7 +21,7 @@ permissions:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -27,10 +29,9 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - run: npm ci
-      - name: Collect financial ratios → stock_financials
+      - name: Collect financials (DART) → stock_financials
         run: node scripts/collect-financials.js --push
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
-          KIS_APP_KEY: ${{ secrets.KIS_APP_KEY }}
-          KIS_APP_SECRET: ${{ secrets.KIS_APP_SECRET }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
