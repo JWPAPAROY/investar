@@ -158,7 +158,8 @@ async function fetchShareCounts(key, pairs, year, reprt, { log = () => {}, delay
     //   istc = 보통주 발행(KRX 보통주 상장주식수와 같은 기준), distb = 합계 유통(없으면 보통주 유통)
     //   → 주식수 = 지금 KRX 보통주 × distb / istc
     const list = (data && data.list) || [], se = x => (x.se || '').replace(/\s/g, '');
-    const com = list.find(x => se(x) === '보통주'), tot = list.find(x => se(x) === '합계');
+    // 우선주가 있는 회사는 '의결권있는주식(보통주)'·'보통주(의결권있는주식)'로 적는다(LG전자·한화) — 정확히 '보통주'만 찾으면 놓친다
+    const com = list.find(x => /보통주/.test(se(x)) && !/합계/.test(se(x))), tot = list.find(x => se(x) === '합계');
     const istc = com && num(com.istc_totqy);
     const distb = (tot && num(tot.distb_stock_co)) || (com && num(com.distb_stock_co));
     if (istc > 0 && distb > 0) out.set(code, { istc, distb });
