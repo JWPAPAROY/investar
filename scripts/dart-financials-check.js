@@ -114,8 +114,8 @@ function spearman(a, b) {
     const pairs = cfsPairs(cur.keys());
     console.log(`  연결 회사 ${pairs.length}곳 — 지배주주 몫 조회`);
     const ctrl = { cur: await controlling(pairs, y, rp), yearAgo: await controlling(pairs, y - 1, rp), prevFY: await controlling(pairs, y - 1, '11011') };
-    // KIS 는 과거 분기 BPS 도 수집일(2026-10-06) 주식수로 다시 나눈다(분할·무상증자 반영) → 같은 날 주식수로 대조
-    const sh = sharesAt('202610', '20261006');
+    // KIS(=FnGuide)는 분기말 주식수로 나누고 나중에 고쳐 쓰지 않는다 (2026-11-26 브라우저 확인)
+    const sh = sharesAt(ym);
     const shc = await shareCounts([...cur.keys()].map(c => [c, cc[c]]).filter(p => p[1]), y, rp);
     const fx = await DF.fxToKrw(ym);
     console.log(`  환율(${ym} 말): ${JSON.stringify(fx.rates)}`);

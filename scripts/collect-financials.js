@@ -11,8 +11,9 @@
  *   3) 주식수 — 분기말 상장주식수(market_flow_daily.krx_listed_shares, 보통주) × 그 분기 보고서의
  *      (보통+우선 유통) ÷ 보통 발행 (stockTotqySttus '합계' 유통 = 자기주식 제외, 비상장 전환우선주 포함).
  *      KIS(=FnGuide 값)와 같은 정의: "지배주주지분 ÷ 수정기말발행주식수(보통+우선, 자사주 차감)".
- *      FnGuide 는 지난 분기 BPS 를 나중 주식수 변화로 고쳐 쓰지 않는다(2026-11-26 브라우저 확인:
- *      컴투스엔 2026/06 2,533 은 6월 말 주식수 기준, 감자 뒤 2026/09 는 5,446).
+ *      '수정' = 분기말 뒤 분할·병합·무상증자만 반영하고 유상증자·전환은 반영하지 않는다(splitFactors).
+ *      이 스크립트가 쓴 행도 쓴 뒤 분할·병합이 나면 bps·eps·sps 를 다시 나눈다(rescaleForSplits).
+ *      대조(2026-11-26, KIS 2026-06): 그냥 분기말 ±5% 92.7%·PBR 하위20% 겹침 0.79, 수정 뒤 96.3%·0.97.
  *   4) 외화로 공시한 회사(950xxx 등 USD)는 분기말 환율(FRED)로 주당 값만 원화 환산
  *   이미 행이 있는 (종목, 결산년월)은 건너뛴다 → 첫 실행 뒤로는 늦게 공시한 회사만 받는다.
  *   KIS 시절 행(~202606)은 덮지 않는다. --refresh 면 다시 계산해 덮는다.
@@ -76,6 +77,52 @@ async function sharesAt(end) {
   return { get: c => (last.get(c) ? +last.get(c).krx_listed_shares : null), size: last.size, date: dates[dates.length - 1] };
 }
 
+// 분할·병합·무상증자 배수 (from 이후 to 까지). "수정기말발행주식수" 의 '수정' 부분.
+// 주식수가 1% 넘게 바뀌었고 그 사이 하루 종가가 40% 넘게 불연속(가격제한폭 밖 = 권리락)이면 그 주식수 비율을 곱한다.
+// 유상증자·전환처럼 종가가 이어지는 변화는 곱하지 않는다(KIS 2026-06 대조: ±5% 92.7→96.3%, PBR 하위20% 겹침 0.79→0.97).
+async function splitFactors(from, to) {
+  const rows = await pageAll(() => supabase.from('market_flow_daily')
+    .select('stock_code,trade_date,krx_listed_shares,krx_close').gte('trade_date', from).lte('trade_date', to)
+    .not('krx_listed_shares', 'is', null).order('trade_date'), 'market_flow_daily');
+  const by = new Map();
+  for (const r of rows) { if (!(+r.krx_close > 0)) continue; if (!by.has(r.stock_code)) by.set(r.stock_code, []); by.get(r.stock_code).push(r); }
+  const f = new Map();
+  for (const [c, list] of by) {
+    list.sort((a, b) => a.trade_date < b.trade_date ? -1 : 1);
+    const r = list[list.length - 1].krx_listed_shares / list[0].krx_listed_shares;
+    if (!(r > 0) || Math.abs(r - 1) <= 0.01) continue;
+    let lo = 1, hi = 1;
+    for (let i = 1; i < list.length; i++) { const x = list[i].krx_close / list[i - 1].krx_close; lo = Math.min(lo, x); hi = Math.max(hi, x); }
+    if ((r > 1 && lo <= 0.6) || (r < 1 && hi >= 1 / 0.6)) f.set(c, r);   // 0.7 은 하한가(-30%)와 겹친다
+  }
+  return f;
+}
+
+// 이 스크립트가 쓴 행(updated_at 기록)은 쓴 뒤 분할·병합이 있으면 bps·eps·sps 를 그 배수로 다시 나눈다
+async function rescaleForSplits(yms, today) {
+  const rows = await pageAll(() => supabase.from('stock_financials').select('stock_code,stac_yymm,bps,eps,sps,updated_at')
+    .in('stac_yymm', yms).gte('updated_at', '2026-11-27'), 'stock_financials');
+  const byDate = new Map();
+  for (const r of rows) { const d = new Date(Date.parse(r.updated_at) + 9 * 3600e3).toISOString().slice(0, 10); if (!byDate.has(d)) byDate.set(d, []); byDate.get(d).push(r); }
+  const fixes = [];
+  for (const [d, list] of byDate) {
+    if (d >= today) continue;
+    const f = await splitFactors(d, today);
+    for (const r of list) {
+      const k = f.get(r.stock_code); if (!k) continue;
+      fixes.push({ stock_code: r.stock_code, stac_yymm: r.stac_yymm, bps: r.bps != null ? Math.round(r.bps / k) : null,
+        eps: r.eps != null ? Math.round(r.eps / k) : null, sps: r.sps != null ? Math.round(r.sps / k) : null, updated_at: new Date().toISOString() });
+    }
+  }
+  console.log(`\n🔁 분할·병합 보정: 검사 ${rows.length}행, 보정 ${fixes.length}행`);
+  if (fixes.length && PUSH && !DRY) {
+    for (const x of fixes) {
+      const { error } = await supabase.from('stock_financials').update(x).eq('stock_code', x.stock_code).eq('stac_yymm', x.stac_yymm);
+      if (error) throw new Error(`보정 실패 ${x.stock_code}: ${error.message}`);
+    }
+  } else if (fixes.length) console.table(fixes.slice(0, 10));
+}
+
 async function report(corps, year, reprt) {
   const r = await DF.fetchReport(KEY, corps, year, reprt, { log: console.log });
   const batches = Math.ceil(corps.length / 100);
@@ -126,6 +173,9 @@ async function shareCounts(pairs, year, reprt) {
   const yms = YM_ARG ? YM_ARG.split(',') : targetQuarters();
   console.log(`🗓️ 대상 분기: ${yms.join(', ') || '없음'}`);
   const allRows = [];
+  const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  // 새 행을 쓰기 전에 (방금 쓴 행은 오늘까지의 분할이 이미 반영돼 있다)
+  if (yms.length) await rescaleForSplits(yms, today);
 
   for (const ym of yms) {
     const have = REFRESH ? new Set() : new Set((await pageAll(() => supabase.from('stock_financials')
@@ -168,7 +218,9 @@ async function shareCounts(pairs, year, reprt) {
     const shQ = await sharesAt(qEnd);
     console.log(`  분기말 상장주식수 ${shQ.size}종목 (기준일 ${shQ.date})`);
     if (shQ.size < 2000) throw new Error(`market_flow_daily ${qEnd} 주식수가 너무 적음 — 수집 확인`);
-    const sharesOf = c => { const b = shQ.get(c), t = shc.get(c); return b && t ? b * t.distb / t.istc : null; };
+    const split = await splitFactors(shQ.date, today);
+    console.log(`  분기말 뒤 분할·병합 ${split.size}종목`);
+    const sharesOf = c => { const b = shQ.get(c), t = shc.get(c); return b && t ? b * t.distb / t.istc * (split.get(c) || 1) : null; };
     const { rows, skipped } = DF.buildRows(ym, cur, ago, fy, sharesOf, ctrl, fx);
     const todoSet = new Set(todo.map(s => s.stock_code));
     const held = r => (r.fs === 'CFS' && ctrlFailed.has(r.code)) || shFailed.has(r.code);

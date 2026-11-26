@@ -775,7 +775,7 @@ GET /api/patterns?collect=true       # 수동 패턴 수집
 | ↳ workflow_run | `disclosures` | DART 공시 증분 (분류 회귀 테스트를 게이트로) |
 | ↳↳ workflow_run | `bonus-signals` | 무상증자 자격 판정 → **다음 거래일 지시**를 텔레그램으로. 이어서 **자사주 취득·소각 공시 요약**(`scripts/disclosure-digest.js`, 2026-11-11~, **정보용 — 두 유형 모두 판정 기각, 매매 지시 없음**. ★=시총 대비 취득 3.56%+) |
 | cron | `calc-expectations` | 기대수익 통계 |
-| cron 토 01:00 UTC | `financials` | 분기 재무 → `stock_financials` (2026-10-06 신설). **2026-11-26 DART 로 교체** — KIS 재무비율 API 가 2026-11-11 부터 404(종목분석 API 차단). 계산 `backend/dartFinancials.js`: 지배주주 몫 자본 ÷ (분기말 KRX 보통주 × 보통+우선 유통/보통 발행 — 자사주 차감, 비상장 전환우선주 포함), ROE = 최근 4분기 순이익 ÷ 평균 자본, 외화 공시는 분기말 환율. KIS 값은 FnGuide 값과 같고(브라우저로 navercomp.wisereport 확인), FnGuide 는 지난 분기 BPS 를 나중 주식수 변화로 고치지 않는다 → 분기말 주식수. 2026-09 FnGuide 대조 9곳 중 7곳 1% 이내. 있는 행은 건너뜀. 새 분기 첫 실행 DART ~9,000회(하루 한도 20,000) |
+| cron 토 01:00 UTC | `financials` | 분기 재무 → `stock_financials` (2026-10-06 신설). **2026-11-26 DART 로 교체** — KIS 재무비율 API 가 2026-11-11 부터 404(종목분석 API 차단). 계산 `backend/dartFinancials.js`: 지배주주 몫 자본 ÷ (분기말 KRX 보통주 × 보통+우선 유통/보통 발행 — 자사주 차감, 비상장 전환우선주 포함), ROE = 최근 4분기 순이익 ÷ 평균 자본, 외화 공시는 분기말 환율. KIS 값은 FnGuide 값과 같고(브라우저로 navercomp.wisereport 확인). 주식수 = 분기말 × 그 뒤 분할·병합 배수(유상증자·전환은 미반영), 쓴 행도 분할 나면 다시 나눔. KIS 2026-06 대조 BPS ±5% 96.3%·순위상관 0.998·PBR 하위20% 겹침 0.97·ROE 순위상관 0.98. 있는 행은 건너뜀. 새 분기 첫 실행 DART ~9,000회(하루 한도 20,000) |
 | cron 일 13:00 UTC | `render-operating-state` | **주간진단 계산·저장·텔레그램** → 운영 문서 재생성 → **S3 시총 쏠림 관측**(`scripts/s3-observation.js`, 2026-10-23~, 판정 2028-10-23, `S3_OBSERVATION.md`. 관측 전용 — 매매 신호 아님) |
 
 > `bonus-signals` 가 "내일 할 일"을 알리는 구조라 스케줄 지연이 무해하다(최악 05:25 KST, 장 시작 전).
